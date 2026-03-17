@@ -148,14 +148,3 @@ glossary:
     A food whose nutrient and food component values are derived
     primarily by chemical analysis.
 ```
-
-## Enrichment
-
-A data dictionary can be programmatically enriched with summary statistics computed from the actual data. Enriched fields gain additional properties:
-
-* `n_missing`: count of `NA` values (omitted when zero).
-* `range`: for numeric fields, the `[min, max]` interval.
-* `mean`: for numeric fields, the mean (4 significant figures).
-* `n_unique`: for non-numeric fields, the number of distinct non-missing values.
-
-The enriched dictionary also gains a `nrow` property on each table, recording the number of rows.
