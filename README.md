@@ -14,7 +14,8 @@ A data dictionary has three top-level keys:
 
 `tables` is a named list that describes each table in the dataset. Each table represents a rectangle of data with observations in the rows and fields/variables in the columns. Each table has the following properties:
 
-* `description` (required): a human-readable description of the table. May contain markdown.
+* `description` (required): a human-readable description of the table. May contain markdown, and is usually a few sentences or a paragraph.
+* `details`: additional information about the table, e.g. how it was collected, constructed, or any important caveats for its use. Can be any length.
 * `source` (required): ways to access the data.
 * `fields` (required): an ordered list of field metadata.
 
@@ -50,10 +51,6 @@ tables:
         description: Whether the food is a foundation or branded food.
 ```
 
-### Description
-
-The description is a human (and agent) free text field for you to jot down any important notes that don't belong anywhere else.
-
 ### Source
 
 `source` is a map whose keys name the access method and whose values give the location. For example:
@@ -81,8 +78,17 @@ Each entry in the `fields` list is a field descriptor with the following propert
 * `name` (required): column name. Must match the column name in the underlying data.
 * `type`: the field's data type. Must match (approximately) the underlying data type (see [Types](#types)).
 * `constraints`: a list of field-level constraints (see [Field constraints](#field-constraints)).
-* `description` (required): a human-readable description of the field. Can use markdown. Can include example values. Should include surprises.
+* `description` (required): a human-readable description of the field. Can use markdown.
+* `details`: additional information about the field, e.g. how it was computed or edge cases to watch out for. Can be any length.
 * `examples`: a list of ~5 representative values from the field. A handful of concrete examples helps LLMs understand the field far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums don't need examples.
+
+#### Description & details
+
+The `description` and `details` are free text fields that humans and agents can use to jot down important notes. 
+
+The `description` is required, and typically a few sentences or at most a paragraph. It's a good place to document the most important information about the `field`. It will be displayed in user interfaces. 
+
+The `details` are optional, can be any length, and is a good place to carefully record all the details of the table.
 
 #### Types
 
