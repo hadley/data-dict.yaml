@@ -6,18 +6,18 @@ It's designed to be lightweight, not attempting to encode every piece of metadat
 
 A data dictionary has three top-level keys: 
 
-* [`tables`](#tables) is the where the bulk of most dd.yaml files will be. It describes the tables and their fields. 
+* [`tables`](#tables) is the where the bulk of most dd.yaml files will be. It describes the tables and their columns.
 * [`relationships`](#relationships) describes the relationships between tables. It gives the details you need to safely create joins.
 * [`glossary`](#glossary) provides a place to define important domain specific terms. This is a good place to write down those special words that your company loves to use.
 
 ## Tables
 
-`tables` is a named list that describes each table in the dataset. Each table represents a rectangle of data with observations in the rows and fields/variables in the columns. Each table has the following properties:
+`tables` is a named list that describes each table in the dataset. Each table represents a rectangle of data with observations in the rows and variables in the columns. Each table has the following properties:
 
 * `description` (required): a human-readable description of the table. May contain markdown, and is usually a few sentences or a paragraph.
 * `details`: additional information about the table, e.g. how it was collected, constructed, or any important caveats for its use. Can be any length.
 * `source` (required): ways to access the data.
-* `fields` (required): an ordered list of field metadata.
+* `columns` (required): an ordered list of column metadata.
 
 For example:
 
@@ -31,7 +31,7 @@ tables:
       parquet: inst/parquet/food.parquet
       R: foodbank::food
       SQL: foodbank.food
-    fields:
+    columns:
       - name: fdc_id
         type: number(id)
         constraints: [primary_key]
@@ -71,22 +71,22 @@ The currently supported keys are:
 
 This variety of source types reflects the variety of ways which you might retrieve a dataset. It's good practice to upstream as much of this processing as possible so that over time you exclusively use `parquet` or `SQL` with a table.
 
-### Fields
+### Columns
 
-Each entry in the `fields` list is a field descriptor with the following properties:
+Each entry in the `columns` list is a column descriptor with the following properties:
 
 * `name` (required): column name. Must match the column name in the underlying data.
-* `type`: the field's data type. Must match (approximately) the underlying data type (see [Types](#types)).
-* `constraints`: a list of field-level constraints (see [Field constraints](#field-constraints)).
-* `description` (required): a human-readable description of the field. Can use markdown.
-* `details`: additional information about the field, e.g. how it was computed or edge cases to watch out for. Can be any length.
-* `examples`: a list of ~5 representative values from the field. A handful of concrete examples helps LLMs understand the field far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums don't need examples.
+* `type`: the column's data type. Must match (approximately) the underlying data type (see [Types](#types)).
+* `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
+* `description` (required): a human-readable description of the column. Can use markdown.
+* `details`: additional information about the column, e.g. how it was computed or edge cases to watch out for. Can be any length.
+* `examples`: a list of ~5 representative values from the column. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums don't need examples.
 
 #### Description & details
 
 The `description` and `details` are free text fields that humans and agents can use to jot down important notes. 
 
-The `description` is required, and typically a few sentences or at most a paragraph. It's a good place to document the most important information about the `field`. It will be displayed in user interfaces. 
+The `description` is required, and typically a few sentences or at most a paragraph. It's a good place to document the most important information about the column. It will be displayed in user interfaces. 
 
 The `details` are optional, can be any length, and is a good place to carefully record all the details of the table.
 
@@ -114,14 +114,14 @@ The `number` type can be qualified with a measure in parentheses that classifies
 | `number(ordinal)` | Yes | No | No | ranks, years, sequence numbers |
 | `number(quantity)` | Yes | Yes | Yes | weights, counts, amounts |
 
-#### Field constraints
+#### Column constraints
 
 The `constraints` property is a list of constraint names. The supported constraints are:
 
-* `primary_key`: this field uniquely identifies each row. Implies `required` and `unique`.
-* `required`: the field must not contain null/missing values.
-* `unique`: the field's values must be distinct (no duplicates).
-* `foreign_key`: the field references a primary key in another table. The specific relationship is defined in [`relationships`](#relationships).
+* `primary_key`: this column uniquely identifies each row. Implies `required` and `unique`.
+* `required`: the column must not contain null/missing values.
+* `unique`: the column's values must be distinct (no duplicates).
+* `foreign_key`: the column references a primary key in another table. The specific relationship is defined in [`relationships`](#relationships).
 
 For example: `constraints: [primary_key, required]`.
 
@@ -131,8 +131,8 @@ For example: `constraints: [primary_key, required]`.
 
 * `description` (required): human-readable description of the relationship.
 * `cardinality` (required): either `one-to-many` or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
-* `join` (required): a join expression of the form `table1.field = table2.field`, or `table1.date >= table2.start AND table1.date <= table2.end`.
-* `conflicts`: a list of field names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `join` (required): a join expression of the form `table1.column = table2.column`, or `table1.date >= table2.start AND table1.date <= table2.end`.
+* `conflicts`: a list of column names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
 
 For example:
 
@@ -146,7 +146,7 @@ relationships:
 
 ## Glossary
 
-`glossary` is a map from term to definition. Each entry provides a plain-language definition of a domain-specific term used in the table or field descriptions, or is likely to be used by a domain expert working with this data.
+`glossary` is a map from term to definition. Each entry provides a plain-language definition of a domain-specific term used in the table or column descriptions, or is likely to be used by a domain expert working with this data.
 
 ```yaml
 glossary:
