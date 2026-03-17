@@ -35,10 +35,12 @@ tables:
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the food item.
+        examples: [167512, 174231, 325871, 534109, 715322]
       - name: description
         type: string
         constraints: [required]
         description: Full text description of the food.
+        examples: [Hummus, Egg rolls, Cheese spread, Grapes, Pickle relish]
       - name: food_category_id
         type: number(id)
         constraints: [foreign_key]
@@ -80,6 +82,7 @@ Each entry in the `fields` list is a field descriptor with the following propert
 * `type`: the field's data type. Must match (approximately) the underlying data type (see [Types](#types)).
 * `constraints`: a list of field-level constraints (see [Field constraints](#field-constraints)).
 * `description` (required): a human-readable description of the field. Can use markdown. Can include example values. Should include surprises.
+* `examples`: a list of ~5 representative values from the field. A handful of concrete examples helps LLMs understand the field far better than a description alone.
 
 #### Types
 
