@@ -82,7 +82,7 @@ Each entry in the `fields` list is a field descriptor with the following propert
 * `type`: the field's data type. Must match (approximately) the underlying data type (see [Types](#types)).
 * `constraints`: a list of field-level constraints (see [Field constraints](#field-constraints)).
 * `description` (required): a human-readable description of the field. Can use markdown. Can include example values. Should include surprises.
-* `examples`: a list of ~5 representative values from the field. A handful of concrete examples helps LLMs understand the field far better than a description alone.
+* `examples`: a list of ~5 representative values from the field. A handful of concrete examples helps LLMs understand the field far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums don't need examples.
 
 #### Types
 
