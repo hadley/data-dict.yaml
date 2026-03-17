@@ -1,0 +1,277 @@
+tables:
+  food:
+    description: >
+      Any substance consumed by humans for nutrition, taste and/or aroma.
+      Contains only foundation foods from the USDA FoodData Central
+      (December 2025).
+
+      <https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_csv_2025-12-18.zip>
+
+    source:
+      parquet: inst/parquet/food.parquet
+      r: foodbank::food
+
+    fields:
+      - name: fdc_id
+        type: number(id)
+        constraints: [primary_key]
+        description: >
+          Unique permanent identifier of the food (e.g. 321358, 321359).
+      - name: description
+        type: string
+        constraints: [required]
+        description: Description of the food.
+      - name: food_category_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: ID of the food's category.
+      - name: publication_date
+        type: string
+        constraints: [required]
+        description: >
+          Date when the food was published to FoodData Central.
+
+  food_nutrient:
+    description: >
+      A nutrient value for a food. Amounts are per 100g of food, in the
+      unit defined in the nutrient table.
+
+    source:
+      parquet: inst/parquet/food_nutrient.parquet
+      r: foodbank::food_nutrient
+
+    fields:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique permanent identifier (e.g. 2219773, 2219774).
+      - name: fdc_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: ID of the food.
+      - name: nutrient_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: ID of the nutrient.
+      - name: amount
+        type: number(quantity)
+        description: Amount of the nutrient per 100g of food.
+      - name: data_points
+        type: number(quantity)
+        description: >
+          Number of observations on which the value is based.
+      - name: derivation
+        type: enum<Analytical, Summed, Calculated>
+        description: >
+          The technique used to derive the nutrient value: "Analytical"
+          (measured by chemical analysis), "Summed" (sum of component
+          nutrients), or "Calculated" (derived from other data).
+      - name: min
+        type: number(ordinal)
+        description: The minimum amount.
+      - name: max
+        type: number(ordinal)
+        description: The maximum amount.
+      - name: median
+        type: number(ordinal)
+        description: The median amount.
+      - name: footnote
+        type: string
+        description: >
+          Comments on any unusual aspects of the food nutrient.
+      - name: min_year_acquired
+        type: number(ordinal)
+        description: >
+          Minimum purchase year of all acquisitions used to derive
+          the nutrient value.
+
+  nutrient:
+    description: >
+      The chemical constituents of a food (e.g. calcium, vitamin E)
+      officially recognized as essential to human health.
+
+    source:
+      parquet: inst/parquet/nutrient.parquet
+      r: foodbank::nutrient
+
+    fields:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique permanent identifier (e.g. 1003, 1004).
+      - name: name
+        type: string
+        constraints: [required]
+        description: >
+          Name of the nutrient (e.g. "Protein", "Calcium, Ca",
+          "Vitamin E (alpha-tocopherol)").
+      - name: unit_name
+        type: string
+        constraints: [required]
+        description: >
+          The standard unit of measure for the nutrient
+          (e.g. G, MG, UG, KCAL, kJ, IU).
+      - name: nutrient_nbr
+        type: number(id)
+        description: >
+          A unique code identifying a nutrient or food constituent
+          (used for historical matching; missing for some newer
+          nutrients).
+      - name: rank
+        type: number(ordinal)
+        description: >
+          Display order used by USDA to sort nutrients in reports;
+          more important nutrients appear first (e.g. Water is 100,
+          Energy is 300, Protein is 600, vitamins are 6300+).
+
+  food_portion:
+    description: >
+      Discrete amounts of food, used to convert from per-100g nutrient
+      values to common serving sizes. To convert:
+      `food_nutrient.amount * food_portion.gram_weight / 100`.
+
+    source:
+      parquet: inst/parquet/food_portion.parquet
+      r: foodbank::food_portion
+
+    fields:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique permanent identifier (e.g. 118804, 118805).
+      - name: fdc_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: ID of the food.
+      - name: seq_num
+        type: number(ordinal)
+        constraints: [required]
+        description: >
+          The order the measure will be displayed on the released
+          food.
+      - name: amount
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          The number of measure units that comprise the measure
+          (e.g. if measure is 3 tsp, the amount is 3).
+      - name: measure_unit_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: ID of the measure unit.
+      - name: portion_description
+        type: string
+        description: >
+          Comments that provide more specificity on the measure.
+          Mostly missing.
+      - name: modifier
+        type: string
+        description: >
+          Qualifier of the measure (e.g. "chopped", "drained",
+          "whole", "sifted").
+      - name: gram_weight
+        type: number(quantity)
+        constraints: [required]
+        description: The weight of the measure in grams.
+      - name: data_points
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          The number of observations on which the measure is based.
+      - name: footnote
+        type: boolean
+        description: >
+          Comments on any unusual aspects of the measure.
+      - name: min_year_acquired
+        type: number(ordinal)
+        constraints: [required]
+        description: >
+          Minimum purchase year of all acquisitions used to derive
+          the measure value.
+
+  measure_unit:
+    description: Units for measuring quantities of foods.
+
+    source:
+      parquet: inst/parquet/measure_unit.parquet
+      r: foodbank::measure_unit
+
+    fields:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique permanent identifier (e.g. 1000, 1001).
+      - name: name
+        type: string
+        constraints: [required]
+        description: >
+          Name of the unit (e.g. "cup", "tablespoon", "teaspoon",
+          "liter").
+
+  food_category:
+    description: Foods of defined similarity.
+
+    source:
+      parquet: inst/parquet/food_category.parquet
+      r: foodbank::food_category
+
+    fields:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique permanent identifier (e.g. 1, 2, 3).
+      - name: code
+        type: number(id)
+        constraints: [required, unique]
+        description: Food group code (e.g. 100, 200, 900).
+      - name: description
+        type: string
+        constraints: [required]
+        description: >
+          Description of the food group (e.g. "Dairy and Egg
+          Products", "Spices and Herbs", "Fruits and Fruit Juices").
+
+relationships:
+  - description: Each food has many nutrient values.
+    cardinality: one-to-many
+    join: food.fdc_id = food_nutrient.fdc_id
+    conflicts: [data_points, amount]
+
+  - description: Each food has zero or more portion measures.
+    cardinality: one-to-many
+    join: food.fdc_id = food_portion.fdc_id
+    conflicts: [data_points, amount]
+
+  - description: Each food nutrient value refers to one nutrient.
+    cardinality: many-to-one
+    join: food_nutrient.nutrient_id = nutrient.id
+
+  - description: Each food portion uses one measure unit.
+    cardinality: many-to-one
+    join: food_portion.measure_unit_id = measure_unit.id
+
+  - description: Each food belongs to one food category.
+    cardinality: many-to-one
+    join: food.food_category_id = food_category.id
+    conflicts: [description]
+
+glossary:
+  foundation food: >
+    A food whose nutrient and food component values are derived
+    primarily by chemical analysis. Foundation data include extensive
+    underlying metadata such as the number of samples, the location
+    and dates on which samples were obtained, analytical approaches
+    used, and if appropriate, cultivar, genotype, and production
+    practices.
+  FDC ID: >
+    FoodData Central identifier. A unique permanent integer assigned
+    to each food in the USDA FoodData Central database.
+  nutrient number: >
+    A unique code from the USDA Standard Reference (SR) system
+    identifying a specific nutrient or food constituent.
+  derivation: >
+    The technique used to derive a nutrient value, such as analytical
+    measurement, calculation, or imputation.
+  measure unit: >
+    A standard unit used to express a food portion size, such as cup,
+    tablespoon, or piece.

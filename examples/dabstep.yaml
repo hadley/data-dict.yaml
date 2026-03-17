@@ -1,0 +1,386 @@
+tables:
+  payments:
+    description: >
+      Synthetic dataset of payment transactions processed by a payment
+      processor. Each row represents one transaction.
+
+    source:
+      parquet: data/payments.parquet
+
+    fields:
+      - name: psp_reference
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique payment identifier.
+      - name: merchant
+        type: enum
+        constraints: [required]
+        description: Merchant name (e.g. "Crossfit_Hanna", "Belles_cookbook_store").
+      - name: card_scheme
+        type: enum<GlobalCard, NexPay, SwiftCharge, TransactPlus>
+        constraints: [required]
+        description: Card scheme (network) used for the transaction.
+      - name: year
+        type: number(ordinal)
+        constraints: [required]
+        description: Year of payment initiation. Always 2023 in this dataset.
+      - name: hour_of_day
+        type: number(ordinal)
+        constraints: [required]
+        description: Hour of the day of payment initiation (0-23).
+      - name: minute_of_hour
+        type: number(ordinal)
+        constraints: [required]
+        description: Minute of the hour of payment initiation (0-59).
+      - name: day_of_year
+        type: number(ordinal)
+        constraints: [required]
+        description: Day of the year of payment initiation (1-365).
+      - name: month
+        type: number(ordinal)
+        constraints: [required]
+        description: Month of payment initiation (1-12).
+      - name: is_credit
+        type: boolean
+        constraints: [required]
+        description: >
+          Whether the card used is a credit card. FALSE indicates a debit
+          card. Credit transactions are typically more expensive.
+      - name: eur_amount
+        type: number(quantity)
+        constraints: [required]
+        description: Payment amount in euros.
+      - name: ip_country
+        type: enum<BE, ES, FR, GR, IT, LU, NL, SE>
+        constraints: [required]
+        description: >
+          Country the shopper was in at the time of the transaction,
+          determined by IP address. ISO 3166-1 alpha-2 code.
+      - name: issuing_country
+        type: enum<BE, ES, FR, GR, IT, LU, NL, SE>
+        constraints: [required]
+        description: >
+          Country of the card-issuing bank. ISO 3166-1 alpha-2 code. When
+          this matches acquirer_country, the transaction is domestic
+          (intracountry).
+      - name: device_type
+        type: enum<Android, iOS, Linux, MacOS, Other, Windows>
+        constraints: [required]
+        description: Device type used for the transaction.
+      - name: ip_address
+        type: string
+        constraints: [required]
+        description: Hashed shopper IP address.
+      - name: email_address
+        type: string
+        description: Hashed shopper email address. May be empty.
+      - name: card_number
+        type: string
+        constraints: [required]
+        description: Hashed card number.
+      - name: shopper_interaction
+        type: enum<Ecommerce, POS>
+        constraints: [required]
+        description: >
+          Payment method. "Ecommerce" for online transactions, "POS" for
+          in-person or in-store transactions.
+      - name: card_bin
+        type: number(id)
+        constraints: [required]
+        description: Bank Identification Number (first digits of card number).
+      - name: has_fraudulent_dispute
+        type: boolean
+        constraints: [required]
+        description: Whether the issuing bank flagged the transaction as a fraudulent dispute.
+      - name: is_refused_by_adyen
+        type: boolean
+        constraints: [required]
+        description: Whether the transaction was refused by Adyen.
+      - name: aci
+        type: enum<A, B, C, D, E, F, G>
+        constraints: [required]
+        description: >
+          Authorization Characteristics Indicator. Identifies how the
+          transaction was submitted to the acquirer: A = Card present,
+          non-authenticated; B = Card present, authenticated; C = Tokenized
+          with mobile device; D = Card not present, card on file;
+          E = Card not present, recurring; F = Card not present, 3-D Secure;
+          G = Card not present, non-3-D Secure.
+      - name: acquirer_country
+        type: enum<FR, GB, IT, NL, US>
+        constraints: [required, foreign_key]
+        description: >
+          Country of the acquiring bank. ISO 3166-1 alpha-2 code.
+
+  acquirer_countries:
+    description: >
+      Lookup table mapping acquirer names to their country codes.
+
+    source:
+      parquet: data/acquirer_countries.parquet
+
+    fields:
+      - name: acquirer
+        type: string
+        constraints: [primary_key]
+        description: Name of the acquiring bank (e.g. "gringotts", "lehman_brothers").
+      - name: country_code
+        type: enum<FR, GB, IT, NL, US>
+        constraints: [required]
+        description: Country of the acquirer. ISO 3166-1 alpha-2 code.
+
+  merchants:
+    description: >
+      Merchant profiles with business classification and processing
+      configuration. Each row represents one merchant.
+
+    source:
+      parquet: data/merchants.parquet
+
+    fields:
+      - name: merchant
+        type: string
+        constraints: [primary_key]
+        description: Merchant name (e.g. "Crossfit_Hanna", "Belles_cookbook_store").
+      - name: capture_delay
+        type: enum<immediate, <3, 3-5, >5, manual>
+        constraints: [required]
+        description: >
+          Capture delay range. Derived from the original numeric days:
+          "immediate", "<3" (under 3 days), "3-5", ">5" (over 5 days),
+          or "manual". Faster capture is generally more expensive.
+      - name: merchant_category_code
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: Four-digit Merchant Category Code classifying the business type.
+      - name: account_type
+        type: enum<D, F, H, R, S>
+        constraints: [required]
+        description: >
+          Business model classification: D = Enterprise - Digital,
+          F = Platform - Franchise, H = Enterprise - Hospitality,
+          R = Enterprise - Retail, S = Platform - SaaS.
+
+  merchant_acquirers:
+    description: >
+      Junction table linking merchants to their acquiring banks. A merchant
+      may route transactions through multiple acquirers (typically in
+      different countries) to enable local acquiring.
+
+    source:
+      parquet: data/merchant_acquirers.parquet
+
+    fields:
+      - name: merchant
+        type: string
+        constraints: [required, foreign_key]
+        description: Merchant name.
+      - name: acquirer
+        type: string
+        constraints: [required, foreign_key]
+        description: Name of the acquiring bank.
+
+  fees:
+    description: >
+      Fee rules for payment processing. Each row is a rule with constraints
+      that determine which transactions it applies to. A rule matches a
+      transaction when all non-null fields match. Null (scalar) or empty
+      (list) means "matches all values." The fee for a matched transaction
+      is: fixed_amount + rate * eur_amount / 10000.
+
+    source:
+      parquet: data/fees.parquet
+
+    fields:
+      - name: ID
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the fee rule.
+      - name: card_scheme
+        type: enum<GlobalCard, NexPay, SwiftCharge, TransactPlus>
+        constraints: [required]
+        description: Card scheme this rule applies to. Always set (never null).
+      - name: account_type
+        type: list<enum<D, F, H, O, R, S>>
+        description: >
+          Account types this rule applies to. Empty list means all
+          account types.
+      - name: capture_delay
+        type: enum<immediate, <3, 3-5, >5, manual>
+        description: >
+          Capture delay range this rule applies to. Null means all.
+          Matches the same enum used in the merchants table.
+      - name: fraud_percent_min
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Minimum monthly fraud level (%) this rule applies to (inclusive).
+          -Inf means no lower bound.
+      - name: fraud_percent_max
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Maximum monthly fraud level (%) this rule applies to (exclusive).
+          Inf means no upper bound.
+      - name: monthly_volume
+        type: enum<<100k, 100k-1m, 1m-5m, >5m>
+        description: >
+          Monthly transaction volume range this rule applies to.
+          Null means all. Amounts in euros.
+      - name: merchant_category_code
+        type: list<number(id)>
+        description: >
+          MCCs this rule applies to. Empty list means all MCCs.
+      - name: is_credit
+        type: boolean
+        description: >
+          Whether this rule applies to credit (TRUE) or debit (FALSE)
+          transactions. Null means both.
+      - name: aci
+        type: list<enum<A, B, C, D, E, F, G>>
+        description: >
+          ACI values this rule applies to. Empty list means all ACI
+          values.
+      - name: fixed_amount
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Fixed fee component (also called "absolute fee") in euros
+          per transaction.
+      - name: rate
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Variable fee rate (also called "relative fee"). Multiply by
+          transaction value and divide by 10000 to get the variable
+          component in euros.
+      - name: intracountry
+        type: boolean
+        description: >
+          Whether this rule applies to domestic (TRUE) or international
+          (FALSE) transactions. A transaction is domestic when
+          issuing_country equals acquirer_country. Null means both.
+
+  merchant_months:
+    description: >
+      Monthly aggregates per merchant, computed from the payments data.
+      Used for matching payments to fee rules based on monthly fraud
+      level and transaction volume thresholds.
+
+    source:
+      parquet: data/merchant_months.parquet
+
+    fields:
+      - name: merchant
+        type: string
+        constraints: [primary_key, foreign_key]
+        description: Merchant name.
+      - name: year
+        type: number(ordinal)
+        constraints: [primary_key]
+        description: Year.
+      - name: month
+        type: number(ordinal)
+        constraints: [primary_key]
+        description: Month (1-12).
+      - name: total_volume
+        type: number(quantity)
+        constraints: [required]
+        description: Total transaction volume in euros for this merchant-month.
+      - name: fraud_volume
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Total volume of transactions flagged as fraudulent disputes,
+          in euros.
+      - name: fraud_percent
+        type: number(quantity)
+        constraints: [required]
+        description: >
+          Fraud rate as a percentage: fraud_volume / total_volume * 100.
+      - name: monthly_volume
+        type: enum<<100k, 100k-1m, 1m-5m, >5m>
+        constraints: [required]
+        description: >
+          Binned total_volume matching the fee rule volume ranges.
+
+  merchant_category_codes:
+    description: >
+      Lookup table of Merchant Category Codes (MCCs). MCCs are four-digit
+      codes assigned by card networks to classify a merchant's business type.
+
+    source:
+      parquet: data/merchant_category_codes.parquet
+
+    fields:
+      - name: mcc
+        type: number(id)
+        constraints: [primary_key]
+        description: Four-digit Merchant Category Code (e.g. 5411, 5812).
+      - name: description
+        type: string
+        constraints: [required]
+        description: >
+          Human-readable description of the merchant category
+          (e.g. "Grocery Stores, Supermarkets").
+
+relationships:
+  - description: >
+      Each payment is processed by an acquirer in one country.
+    cardinality: many-to-one
+    join: payments.acquirer_country = acquirer_countries.country_code
+
+  - description: Each payment belongs to one merchant.
+    cardinality: many-to-one
+    join: payments.merchant = merchants.merchant
+
+  - description: Each merchant has one or more acquirers.
+    cardinality: one-to-many
+    join: merchants.merchant = merchant_acquirers.merchant
+
+  - description: Each merchant-acquirer references one acquirer.
+    cardinality: many-to-one
+    join: merchant_acquirers.acquirer = acquirer_countries.acquirer
+
+  - description: Each merchant has monthly aggregates for each active month.
+    cardinality: one-to-many
+    join: merchants.merchant = merchant_months.merchant
+
+  - description: Each merchant has one merchant category code.
+    cardinality: many-to-one
+    join: merchants.merchant_category_code = merchant_category_codes.mcc
+
+glossary:
+  acquirer: >
+    The acquiring bank that processes a merchant's card transactions and
+    settles funds. Also called the "acquiring bank" or "merchant bank."
+  card scheme: >
+    The card network (e.g. GlobalCard, NexPay) that sets rules and
+    interchange rates for transactions on its network.
+  ACI: >
+    Authorization Characteristics Indicator. A code that identifies the
+    transaction flow submitted to the acquirer (e.g. card-present vs
+    card-not-present, authenticated vs non-authenticated).
+  MCC: >
+    Merchant Category Code. A four-digit code assigned by card networks to
+    classify a merchant's business type, used for risk assessment, fraud
+    detection, and fee determination.
+  intracountry: >
+    A domestic transaction where the card-issuing country and the acquiring
+    country are the same. Intracountry transactions typically have lower fees
+    than cross-border transactions.
+  BIN: >
+    Bank Identification Number. The first six to eight digits of a card
+    number that identify the issuing bank.
+  POS: >
+    Point of Sale. An in-person or in-store transaction, as opposed to an
+    online (ecommerce) transaction.
+  3-D Secure: >
+    A payment security protocol that adds an extra authentication step for
+    online card-not-present transactions, reducing fraud risk.
+  chargeback: >
+    A reversal of a transaction initiated by the cardholder's issuing bank,
+    typically due to a dispute or fraud claim.
+  capture delay: >
+    The number of days between authorization and settlement of a
+    transaction. Faster capture is generally more expensive.

@@ -1,0 +1,353 @@
+tables:
+  account:
+    description: >
+      Static characteristics of bank accounts. Each account belongs to a
+      branch in a district and has a statement issuance frequency.
+    source:
+      parquet: raw-data/account.parquet
+    fields:
+      - name: account_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the account.
+      - name: district_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: District where the account's branch is located.
+     \ - name: frequency
+        type: enum<POPLATEK MESICNE, POPLATEK TYDNE, POPLATEK PO OBRATU>
+        constraints: [required]
+        description: >
+          Frequency of statement issuance. "POPLATEK MESICNE" = monthly,
+          "POPLATEK TYDNE" = weekly, "POPLATEK PO OBRATU" = after each
+          transaction.
+      - name: date
+        type: date
+        constraints: [required]
+        description: Date the account was created.
+
+  client:
+    description: >
+      Characteristics of bank clients. Gender and birth date were originally
+      encoded together in a "birth number"; they have been split into
+      separate fields in this version.
+    source:
+      parquet: raw-data/client.parquet
+    fields:
+      - name: client_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the client.
+      - name: gender
+        type: enum<F, M>
+        constraints: [required]
+        description: Client's gender.
+      - name: birth_date
+        type: date
+        constraints: [required]
+        description: Client's date of birth.
+      - name: district_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: District where the client lives.
+
+  disp:
+    description: >
+      Dispositions linking clients to accounts. Describes the rights of
+      clients to operate accounts. Only owners can issue permanent orders
+      and apply for loans.
+    source:
+      parquet: raw-data/disp.parquet
+    fields:
+      - name: disp_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the disposition.
+      - name: client_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: The client who has access to the account.
+      - name: account_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: The account the client has access to.
+      - name: type
+        type: enum<OWNER, DISPONENT>
+        constraints: [required]
+        description: >
+          Type of disposition. "OWNER" has full rights including issuing
+          permanent orders and applying for loans. "DISPONENT" has limited
+          access.
+
+  order:
+    description: >
+      Permanent (standing) payment orders on accounts. These are recurring
+      debits set up by account owners.
+    source:
+      parquet: raw-data/order.parquet
+    fields:
+      - name: order_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the permanent order.
+      - name: account_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: Account the order is issued for.
+      - name: bank_to
+        type: string
+        constraints: [required]
+        description: Two-letter code identifying the recipient's bank.
+      - name: account_to
+        type: number(id)
+        constraints: [required]
+        description: Account number of the recipient.
+      - name: amount
+        type: number(quantity)
+        constraints: [required]
+        description: Amount debited per payment.
+      - name: k_symbol
+        type: enum<POJISTNE, SIPO, LEASING, UVER>
+        description: >
+          Characterization of the payment. "POJISTNE" = insurance payment,
+          "SIPO" = household payment, "LEASING" = leasing, "UVER" = loan
+          payment. Empty string if not specified.
+
+  trans:
+    description: >
+      Individual transactions on accounts, including credits and debits
+      from various sources.
+    source:
+      parquet: raw-data/trans.parquet
+    fields:
+      - name: trans_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the transaction.
+      - name: account_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: Account the transaction belongs to.
+      - name: date
+        type: date
+        constraints: [required]
+        description: Date of the transaction.
+      - name: type
+        type: enum<PRIJEM, VYDAJ, VYBER>
+        constraints: [required]
+        description: >
+          Transaction direction. "PRIJEM" = credit, "VYDAJ" = withdrawal
+          (debit), "VYBER" = withdrawal (cash).
+      - name: operation
+        type: enum<VYBER KARTOU, VKLAD, PREVOD Z UCTU, VYBER, PREVOD NA UCET>
+        description: >
+          Mode of transaction. "VYBER KARTOU" = credit card withdrawal,
+          "VKLAD" = credit in cash, "PREVOD Z UCTU" = collection from
+          another bank, "VYBER" = cash withdrawal, "PREVOD NA UCET" =
+          remittance to another bank.
+      - name: amount
+        type: number(quantity)
+        constraints: [required]
+        description: Amount of money in the transaction.
+      - name: balance
+        type: number(quantity)
+        constraints: [required]
+        description: Account balance after the transaction.
+      - name: k_symbol
+        type: enum<POJISTNE, SLUZBY, UROK, SANKC. UROK, SIPO, DUCHOD, UVER>
+        description: >
+          Characterization of the transaction. "POJISTNE" = insurance
+          payment, "SLUZBY" = payment for statement, "UROK" = interest
+          credited, "SANKC. UROK" = sanction interest (negative balance),
+          "SIPO" = household payment, "DUCHOD" = old-age pension, "UVER" =
+          loan payment. Empty string if not specified.
+      - name: bank
+        type: string
+        description: Two-letter code identifying the partner's bank.
+      - name: account
+        type: number(id)
+        description: Account number of the transaction partner.
+
+  loan:
+    description: >
+      Loans granted for accounts. At most one loan can be granted per
+      account. This is the primary target table for the PKDD'99 discovery
+      challenge.
+    source:
+      parquet: raw-data/loan.parquet
+    fields:
+      - name: loan_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the loan.
+      - name: account_id
+        type: number(id)
+        constraints: [required, unique, foreign_key]
+        description: Account the loan was granted for.
+      - name: date
+        type: date
+        constraints: [required]
+        description: Date the loan was granted.
+      - name: amount
+        type: number(quantity)
+        constraints: [required]
+        description: Total amount of the loan.
+      - name: duration
+        type: number(ordinal)
+        constraints: [required]
+        description: Duration of the loan in months. Values are 12, 24, 36, 48, or 60.
+      - name: payments
+        type: number(quantity)
+        constraints: [required]
+        description: Monthly payment amount.
+      - name: status
+        type: enum<A, B, C, D>
+        constraints: [required]
+        description: >
+          Status of the loan. "A" = contract finished, no problems.
+          "B" = contract finished, loan not paid. "C" = running contract,
+          OK so far. "D" = running contract, client in debt.
+
+  card:
+    description: >
+      Credit cards issued to account holders via their dispositions.
+      Multiple cards can be issued per account.
+    source:
+      parquet: raw-data/card.parquet
+    fields:
+      - name: card_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the card.
+      - name: disp_id
+        type: number(id)
+        constraints: [required, foreign_key]
+        description: Disposition linking the card to a client and account.
+      - name: type
+        type: enum<junior, classic, gold>
+        constraints: [required]
+        description: Type of credit card.
+      - name: issued
+        type: date
+        constraints: [required]
+        description: Date the card was issued.
+
+  district:
+    description: >
+      Demographic data for Czech districts. Column names A2–A16 are
+      the original anonymized names from the PKDD'99 challenge.
+    source:
+      parquet: raw-data/district.parquet
+    fields:
+      - name: district_id
+        type: number(id)
+        constraints: [primary_key]
+        description: Unique identifier for the district.
+      - name: A2
+        type: string
+        constraints: [required, unique]
+        description: District name.
+      - name: A3
+        type: enum
+        constraints: [required]
+        description: Region name (e.g. "Prague", "central Bohemia", "south Moravia").
+      - name: A4
+        type: number(quantity)
+        constraints: [required]
+        description: Number of inhabitants.
+      - name: A5
+        type: number(quantity)
+        constraints: [required]
+        description: Number of municipalities with fewer than 499 inhabitants.
+      - name: A6
+        type: number(quantity)
+        constraints: [required]
+        description: Number of municipalities with 500–1999 inhabitants.
+      - name: A7
+        type: number(quantity)
+        constraints: [required]
+        description: Number of municipalities with 2000–9999 inhabitants.
+      - name: A8
+        type: number(quantity)
+        constraints: [required]
+        description: Number of municipalities with 10,000 or more inhabitants.
+      - name: A9
+        type: number(quantity)
+        constraints: [required]
+        description: Number of cities.
+      - name: A10
+        type: number(quantity)
+        constraints: [required]
+        description: Ratio of urban inhabitants (percentage).
+      - name: A11
+        type: number(quantity)
+        constraints: [required]
+        description: Average salary.
+      - name: A12
+        type: number(quantity)
+        constraints: [required]
+        description: Unemployment rate in 1995 (percentage).
+      - name: A13
+        type: number(quantity)
+        constraints: [required]
+        description: Unemployment rate in 1996 (percentage).
+      - name: A14
+        type: number(quantity)
+        constraints: [required]
+        description: Number of entrepreneurs per 1000 inhabitants.
+      - name: A15
+        type: number(quantity)
+        constraints: [required]
+        description: Number of committed crimes in 1995.
+      - name: A16
+        type: number(quantity)
+        constraints: [required]
+        description: Number of committed crimes in 1996.
+
+relationships:
+  - description: Account is located in a district.
+    cardinality: many-to-one
+    join: account.district_id = district.district_id
+  - description: Client lives in a district.
+    cardinality: many-to-one
+    join: client.district_id = district.district_id
+  - description: Disposition links a client to an account.
+    cardinality: many-to-one
+    join: disp.client_id = client.client_id
+  - description: Disposition links a client to an account.
+    cardinality: many-to-one
+    join: disp.account_id = account.account_id
+  - description: Permanent order belongs to an account.
+    cardinality: many-to-one
+    join: order.account_id = account.account_id
+  - description: Transaction belongs to an account.
+    cardinality: many-to-one
+    join: trans.account_id = account.account_id
+  - description: Loan is granted for an account (at most one per account).
+    cardinality: one-to-one
+    join: loan.account_id = account.account_id
+  - description: Credit card is issued via a disposition.
+    cardinality: many-to-one
+    join: card.disp_id = disp.disp_id
+
+glossary:
+  POPLATEK MESICNE: Monthly (statement issuance frequency).
+  POPLATEK TYDNE: Weekly (statement issuance frequency).
+  POPLATEK PO OBRATU: After each transaction (statement issuance frequency).
+  PRIJEM: Credit (incoming transaction).
+  VYDAJ: Withdrawal/debit (outgoing transaction).
+  VYBER: Cash withdrawal.
+  VYBER KARTOU: Credit card withdrawal.
+  VKLAD: Cash deposit.
+  PREVOD Z UCTU: Collection from another bank.
+  PREVOD NA UCET: Remittance to another bank.
+  POJISTNE: Insurance payment.
+  SIPO: Household payment.
+  LEASING: Leasing payment.
+  UVER: Loan payment.
+  SLUZBY: Payment for statement.
+  UROK: Interest credited.
+  SANKC. UROK: Sanction interest charged when account has negative balance.
+  DUCHOD: Old-age pension.
+  DISPONENT: A person with limited access rights to an account.
+  OWNER: Account owner with full rights (can issue orders and apply for loans).
