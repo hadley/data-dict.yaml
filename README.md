@@ -30,6 +30,8 @@ There are a few things that `dd.yaml` deliberately doesn't do in order to keep s
 
 * `dd.yaml` is not a **data validation** tool. You can check that the spec and the data are aligned, but it’s up to you to fix inconsistencies to ensure that your spec has not deviated from reality.
 
+* `dd.yaml` is not a **[semantic model](semantic-models.md)**. It doesn’t classify columns as dimensions or metrics, because that distinction reflects intended use, not the data itself. Data scientists need to understand what the data means, not have views predefined for them.
+
 There are other things that `dd.yaml` doesn't do **yet**, but are on the roadmap:
 
 * **Large tables**: Standalone `dd.yaml` are not designed for hundreds of tables or hundreds of columns. Our plan is to also provide a service that allows you to index much larger data catalogs.
