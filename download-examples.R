@@ -7,7 +7,7 @@ repos <- list(
 )
 
 paths <- list(
-  foodbank = "data-raw/data-dictionary.yaml"
+  foodbank = "dd.yaml"
 )
 
 dir.create("examples", showWarnings = FALSE)
@@ -21,4 +21,6 @@ for (name in names(repos)) {
   )
   dest <- file.path("examples", paste0(name, ".yaml"))
   download.file(url, dest)
+  contents <- readLines(dest)
+  writeLines(c(paste0("# source: ", url), contents), dest)
 }

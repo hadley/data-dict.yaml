@@ -1,3 +1,4 @@
+# source: https://raw.githubusercontent.com/hadley/loan-application/refs/heads/main/data-dictionary.yaml
 tables:
   account:
     description: >

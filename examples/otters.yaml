@@ -1,3 +1,4 @@
+# source: https://raw.githubusercontent.com/hadley/otters/refs/heads/main/data-dictionary.yaml
 tables:
   otters:
     description: >

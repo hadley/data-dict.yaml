@@ -1,3 +1,4 @@
+# source: https://raw.githubusercontent.com/hadley/elevators/refs/heads/main/data-dictionary.yaml
 tables:
   elevators:
     description: >

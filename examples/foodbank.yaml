@@ -1,3 +1,9 @@
+# source: https://raw.githubusercontent.com/hadley/foodbank/refs/heads/main/dd.yaml
+name: foodbank
+description: >
+  USDA FoodData Central foundation foods, including nutrient values,
+  portion sizes, and food categories (December 2025).
+
 tables:
   food:
     description: >
@@ -16,20 +22,29 @@ tables:
         type: number(id)
         constraints: [primary_key]
         description: >
-          Unique permanent identifier of the food (e.g. 321358, 321359).
+          Unique permanent identifier of the food.
+        examples: [321358, 746775, 2003599, 2646173, 2747676]
       - name: description
         type: string
         constraints: [required]
         description: Description of the food.
+        examples:
+          - Almond butter, creamy
+          - Cheese, mozzarella, low moisture, part-skim
+          - Grapefruit juice, red, not fortified, not from concentrate, refrigerated
+          - Peppers, banana or Hungarian wax, seeded, raw
+          - Yogurt, plain, whole milk
       - name: food_category_id
         type: number(id)
         constraints: [required, foreign_key]
         description: ID of the food's category.
+        examples: [1, 7, 12, 16, 25]
       - name: publication_date
-        type: string
+        type: date
         constraints: [required]
         description: >
           Date when the food was published to FoodData Central.
+        examples: ["2019-04-01", "2020-10-30", "2022-10-28", "2024-04-18", "2025-12-18"]
 
   food_nutrient:
     description: >
@@ -44,22 +59,27 @@ tables:
       - name: id
         type: number(id)
         constraints: [primary_key]
-        description: Unique permanent identifier (e.g. 2219773, 2219774).
+        description: Unique permanent identifier.
+        examples: [2219707, 2263067, 8524084, 27797175, 34969298]
       - name: fdc_id
         type: number(id)
         constraints: [required, foreign_key]
         description: ID of the food.
+        examples: [321358, 746775, 2003599, 2646173, 2747676]
       - name: nutrient_id
         type: number(id)
         constraints: [required, foreign_key]
         description: ID of the nutrient.
+        examples: [1002, 1119, 1227, 1331, 2069]
       - name: amount
         type: number(quantity)
         description: Amount of the nutrient per 100g of food.
+        examples: [-0.705, 0.668, 5.583, 55, 38700]
       - name: data_points
         type: number(quantity)
         description: >
           Number of observations on which the value is based.
+        examples: [1, 14, 27, 66, 252]
       - name: derivation
         type: enum<Analytical, Summed, Calculated>
         description: >
@@ -69,26 +89,36 @@ tables:
       - name: min
         type: number(ordinal)
         description: The minimum amount.
+        examples: [0, 0.816, 7.8, 63.26, 37200]
       - name: max
         type: number(ordinal)
         description: The maximum amount.
+        examples: [0, 0.943, 8.9, 73.5, 40700]
       - name: median
         type: number(ordinal)
         description: The median amount.
+        examples: [0, 0.82, 6.875, 58.1, 38500]
       - name: footnote
         type: string
         description: >
           Comments on any unusual aspects of the food nutrient.
+        examples:
+          - >-
+            Results for individual samples should be interpreted taking
+            into account measurement uncertainty. The percent relative
+            standard deviation ranged from 0.8-32.7, mean 10.4, median
+            5.9 (n=10).
       - name: min_year_acquired
         type: number(ordinal)
         description: >
           Minimum purchase year of all acquisitions used to derive
           the nutrient value.
+        examples: [1999, 2008, 2014, 2020, 2025]
 
   nutrient:
     description: >
-      The chemical constituents of a food (e.g. calcium, vitamin E)
-      officially recognized as essential to human health.
+      The chemical constituents of a food officially recognized as
+      essential to human health.
 
     source:
       parquet: inst/parquet/nutrient.parquet
@@ -98,31 +128,38 @@ tables:
       - name: id
         type: number(id)
         constraints: [primary_key]
-        description: Unique permanent identifier (e.g. 1003, 1004).
+        description: Unique permanent identifier.
+        examples: [1001, 1120, 1239, 1359, 2069]
       - name: name
         type: string
         constraints: [required]
         description: >
-          Name of the nutrient (e.g. "Protein", "Calcium, Ca",
-          "Vitamin E (alpha-tocopherol)").
+          Name of the nutrient.
+        examples:
+          - (+) -Gallo catechin
+          - Fatty acids, total trans-dienoic
+          - Nitrogen
+          - SFA 8:0
+          - Zinc, Zn
       - name: unit_name
         type: string
         constraints: [required]
         description: >
-          The standard unit of measure for the nutrient
-          (e.g. G, MG, UG, KCAL, kJ, IU).
+          The standard unit of measure for the nutrient.
+        examples: [G, kJ, MG, UG, KCAL]
       - name: nutrient_nbr
         type: number(id)
         description: >
           A unique code identifying a nutrient or food constituent
           (used for historical matching; missing for some newer
           nutrients).
+        examples: [200, 321.2, 511, 693, 961]
       - name: rank
         type: number(ordinal)
         description: >
           Display order used by USDA to sort nutrients in reports;
-          more important nutrients appear first (e.g. Water is 100,
-          Energy is 300, Protein is 600, vitamins are 6300+).
+          more important nutrients appear first.
+        examples: [50, 6242, 10100, 16200, 999999]
 
   food_portion:
     description: >
@@ -138,46 +175,60 @@ tables:
       - name: id
         type: number(id)
         constraints: [primary_key]
-        description: Unique permanent identifier (e.g. 118804, 118805).
+        description: Unique permanent identifier.
+        examples: [118804, 119351, 121438, 187505, 267795]
       - name: fdc_id
         type: number(id)
         constraints: [required, foreign_key]
         description: ID of the food.
+        examples: [321358, 326135, 333374, 746773, 1105314]
       - name: seq_num
         type: number(ordinal)
         constraints: [required]
         description: >
           The order the measure will be displayed on the released
           food.
+        examples: [1, 3, 5, 7, 9]
       - name: amount
         type: number(quantity)
         constraints: [required]
         description: >
           The number of measure units that comprise the measure
           (e.g. if measure is 3 tsp, the amount is 3).
+        examples: [0.2, 1, 2, 5, 100]
       - name: measure_unit_id
         type: number(id)
         constraints: [required, foreign_key]
         description: ID of the measure unit.
+        examples: [1000, 1023, 1043, 1067, 1120]
       - name: portion_description
         type: string
         description: >
           Comments that provide more specificity on the measure.
           Mostly missing.
+        examples:
+          - shredded
       - name: modifier
         type: string
         description: >
-          Qualifier of the measure (e.g. "chopped", "drained",
-          "whole", "sifted").
+          Qualifier of the measure.
+        examples:
+          - ' 2-1/2" dia'
+          - drained
+          - medium
+          - slices
+          - whole
       - name: gram_weight
         type: number(quantity)
         constraints: [required]
         description: The weight of the measure in grams.
+        examples: [3.2, 32.1, 115, 186, 980]
       - name: data_points
         type: number(quantity)
         constraints: [required]
         description: >
           The number of observations on which the measure is based.
+        examples: [1, 13, 32, 60, 826]
       - name: footnote
         type: boolean
         description: >
@@ -188,6 +239,7 @@ tables:
         description: >
           Minimum purchase year of all acquisitions used to derive
           the measure value.
+        examples: [2000, 2008, 2011, 2015, 2019]
 
   measure_unit:
     description: Units for measuring quantities of foods.
@@ -200,13 +252,19 @@ tables:
       - name: id
         type: number(id)
         constraints: [primary_key]
-        description: Unique permanent identifier (e.g. 1000, 1001).
+        description: Unique permanent identifier.
+        examples: [1000, 1031, 1061, 1091, 9999]
       - name: name
         type: string
         constraints: [required]
         description: >
-          Name of the unit (e.g. "cup", "tablespoon", "teaspoon",
-          "liter").
+          Name of the unit.
+        examples:
+          - back
+          - cup
+          - milliliter
+          - sandwich
+          - whole
 
   food_category:
     description: Foods of defined similarity.
@@ -219,17 +277,24 @@ tables:
       - name: id
         type: number(id)
         constraints: [primary_key]
-        description: Unique permanent identifier (e.g. 1, 2, 3).
+        description: Unique permanent identifier.
+        examples: [1, 8, 14, 21, 28]
       - name: code
         type: number(id)
         constraints: [required, unique]
-        description: Food group code (e.g. 100, 200, 900).
+        description: Food group code.
+        examples: [100, 800, 1400, 2000, 4500]
       - name: description
         type: string
         constraints: [required]
         description: >
-          Description of the food group (e.g. "Dairy and Egg
-          Products", "Spices and Herbs", "Fruits and Fruit Juices").
+          Description of the food group.
+        examples:
+          - Alcoholic Beverages
+          - Breakfast Cereals
+          - Fruits and Fruit Juices
+          - Quality Control Materials
+          - Vegetables and Vegetable Products
 
 relationships:
   - description: Each food has many nutrient values.
