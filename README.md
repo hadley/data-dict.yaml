@@ -22,6 +22,14 @@ There have been many previous attempts to encode data dictionaries in structured
 * Unlike previous data dictionaries, we assume data is stored in parquet files or database tables. This means that we declare the details of parsing arbitrary files out of scope, radically simplifying the spec.
 * The cost of describing the semantics of a dataset in two places (i.e. `dd.yaml` and data transformation code) is lower because an AI agent can easily keep both in sync.
 
+### Inspirations
+
+* [Data management in large-scale education research](https://datamgmtinedresearch.com/document#document-dataset)
+* [Frictionless data](https://datapackage.org/standard/table-schema)
+* [Hex's semantic modelling](https://learn.hex.tech/docs/connect-to-data/semantic-models/semantic-authoring/modeling-specification)
+* [Snowflake's semantic views](https://docs.snowflake.com/en/user-guide/views-semantic/overview)
+
+
 ## What `dd.yaml` doesn't do
 
 There are a few things that `dd.yaml` deliberately doesn't do in order to keep scope tight:
