@@ -22,5 +22,6 @@ for (name in names(repos)) {
   dest <- file.path("examples", paste0(name, ".yaml"))
   download.file(url, dest)
   contents <- readLines(dest)
-  writeLines(c(paste0("# source: ", url), contents), dest)
+  source_url <- paste0("https://github.com/", repo)
+  writeLines(c(paste0("# source: ", source_url), "", contents), dest)
 }

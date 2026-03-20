@@ -1,4 +1,5 @@
-# source: https://raw.githubusercontent.com/hadley/dabstep/refs/heads/main/data-dictionary.yaml
+# source: https://github.com/hadley/dabstep
+
 tables:
   payments:
     description: >
