@@ -43,7 +43,8 @@ tables:
         constraints: [foreign_key]
         description: Links to the food_category table.
       - name: data_type
-        type: enum<foundation, branded>
+        type: enum
+        values: [foundation, branded]
         description: Whether the food is a foundation or branded food.
 ```
 
@@ -76,7 +77,11 @@ Each entry in the `columns` list is a column descriptor with the following prope
 * `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
 * `description` (required): a human-readable description of the column. Can use markdown.
 * `details`: additional information about the column, e.g. how it was computed or edge cases to watch out for. Can be any length.
-* `examples`: a list of ~5 representative values from the column. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums, numbers(ordinal), and number(quantity) don't need examples.
+There are three additional fields that you use based on the `type`:
+
+* `values`: the allowed values for an `enum` column. Required when `type` is `enum`.
+* `range`: an optional two-element list `[min, max]` giving the inclusive range. Applicable to `number(ordinal)`, `number(quantity)`, `date`, and `datetime` columns. Not needed for `number(id)`.
+* `examples`: a list of ~5 representative values from the column. Highly recommended when `type` is `string`. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
 
 #### Description & details
 
@@ -97,8 +102,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates.
 * `datetime`: date-times with timezone.
-* `enum`: a string with repeated values from a finite set. The description should include a rough estimate of how many unique values there are. Inspect the table to determine the exact values.
-* `enum<l1, l2, ...>`: a string with a small, known set of values listed inside angle brackets. For example, `enum<Analytical, Summed, Calculated>`. Only enumerate values when the set is small and meaningful; use plain `enum` otherwise.
+* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property.
 
 #### Measures
 
