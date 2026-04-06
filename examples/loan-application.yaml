@@ -7,16 +7,18 @@ tables:
       branch in a district and has a statement issuance frequency.
     source:
       parquet: raw-data/account.parquet
-    fields:
+    columns:
       - name: account_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the account.
+        examples: [1, 1183, 2367, 3552, 11382]
       - name: district_id
         type: number(id)
         constraints: [required, foreign_key]
         description: District where the account's branch is located.
-     \ - name: frequency
+        examples: [1, 20, 39, 58, 77]
+      - name: frequency
         type: enum<POPLATEK MESICNE, POPLATEK TYDNE, POPLATEK PO OBRATU>
         constraints: [required]
         description: >
@@ -35,11 +37,12 @@ tables:
       separate fields in this version.
     source:
       parquet: raw-data/client.parquet
-    fields:
+    columns:
       - name: client_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the client.
+        examples: [1, 1418, 2839, 4257, 13998]
       - name: gender
         type: enum<F, M>
         constraints: [required]
@@ -52,6 +55,7 @@ tables:
         type: number(id)
         constraints: [required, foreign_key]
         description: District where the client lives.
+        examples: [1, 20, 39, 58, 77]
 
   disp:
     description: >
@@ -60,19 +64,22 @@ tables:
       and apply for loans.
     source:
       parquet: raw-data/disp.parquet
-    fields:
+    columns:
       - name: disp_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the disposition.
+        examples: [1, 1418, 2839, 4257, 13690]
       - name: client_id
         type: number(id)
         constraints: [required, foreign_key]
         description: The client who has access to the account.
+        examples: [1, 1418, 2839, 4257, 13998]
       - name: account_id
         type: number(id)
         constraints: [required, foreign_key]
         description: The account the client has access to.
+        examples: [1, 1183, 2367, 3552, 11382]
       - name: type
         type: enum<OWNER, DISPONENT>
         constraints: [required]
@@ -87,23 +94,27 @@ tables:
       debits set up by account owners.
     source:
       parquet: raw-data/order.parquet
-    fields:
+    columns:
       - name: order_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the permanent order.
+        examples: [29401, 31187, 32988, 34786, 46338]
       - name: account_id
         type: number(id)
         constraints: [required, foreign_key]
         description: Account the order is issued for.
+        examples: [1, 1174, 2342, 3502, 11362]
       - name: bank_to
         type: string
         constraints: [required]
         description: Two-letter code identifying the recipient's bank.
+        examples: [AB, GH, MN, ST, YZ]
       - name: account_to
         type: number(id)
         constraints: [required]
         description: Account number of the recipient.
+        examples: [399, 24175644, 49756062, 73948222, 99994199]
       - name: amount
         type: number(quantity)
         constraints: [required]
@@ -121,15 +132,17 @@ tables:
       from various sources.
     source:
       parquet: raw-data/trans.parquet
-    fields:
+    columns:
       - name: trans_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the transaction.
+        examples: [1, 430263, 858506, 2060979, 3682987]
       - name: account_id
         type: number(id)
         constraints: [required, foreign_key]
         description: Account the transaction belongs to.
+        examples: [1, 1183, 2367, 3552, 11382]
       - name: date
         type: date
         constraints: [required]
@@ -166,9 +179,11 @@ tables:
       - name: bank
         type: string
         description: Two-letter code identifying the partner's bank.
+        examples: [AB, GH, MN, ST, YZ]
       - name: account
         type: number(id)
         description: Account number of the transaction partner.
+        examples: [0, 24118912, 49954766, 74343323, 99994199]
 
   loan:
     description: >
@@ -177,15 +192,17 @@ tables:
       challenge.
     source:
       parquet: raw-data/loan.parquet
-    fields:
+    columns:
       - name: loan_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the loan.
+        examples: [4959, 5576, 6178, 6753, 7308]
       - name: account_id
         type: number(id)
         constraints: [required, unique, foreign_key]
         description: Account the loan was granted for.
+        examples: [2, 2962, 5742, 8688, 11362]
       - name: date
         type: date
         constraints: [required]
@@ -216,15 +233,17 @@ tables:
       Multiple cards can be issued per account.
     source:
       parquet: raw-data/card.parquet
-    fields:
+    columns:
       - name: card_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the card.
+        examples: [1, 230, 456, 684, 1247]
       - name: disp_id
         type: number(id)
         constraints: [required, foreign_key]
         description: Disposition linking the card to a client and account.
+        examples: [9, 1388, 2929, 4457, 13660]
       - name: type
         type: enum<junior, classic, gold>
         constraints: [required]
@@ -240,15 +259,17 @@ tables:
       the original anonymized names from the PKDD'99 challenge.
     source:
       parquet: raw-data/district.parquet
-    fields:
+    columns:
       - name: district_id
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the district.
+        examples: [1, 20, 39, 58, 77]
       - name: A2
         type: string
         constraints: [required, unique]
         description: District name.
+        examples: [Benesov, Hradec Kralove, Nachod, Rokycany, Znojmo]
       - name: A3
         type: enum
         constraints: [required]

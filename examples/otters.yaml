@@ -6,17 +6,19 @@ tables:
       Morphometric measurements and pregnancy/dependency status from sea otters
       captured or collected in Alaska, 1947-2019 by the U.S. Geological Survey
       (USGS) and the U.S. Fish and Wildlife Service (USFWS).
+    details: >
+      Source: <https://doi.org/10.5066/P9Q5PD3Y>
     source:
       parquet: otters.parquet
-      url: https://doi.org/10.5066/P9Q5PD3Y
-    fields:
+    columns:
       - name: otter_no
         type: string
-        constraints: [required, unique]
+        constraints: [required]
         description: >
           Unique identifier of each individual measured otter. Assigned by
           researchers with a variety of naming conventions across locations
           and time.
+        examples: ["67001", "70066", "90-044", "KOD-04-135", "SW-155"]
 
       - name: recap
         type: enum<0, 1>
@@ -31,22 +33,14 @@ tables:
         type: date
         description: >
           Date of capture or collection. Range: 1947-05-02 to 2019-05-30.
-
-      - name: year
-        type: number(ordinal)
-        description: >
-          Year of capture or collection. Range: 1947 to 2019.
+        examples: [1947-05-02, 1970-05-08, 1992-08-18, 2002-07-23, 2019-05-30]
 
       - name: location
         type: string
         description: >
           Place name of location of capture or collection. Derived from local
           geographic place names.
-
-      - name: state
-        type: enum<Alaska>
-        description: >
-          State (in USA) of capture or collection.
+        examples: [adak, chiniak bay, kiska, SE - whale bay, yukon island]
 
       - name: region
         type: enum<west aleutians, east aleutians, AK peninsula, kodiak, lower cook inlet, PWS, SE>
@@ -230,6 +224,7 @@ tables:
         type: string
         description: >
           Unique identifier of pup, if present and marked.
+        examples: ["67002", "92-198", "KOD_04_121", "SO-08-20", "SO-98-50a"]
 
       - name: pup_sex
         type: enum<F, M, U>

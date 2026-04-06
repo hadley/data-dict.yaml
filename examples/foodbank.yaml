@@ -16,9 +16,9 @@ tables:
 
     source:
       parquet: inst/parquet/food.parquet
-      r: foodbank::food
+      R: foodbank::food
 
-    fields:
+    columns:
       - name: fdc_id
         type: number(id)
         constraints: [primary_key]
@@ -54,9 +54,9 @@ tables:
 
     source:
       parquet: inst/parquet/food_nutrient.parquet
-      r: foodbank::food_nutrient
+      R: foodbank::food_nutrient
 
-    fields:
+    columns:
       - name: id
         type: number(id)
         constraints: [primary_key]
@@ -88,15 +88,15 @@ tables:
           (measured by chemical analysis), "Summed" (sum of component
           nutrients), or "Calculated" (derived from other data).
       - name: min
-        type: number(ordinal)
+        type: number(quantity)
         description: The minimum amount.
         examples: [0, 0.816, 7.8, 63.26, 37200]
       - name: max
-        type: number(ordinal)
+        type: number(quantity)
         description: The maximum amount.
         examples: [0, 0.943, 8.9, 73.5, 40700]
       - name: median
-        type: number(ordinal)
+        type: number(quantity)
         description: The median amount.
         examples: [0, 0.82, 6.875, 58.1, 38500]
       - name: footnote
@@ -109,6 +109,10 @@ tables:
             into account measurement uncertainty. The percent relative
             standard deviation ranged from 0.8-32.7, mean 10.4, median
             5.9 (n=10).
+          - >-
+            1,3:1,6 beta-glucans were determined with the Megazyme
+            Mushroom and Yeast Test Kit (K-YBGL), using sulfuric acid
+            for hydrolysis.
       - name: min_year_acquired
         type: number(ordinal)
         description: >
@@ -123,9 +127,9 @@ tables:
 
     source:
       parquet: inst/parquet/nutrient.parquet
-      r: foodbank::nutrient
+      R: foodbank::nutrient
 
-    fields:
+    columns:
       - name: id
         type: number(id)
         constraints: [primary_key]
@@ -143,11 +147,23 @@ tables:
           - SFA 8:0
           - Zinc, Zn
       - name: unit_name
-        type: string
+        type: enum
         constraints: [required]
         description: >
-          The standard unit of measure for the nutrient.
-        examples: [G, kJ, MG, UG, KCAL]
+          The standard unit of measure for the nutrient:
+
+          - G: grams
+          - IU: international units
+          - KCAL: kilocalories
+          - kJ: kilojoules
+          - MCG_RE: micrograms retinol equivalents
+          - MG: milligrams
+          - MG_ATE: milligrams alpha-tocopherol equivalents
+          - MG_GAE: milligrams gallic acid equivalents
+          - PH: pH
+          - SP_GR: specific gravity
+          - UG: micrograms
+          - UMOL_TE: micromoles Trolox equivalents
       - name: nutrient_nbr
         type: number(id)
         description: >
@@ -170,9 +186,9 @@ tables:
 
     source:
       parquet: inst/parquet/food_portion.parquet
-      r: foodbank::food_portion
+      R: foodbank::food_portion
 
-    fields:
+    columns:
       - name: id
         type: number(id)
         constraints: [primary_key]
@@ -230,10 +246,6 @@ tables:
         description: >
           The number of observations on which the measure is based.
         examples: [1, 13, 32, 60, 826]
-      - name: footnote
-        type: boolean
-        description: >
-          Comments on any unusual aspects of the measure.
       - name: min_year_acquired
         type: number(ordinal)
         constraints: [required]
@@ -247,9 +259,9 @@ tables:
 
     source:
       parquet: inst/parquet/measure_unit.parquet
-      r: foodbank::measure_unit
+      R: foodbank::measure_unit
 
-    fields:
+    columns:
       - name: id
         type: number(id)
         constraints: [primary_key]
@@ -272,9 +284,9 @@ tables:
 
     source:
       parquet: inst/parquet/food_category.parquet
-      r: foodbank::food_category
+      R: foodbank::food_category
 
-    fields:
+    columns:
       - name: id
         type: number(id)
         constraints: [primary_key]

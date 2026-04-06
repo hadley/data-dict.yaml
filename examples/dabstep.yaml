@@ -9,11 +9,12 @@ tables:
     source:
       parquet: data/payments.parquet
 
-    fields:
+    columns:
       - name: psp_reference
         type: number(id)
         constraints: [primary_key]
         description: Unique payment identifier.
+        examples: [10000636248, 29933254267, 49981130818, 70032289018, 89998294921]
       - name: merchant
         type: enum
         constraints: [required]
@@ -73,13 +74,16 @@ tables:
         type: string
         constraints: [required]
         description: Hashed shopper IP address.
+        examples: [__-7u3f9uJKdXS3u_2ukdQ, bYuXXkz9nZuRjS0r9dT-_w, jyxXoQ7r78mNUH0BnlngEw, s-xemKxVf5o0K46vaODxhA, ZzZYJhXWE4MTCE9vcHnCdQ]
       - name: email_address
         type: string
         description: Hashed shopper email address. May be empty.
+        examples: [__-8prajRhB4WeqqIoY5PA, Byq-k5LkiiVbiYjHS95XsQ, jvXaD_MZf_Ljdf7UvAUMpQ, Rz-JZg73tHtXbVEj0wkr_g, ZZzHkjMLX3_pzQtc1HmvBg]
       - name: card_number
         type: string
         constraints: [required]
         description: Hashed card number.
+        examples: [__8Fy8ayxoTnl0EX9DtIhw, c8fAIVb46qwMwy1_z2TpxA, k97dMMQVxeLQjnWvk0hy3Q, s24En6cJp3dNBoLHXSWiWg, zzzp-SYj0U6e5r2ioWVniQ]
       - name: shopper_interaction
         type: enum<Ecommerce, POS>
         constraints: [required]
@@ -90,6 +94,7 @@ tables:
         type: number(id)
         constraints: [required]
         description: Bank Identification Number (first digits of card number).
+        examples: [4017, 4526, 4571, 4802, 4920]
       - name: has_fraudulent_dispute
         type: boolean
         constraints: [required]
@@ -121,11 +126,12 @@ tables:
     source:
       parquet: data/acquirer_countries.parquet
 
-    fields:
+    columns:
       - name: acquirer
         type: string
         constraints: [primary_key]
-        description: Name of the acquiring bank (e.g. "gringotts", "lehman_brothers").
+        description: Name of the acquiring bank.
+        examples: [bank_of_springfield, dagoberts_vault, gringotts, medici, the_savings_and_loan_bank]
       - name: country_code
         type: enum<FR, GB, IT, NL, US>
         constraints: [required]
@@ -139,11 +145,12 @@ tables:
     source:
       parquet: data/merchants.parquet
 
-    fields:
+    columns:
       - name: merchant
         type: string
         constraints: [primary_key]
-        description: Merchant name (e.g. "Crossfit_Hanna", "Belles_cookbook_store").
+        description: Merchant name.
+        examples: [AI_Pro_Labs, Crafty_Cuisine, Gym_Pro, Read_and_Co, Yoga_Masters]
       - name: capture_delay
         type: enum<immediate, <3, 3-5, >5, manual>
         constraints: [required]
@@ -155,6 +162,7 @@ tables:
         type: number(id)
         constraints: [required, foreign_key]
         description: Four-digit Merchant Category Code classifying the business type.
+        examples: [5812, 5814, 7372, 7997, 8299]
       - name: account_type
         type: enum<D, F, H, R, S>
         constraints: [required]
@@ -172,15 +180,17 @@ tables:
     source:
       parquet: data/merchant_acquirers.parquet
 
-    fields:
+    columns:
       - name: merchant
         type: string
         constraints: [required, foreign_key]
         description: Merchant name.
+        examples: [AI_Pro_Labs, Crafty_Cuisine, Gym_Pro, Read_and_Co, Yoga_Masters]
       - name: acquirer
         type: string
         constraints: [required, foreign_key]
         description: Name of the acquiring bank.
+        examples: [bank_of_springfield, dagoberts_vault, gringotts, medici, the_savings_and_loan_bank]
 
   fees:
     description: >
@@ -193,11 +203,12 @@ tables:
     source:
       parquet: data/fees.parquet
 
-    fields:
+    columns:
       - name: ID
         type: number(id)
         constraints: [primary_key]
         description: Unique identifier for the fee rule.
+        examples: [1, 251, 500, 750, 1000]
       - name: card_scheme
         type: enum<GlobalCard, NexPay, SwiftCharge, TransactPlus>
         constraints: [required]
@@ -272,11 +283,12 @@ tables:
     source:
       parquet: data/merchant_months.parquet
 
-    fields:
+    columns:
       - name: merchant
         type: string
         constraints: [primary_key, foreign_key]
         description: Merchant name.
+        examples: [Belles_cookbook_store, Crossfit_Hanna, Golfclub_Baron_Friso, Martinis_Fine_Steakhouse, Rafa_AI]
       - name: year
         type: number(ordinal)
         constraints: [primary_key]
@@ -314,17 +326,17 @@ tables:
     source:
       parquet: data/merchant_category_codes.parquet
 
-    fields:
+    columns:
       - name: mcc
         type: number(id)
         constraints: [primary_key]
-        description: Four-digit Merchant Category Code (e.g. 5411, 5812).
+        description: Four-digit Merchant Category Code.
+        examples: [742, 3286, 3679, 5732, 9950]
       - name: description
         type: string
         constraints: [required]
-        description: >
-          Human-readable description of the merchant category
-          (e.g. "Grocery Stores, Supermarkets").
+        description: Human-readable description of the merchant category.
+        examples: [Grocery Stores, Supermarkets, Eating Places, Restaurants, Computer Software Stores, Recreation Services]
 
 relationships:
   - description: >

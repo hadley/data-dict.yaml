@@ -6,18 +6,11 @@ repos <- list(
   dabstep = "hadley/dabstep"
 )
 
-paths <- list(
-  foodbank = "dd.yaml"
-)
-
-dir.create("examples", showWarnings = FALSE)
-
 for (name in names(repos)) {
   repo <- repos[[name]]
-  path <- paths[[name]] %||% "data-dictionary.yaml"
   url <- paste0(
     "https://raw.githubusercontent.com/", repo,
-    "/refs/heads/main/", path
+    "/refs/heads/main/data-dict.yaml"
   )
   dest <- file.path("examples", paste0(name, ".yaml"))
   download.file(url, dest)

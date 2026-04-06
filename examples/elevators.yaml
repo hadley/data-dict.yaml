@@ -10,7 +10,7 @@ tables:
       transportation devices.
     source:
       parquet: elevators.parquet
-    fields:
+    columns:
       - name: dv_device_number
         type: string
         constraints: [primary_key]
@@ -18,7 +18,8 @@ tables:
           Unique device number assigned by the NYC Department of Buildings.
           Can be used to look up a device on the DOB
           [Building Information Search](http://a810-bisweb.nyc.gov/bisweb/bispi00.jsp)
-          (Field 26). Examples: `1D1`, `2E10045`, `3P10002`.
+          (Field 26).
+        examples: [1D1, 1P26114, 1P47998, 3P14044, 5T722]
 
       - name: device_status
         type: enum<A, D, H, J, W>
@@ -36,33 +37,39 @@ tables:
         description: >
           Building Identification Number, a unique identifier assigned by
           the NYC Department of Buildings to each building. More reliable
-          than street address for geolocation. Examples: `1084781`,
-          `3393648`.
+          than street address for geolocation.
+        examples: [1000003, 1044931, 2018006, 3329429, 5863656]
 
       - name: tax_block
         type: number(id)
         description: >
           Tax block number within the borough, part of the BBL.
+        examples: [1, 1726, 3627, 6356, 16350]
 
       - name: tax_lot
-        type: number(id)
+        type: string
         description: >
-          Tax lot number within the block, part of the BBL.
+          Tax lot number within the block, part of the BBL. Stored as a
+          string because some lots have letter suffixes (e.g. `7501T`).
+        examples: ["1", "276", "483", "992", "7501T"]
 
       - name: house_number
         type: string
         description: >
           Street number portion of the filed at address.
+        examples: ["1", "55", "200", "521", "72-20"]
 
       - name: street_name
         type: string
         description: >
           Street name portion of the filed at address.
+        examples: [BROADWAY, EAST 28 ST, FOOD CENTER DRIVE, HOWARD AVE, SEVENTH AVENUE]
 
       - name: zip_code
         type: string
         description: >
           Five-digit ZIP code for the filed at address.
+        examples: ["10001", "10302", "11109", "11362", "99999"]
 
       - name: borough
         type: enum<Bronx, Brooklyn, Manhattan, Queens, Staten Island>
@@ -96,7 +103,7 @@ tables:
         type: enum
         description: |
           Disposition code from the last periodic inspection.
-          Missing if no inspection on record.
+          Missing if no inspection on record. Common codes include:
           - `DF`: deficiency found
           - `NV`: no violation
           - `PI`: partial inspection
@@ -116,29 +123,30 @@ tables:
           `OTIS ELEV CO` are the same company). Over 2,000 unique values.
           Some entries like `HOUSING AUTHORITY` or `PRIVATE RESIDENCE` describe
           ownership rather than manufacturer.
+        examples: [OTIS, HOUSING AUTHORITY, PRIVATE RESIDENCE, MRL ELEVATOR, STALEY]
 
       - name: dv_travel_distance
         type: string
         description: >
           Vertical travel distance of the device. Often omitted, and when
           present the units and format are highly inconsistent: may be in
-          feet, feet-and-inches, or other notations (e.g. `14'`, `24 FT`,
-          `16'4"`, `73-10`). Use with caution.
+          feet, feet-and-inches, or other notations. Use with caution.
+        examples: ["14'", "24 FT", "16'4\"", "73-10", "410"]
 
       - name: dv_speed_fpm
-        type: number
+        type: number(quantity)
         description: >
           Speed of the device in feet per minute. Common values include
           50, 100, 200, 350. Converted from string by extracting leading
-          numeric values (e.g. `95UP` → 95). 16 unparseable entries
+          numeric values (e.g. `95UP` -> 95). 16 unparseable entries
           (e.g. `----`, `VAR`, `EX`) were set to missing.
 
       - name: dv_capacity_lbs
-        type: number
+        type: number(quantity)
         description: >
           Weight capacity of the device in pounds. Common values include
           2500, 3000, 3500 for passenger elevators. Converted from string
-          by fixing `O`/`o` → `0`, removing commas, and extracting leading
+          by fixing `O`/`o` -> `0`, removing commas, and extracting leading
           numeric values. 6 unparseable entries (e.g. `ESC`, `NIUD`) were
           set to missing.
 
@@ -201,12 +209,14 @@ tables:
           Lowest floor served by the device. May be a number (`1`), a
           letter code (`B` for basement, `C` for cellar, `SB` for
           sub-basement), or other notations.
+        examples: [B, "1", C, SB, L]
 
       - name: dv_floor_to
         type: string
         description: >
           Highest floor served by the device. May be a number or a
           letter code.
+        examples: ["2", "6", "12", PH, R]
 
       - name: latitude
         type: number
