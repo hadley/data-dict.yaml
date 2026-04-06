@@ -77,10 +77,11 @@ Each entry in the `columns` list is a column descriptor with the following prope
 * `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
 * `description` (required): a human-readable description of the column. Can use markdown.
 * `details`: additional information about the column, e.g. how it was computed or edge cases to watch out for. Can be any length.
-There are three additional fields that you use based on the `type`:
 
-* `values`: the allowed values for an `enum` column. Required when `type` is `enum`.
-* `range`: an optional two-element list `[min, max]` giving the inclusive range. Applicable to `number(ordinal)`, `number(quantity)`, `date`, and `datetime` columns. Not needed for `number(id)`.
+Most columns will have one of the following three additional:
+
+* `values`: the allowed values for an `enum` column. Required when `type` is `enum`. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels.
+* `range`: an optional two-element list `[min, max]` giving the inclusive range. Applicable to `number(ordinal)`, `number(quantity)`, `date`, and `datetime` columns.
 * `examples`: a list of ~5 representative values from the column. Highly recommended when `type` is `string`. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
 
 #### Description & details
