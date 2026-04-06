@@ -1,6 +1,6 @@
 # Why not a semantic model?
 
-Tools like Looker, dbt, and other BI platforms use semantic models that classify columns as either **dimensions** (things you group or filter by) or **metrics** (things you aggregate). `dd.yaml` deliberately avoids this split. Here's why.
+Tools like Looker, dbt, and other BI platforms use semantic models that classify columns as either **dimensions** (things you group or filter by) or **metrics** (things you aggregate). `data-dict.yaml` deliberately avoids this split. Here's why.
 
 ## The dimension/metric split is about intent
 
@@ -14,4 +14,4 @@ Looker's dimension groups automatically generate derived columns like `created_d
 
 ## BI tools and data science have different constraints
 
-BI tools need semantic models because the end user can't create their own columns --- every useful view of the data has to be predefined. Data scientists face a different challenge: they can derive any column they need, but they need to understand what the raw data *means*. That's the problem `dd.yaml` is designed to solve.
+BI tools need semantic models because the end user can't create their own columns --- every useful view of the data has to be predefined. Data scientists face a different challenge: they can derive any column they need, but they need to understand what the raw data *means*. That's the problem `data-dict.yaml` is designed to solve.

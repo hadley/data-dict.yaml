@@ -2,7 +2,7 @@
 
 A data dictionary has three top-level keys: 
 
-* [`tables`](#tables) is the where the bulk of most dd.yaml files will be. It describes the tables and their columns.
+* [`tables`](#tables) is the where the bulk of most data-dict.yaml files will be. It describes the tables and their columns.
 * [`relationships`](#relationships) describes the relationships between tables. It gives the details you need to safely create joins.
 * [`glossary`](#glossary) provides a place to define important domain specific terms. This is a good place to write down those special words that your company loves to use.
 

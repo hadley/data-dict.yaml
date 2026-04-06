@@ -1,6 +1,6 @@
-# dd.yaml
+# data-dict.yaml
 
-`dd.yaml` is a data dictionary specification for describing collections of related tables: their contents, constraints, connections, and domain vocabulary. It's designed to be co-written by humans and AI agents.
+`data-dict.yaml` is a data dictionary specification for describing collections of related tables: their contents, constraints, connections, and domain vocabulary. It's designed to be co-written by humans and AI agents.
 
 The repo contains:
 
