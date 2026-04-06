@@ -76,7 +76,7 @@ Each entry in the `columns` list is a column descriptor with the following prope
 * `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
 * `description` (required): a human-readable description of the column. Can use markdown.
 * `details`: additional information about the column, e.g. how it was computed or edge cases to watch out for. Can be any length.
-* `examples`: a list of ~5 representative values from the column. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums don't need examples.
+* `examples`: a list of ~5 representative values from the column. A handful of concrete examples helps LLMs understand the column far better than a description alone. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Enums, numbers(ordinal), and number(quantity) don't need examples.
 
 #### Description & details
 
@@ -124,7 +124,7 @@ The `constraints` property is a list of constraint names. The supported constrai
 `relationships` is a list of join descriptors. Each entry describes how two tables are related.
 
 * `description` (required): human-readable description of the relationship.
-* `cardinality` (required): either `one-to-many` or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
+* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
 * `join` (required): a join expression of the form `table1.column = table2.column`, or `table1.date >= table2.start AND table1.date <= table2.end`.
 * `conflicts`: a list of column names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
 
