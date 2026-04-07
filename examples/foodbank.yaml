@@ -43,9 +43,9 @@ tables:
       - name: publication_date
         type: date
         constraints: [required]
+        range: ["2019-04-01", "2025-12-18"]
         description: >
           Date when the food was published to FoodData Central.
-        examples: ["2019-04-01", "2020-10-30", "2022-10-28", "2024-04-18", "2025-12-18"]
 
   food_nutrient:
     description: >
@@ -74,31 +74,32 @@ tables:
         examples: [1002, 1119, 1227, 1331, 2069]
       - name: amount
         type: number(quantity)
+        range: [-0.705, 38700]
         description: Amount of the nutrient per 100g of food.
-        examples: [-0.705, 0.668, 5.583, 55, 38700]
       - name: data_points
         type: number(quantity)
+        range: [1, 252]
         description: >
           Number of observations on which the value is based.
-        examples: [1, 14, 27, 66, 252]
       - name: derivation
-        type: enum<Analytical, Summed, Calculated>
-        description: >
-          The technique used to derive the nutrient value: "Analytical"
-          (measured by chemical analysis), "Summed" (sum of component
-          nutrients), or "Calculated" (derived from other data).
+        type: enum
+        values:
+          Analytical: Measured by chemical analysis
+          Summed: Sum of component nutrients
+          Calculated: Derived from other data
+        description: The technique used to derive the nutrient value.
       - name: min
         type: number(quantity)
+        range: [0, 37200]
         description: The minimum amount.
-        examples: [0, 0.816, 7.8, 63.26, 37200]
       - name: max
         type: number(quantity)
+        range: [0, 40700]
         description: The maximum amount.
-        examples: [0, 0.943, 8.9, 73.5, 40700]
       - name: median
         type: number(quantity)
+        range: [0, 38500]
         description: The median amount.
-        examples: [0, 0.82, 6.875, 58.1, 38500]
       - name: footnote
         type: string
         description: >
@@ -115,10 +116,10 @@ tables:
             for hydrolysis.
       - name: min_year_acquired
         type: number(ordinal)
+        range: [1999, 2025]
         description: >
           Minimum purchase year of all acquisitions used to derive
           the nutrient value.
-        examples: [1999, 2008, 2014, 2020, 2025]
 
   nutrient:
     description: >
@@ -148,22 +149,21 @@ tables:
           - Zinc, Zn
       - name: unit_name
         type: enum
+        values:
+          G: Grams
+          IU: International units
+          KCAL: Kilocalories
+          kJ: Kilojoules
+          MCG_RE: Micrograms retinol equivalents
+          MG: Milligrams
+          MG_ATE: Milligrams alpha-tocopherol equivalents
+          MG_GAE: Milligrams gallic acid equivalents
+          PH: pH
+          SP_GR: Specific gravity
+          UG: Micrograms
+          UMOL_TE: Micromoles Trolox equivalents
         constraints: [required]
-        description: >
-          The standard unit of measure for the nutrient:
-
-          - G: grams
-          - IU: international units
-          - KCAL: kilocalories
-          - kJ: kilojoules
-          - MCG_RE: micrograms retinol equivalents
-          - MG: milligrams
-          - MG_ATE: milligrams alpha-tocopherol equivalents
-          - MG_GAE: milligrams gallic acid equivalents
-          - PH: pH
-          - SP_GR: specific gravity
-          - UG: micrograms
-          - UMOL_TE: micromoles Trolox equivalents
+        description: The standard unit of measure for the nutrient.
       - name: nutrient_nbr
         type: number(id)
         description: >
@@ -173,10 +173,10 @@ tables:
         examples: [200, 321.2, 511, 693, 961]
       - name: rank
         type: number(ordinal)
+        range: [50, 999999]
         description: >
           Display order used by USDA to sort nutrients in reports;
           more important nutrients appear first.
-        examples: [50, 6242, 10100, 16200, 999999]
 
   food_portion:
     description: >
@@ -202,17 +202,17 @@ tables:
       - name: seq_num
         type: number(ordinal)
         constraints: [required]
+        range: [1, 9]
         description: >
           The order the measure will be displayed on the released
           food.
-        examples: [1, 3, 5, 7, 9]
       - name: amount
         type: number(quantity)
         constraints: [required]
+        range: [0.2, 100]
         description: >
           The number of measure units that comprise the measure
           (e.g. if measure is 3 tsp, the amount is 3).
-        examples: [0.2, 1, 2, 5, 100]
       - name: measure_unit_id
         type: number(id)
         constraints: [required, foreign_key]
@@ -238,21 +238,21 @@ tables:
       - name: gram_weight
         type: number(quantity)
         constraints: [required]
+        range: [3.2, 980]
         description: The weight of the measure in grams.
-        examples: [3.2, 32.1, 115, 186, 980]
       - name: data_points
         type: number(quantity)
         constraints: [required]
+        range: [1, 826]
         description: >
           The number of observations on which the measure is based.
-        examples: [1, 13, 32, 60, 826]
       - name: min_year_acquired
         type: number(ordinal)
         constraints: [required]
+        range: [2000, 2019]
         description: >
           Minimum purchase year of all acquisitions used to derive
           the measure value.
-        examples: [2000, 2008, 2011, 2015, 2019]
 
   measure_unit:
     description: Units for measuring quantities of foods.

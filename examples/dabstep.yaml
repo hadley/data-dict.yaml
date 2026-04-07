@@ -17,31 +17,38 @@ tables:
         examples: [10000636248, 29933254267, 49981130818, 70032289018, 89998294921]
       - name: merchant
         type: enum
+        values: [Belles_cookbook_store, Crossfit_Hanna, Golfclub_Baron_Friso, Martinis_Fine_Steakhouse, Rafa_AI]
         constraints: [required]
-        description: Merchant name (e.g. "Crossfit_Hanna", "Belles_cookbook_store").
+        description: Merchant name.
       - name: card_scheme
-        type: enum<GlobalCard, NexPay, SwiftCharge, TransactPlus>
+        type: enum
+        values: [GlobalCard, NexPay, SwiftCharge, TransactPlus]
         constraints: [required]
         description: Card scheme (network) used for the transaction.
       - name: year
         type: number(ordinal)
         constraints: [required]
+        range: [2023, 2023]
         description: Year of payment initiation. Always 2023 in this dataset.
       - name: hour_of_day
         type: number(ordinal)
         constraints: [required]
+        range: [0, 23]
         description: Hour of the day of payment initiation (0-23).
       - name: minute_of_hour
         type: number(ordinal)
         constraints: [required]
+        range: [0, 59]
         description: Minute of the hour of payment initiation (0-59).
       - name: day_of_year
         type: number(ordinal)
         constraints: [required]
+        range: [1, 365]
         description: Day of the year of payment initiation (1-365).
       - name: month
         type: number(ordinal)
         constraints: [required]
+        range: [1, 12]
         description: Month of payment initiation (1-12).
       - name: is_credit
         type: boolean
@@ -52,22 +59,26 @@ tables:
       - name: eur_amount
         type: number(quantity)
         constraints: [required]
+        range: [0.5, 4811.76]
         description: Payment amount in euros.
       - name: ip_country
-        type: enum<BE, ES, FR, GR, IT, LU, NL, SE>
+        type: enum
+        values: [BE, ES, FR, GR, IT, LU, NL, SE]
         constraints: [required]
         description: >
           Country the shopper was in at the time of the transaction,
           determined by IP address. ISO 3166-1 alpha-2 code.
       - name: issuing_country
-        type: enum<BE, ES, FR, GR, IT, LU, NL, SE>
+        type: enum
+        values: [BE, ES, FR, GR, IT, LU, NL, SE]
         constraints: [required]
         description: >
           Country of the card-issuing bank. ISO 3166-1 alpha-2 code. When
           this matches acquirer_country, the transaction is domestic
           (intracountry).
       - name: device_type
-        type: enum<Android, iOS, Linux, MacOS, Other, Windows>
+        type: enum
+        values: [Android, iOS, Linux, MacOS, Other, Windows]
         constraints: [required]
         description: Device type used for the transaction.
       - name: ip_address
@@ -85,11 +96,12 @@ tables:
         description: Hashed card number.
         examples: [__8Fy8ayxoTnl0EX9DtIhw, c8fAIVb46qwMwy1_z2TpxA, k97dMMQVxeLQjnWvk0hy3Q, s24En6cJp3dNBoLHXSWiWg, zzzp-SYj0U6e5r2ioWVniQ]
       - name: shopper_interaction
-        type: enum<Ecommerce, POS>
+        type: enum
+        values:
+          Ecommerce: Online transactions
+          POS: In-person or in-store transactions
         constraints: [required]
-        description: >
-          Payment method. "Ecommerce" for online transactions, "POS" for
-          in-person or in-store transactions.
+        description: Payment method.
       - name: card_bin
         type: number(id)
         constraints: [required]
@@ -104,17 +116,22 @@ tables:
         constraints: [required]
         description: Whether the transaction was refused by Adyen.
       - name: aci
-        type: enum<A, B, C, D, E, F, G>
+        type: enum
+        values:
+          A: Card present, non-authenticated
+          B: Card present, authenticated
+          C: Tokenized with mobile device
+          D: Card not present, card on file
+          E: Card not present, recurring
+          F: Card not present, 3-D Secure
+          G: Card not present, non-3-D Secure
         constraints: [required]
         description: >
           Authorization Characteristics Indicator. Identifies how the
-          transaction was submitted to the acquirer: A = Card present,
-          non-authenticated; B = Card present, authenticated; C = Tokenized
-          with mobile device; D = Card not present, card on file;
-          E = Card not present, recurring; F = Card not present, 3-D Secure;
-          G = Card not present, non-3-D Secure.
+          transaction was submitted to the acquirer.
       - name: acquirer_country
-        type: enum<FR, GB, IT, NL, US>
+        type: enum
+        values: [FR, GB, IT, NL, US]
         constraints: [required, foreign_key]
         description: >
           Country of the acquiring bank. ISO 3166-1 alpha-2 code.
@@ -133,7 +150,8 @@ tables:
         description: Name of the acquiring bank.
         examples: [bank_of_springfield, dagoberts_vault, gringotts, medici, the_savings_and_loan_bank]
       - name: country_code
-        type: enum<FR, GB, IT, NL, US>
+        type: enum
+        values: [FR, GB, IT, NL, US]
         constraints: [required]
         description: Country of the acquirer. ISO 3166-1 alpha-2 code.
 
@@ -152,24 +170,31 @@ tables:
         description: Merchant name.
         examples: [AI_Pro_Labs, Crafty_Cuisine, Gym_Pro, Read_and_Co, Yoga_Masters]
       - name: capture_delay
-        type: enum<immediate, <3, 3-5, >5, manual>
+        type: enum
+        values:
+          immediate: Immediate capture
+          "<3": Under 3 days
+          "3-5": 3 to 5 days
+          ">5": Over 5 days
+          manual: Manual capture
         constraints: [required]
         description: >
-          Capture delay range. Derived from the original numeric days:
-          "immediate", "<3" (under 3 days), "3-5", ">5" (over 5 days),
-          or "manual". Faster capture is generally more expensive.
+          Capture delay range. Faster capture is generally more expensive.
       - name: merchant_category_code
         type: number(id)
         constraints: [required, foreign_key]
         description: Four-digit Merchant Category Code classifying the business type.
         examples: [5812, 5814, 7372, 7997, 8299]
       - name: account_type
-        type: enum<D, F, H, R, S>
+        type: enum
+        values:
+          D: Enterprise - Digital
+          F: Platform - Franchise
+          H: Enterprise - Hospitality
+          R: Enterprise - Retail
+          S: Platform - SaaS
         constraints: [required]
-        description: >
-          Business model classification: D = Enterprise - Digital,
-          F = Platform - Franchise, H = Enterprise - Hospitality,
-          R = Enterprise - Retail, S = Platform - SaaS.
+        description: Business model classification.
 
   merchant_acquirers:
     description: >
@@ -210,16 +235,29 @@ tables:
         description: Unique identifier for the fee rule.
         examples: [1, 251, 500, 750, 1000]
       - name: card_scheme
-        type: enum<GlobalCard, NexPay, SwiftCharge, TransactPlus>
+        type: enum
+        values: [GlobalCard, NexPay, SwiftCharge, TransactPlus]
         constraints: [required]
         description: Card scheme this rule applies to. Always set (never null).
       - name: account_type
-        type: list<enum<D, F, H, O, R, S>>
+        type: list<enum>
+        values:
+          D: Enterprise - Digital
+          F: Platform - Franchise
+          H: Enterprise - Hospitality
+          R: Enterprise - Retail
+          S: Platform - SaaS
         description: >
           Account types this rule applies to. Empty list means all
           account types.
       - name: capture_delay
-        type: enum<immediate, <3, 3-5, >5, manual>
+        type: enum
+        values:
+          immediate: Immediate capture
+          "<3": Under 3 days
+          "3-5": 3 to 5 days
+          ">5": Over 5 days
+          manual: Manual capture
         description: >
           Capture delay range this rule applies to. Null means all.
           Matches the same enum used in the merchants table.
@@ -236,10 +274,15 @@ tables:
           Maximum monthly fraud level (%) this rule applies to (exclusive).
           Inf means no upper bound.
       - name: monthly_volume
-        type: enum<<100k, 100k-1m, 1m-5m, >5m>
+        type: enum
+        values:
+          "<100k": Under 100k euros
+          100k-1m: 100k to 1m euros
+          1m-5m: 1m to 5m euros
+          ">5m": Over 5m euros
         description: >
           Monthly transaction volume range this rule applies to.
-          Null means all. Amounts in euros.
+          Null means all.
       - name: merchant_category_code
         type: list<number(id)>
         description: >
@@ -250,19 +293,29 @@ tables:
           Whether this rule applies to credit (TRUE) or debit (FALSE)
           transactions. Null means both.
       - name: aci
-        type: list<enum<A, B, C, D, E, F, G>>
+        type: list<enum>
+        values:
+          A: Card present, non-authenticated
+          B: Card present, authenticated
+          C: Tokenized with mobile device
+          D: Card not present, card on file
+          E: Card not present, recurring
+          F: Card not present, 3-D Secure
+          G: Card not present, non-3-D Secure
         description: >
           ACI values this rule applies to. Empty list means all ACI
           values.
       - name: fixed_amount
         type: number(quantity)
         constraints: [required]
+        range: [0, 0.14]
         description: >
           Fixed fee component (also called "absolute fee") in euros
           per transaction.
       - name: rate
         type: number(quantity)
         constraints: [required]
+        range: [10, 99]
         description: >
           Variable fee rate (also called "relative fee"). Multiply by
           transaction value and divide by 10000 to get the variable
@@ -292,10 +345,12 @@ tables:
       - name: year
         type: number(ordinal)
         constraints: [primary_key]
+        range: [2023, 2023]
         description: Year.
       - name: month
         type: number(ordinal)
         constraints: [primary_key]
+        range: [1, 12]
         description: Month (1-12).
       - name: total_volume
         type: number(quantity)
@@ -313,7 +368,12 @@ tables:
         description: >
           Fraud rate as a percentage: fraud_volume / total_volume * 100.
       - name: monthly_volume
-        type: enum<<100k, 100k-1m, 1m-5m, >5m>
+        type: enum
+        values:
+          "<100k": Under 100k euros
+          100k-1m: 100k to 1m euros
+          1m-5m: 1m to 5m euros
+          ">5m": Over 5m euros
         constraints: [required]
         description: >
           Binned total_volume matching the fee rule volume ranges.
@@ -336,7 +396,7 @@ tables:
         type: string
         constraints: [required]
         description: Human-readable description of the merchant category.
-        examples: [Grocery Stores, Supermarkets, Eating Places, Restaurants, Computer Software Stores, Recreation Services]
+        examples: [Concrete Work Contractors, Eating Places Restaurants, Industrial Supplies, Recreation Services, Veterinary Services]
 
 relationships:
   - description: >

@@ -21,19 +21,19 @@ tables:
         examples: ["67001", "70066", "90-044", "KOD-04-135", "SW-155"]
 
       - name: recap
-        type: enum<0, 1>
-        description: |
+        type: enum
+        values:
+          0: Captured only once
+          1: Recaptured at least one time
+        description: >
           Whether the measured otter was captured only once or recaptured at
           least one time.
 
-          - 0: Captured only once
-          - 1: Recaptured at least one time
-
       - name: date
         type: date
+        range: [1947-05-02, 2019-05-30]
         description: >
-          Date of capture or collection. Range: 1947-05-02 to 2019-05-30.
-        examples: [1947-05-02, 1970-05-08, 1992-08-18, 2002-07-23, 2019-05-30]
+          Date of capture or collection.
 
       - name: location
         type: string
@@ -43,182 +43,191 @@ tables:
         examples: [adak, chiniak bay, kiska, SE - whale bay, yukon island]
 
       - name: region
-        type: enum<west aleutians, east aleutians, AK peninsula, kodiak, lower cook inlet, PWS, SE>
-        description: |
+        type: enum
+        values:
+          west aleutians: Western Aleutian Islands
+          east aleutians: Eastern Aleutian Islands
+          AK peninsula: Alaska Peninsula
+          kodiak: Kodiak Island
+          lower cook inlet: Lower Cook Inlet
+          PWS: Prince William Sound
+          SE: Southeast Alaska
+        description: >
           Region within the state of capture or collection (may encompass
           multiple areas).
 
-          - west aleutians: Western Aleutian Islands
-          - east aleutians: Eastern Aleutian Islands
-          - AK peninsula: Alaska Peninsula
-          - kodiak: Kodiak Island
-          - lower cook inlet: Lower Cook Inlet
-          - PWS: Prince William Sound
-          - SE: Southeast Alaska
-
       - name: area
-        type: enum<near islands, rats, delarofs, andreanofs, fox islands, WAP, EAP, shuyak, afognak, kodiak, kachemak, WPWS, EPWS, NSE, CSE, SSE>
-        description: |
+        type: enum
+        values:
+          near islands: Near Island group
+          rats: Rat Island group
+          delarofs: Delarof Island group
+          andreanofs: Andreanof Island group
+          fox islands: Fox Island group
+          WAP: Western Alaska Peninsula
+          EAP: Eastern Alaska Peninsula
+          shuyak: Shuyak Island
+          afognak: Afognak Island
+          kodiak: Kodiak Island
+          kachemak: Kachemak Bay
+          WPWS: Western Prince William Sound
+          EPWS: Eastern Prince William Sound
+          NSE: Northern Southeast Alaska
+          CSE: Central Southeast Alaska
+          SSE: Southern Southeast Alaska
+        description: >
           Area within the state of capture or collection.
-
-          - near islands: Near Island group
-          - rats: Rat Island group
-          - delarofs: Delarof Island group
-          - andreanofs: Andreanof Island group
-          - fox islands: Fox Island group
-          - WAP: Western Alaska Peninsula
-          - EAP: Eastern Alaska Peninsula
-          - shuyak: Shuyak Island
-          - afognak: Afognak Island
-          - kodiak: Kodiak Island
-          - kachemak: Kachemak Bay
-          - WPWS: Western Prince William Sound
-          - EPWS: Eastern Prince William Sound
-          - NSE: Northern Southeast Alaska
-          - CSE: Central Southeast Alaska
-          - SSE: Southern Southeast Alaska
 
       - name: lat
         type: number(quantity)
+        range: [51.37, 60.70]
         description: >
           Latitude of capture or collection location in decimal degrees
-          (WGS84). Range: 51.37 to 60.70.
+          (WGS84).
 
       - name: long
         type: number(quantity)
+        range: [-178.96, 179.40]
         description: >
           Longitude of capture or collection location in decimal degrees
-          (WGS84). Range: -178.96 to 179.40.
+          (WGS84).
 
       - name: sex
-        type: enum<M, F, U>
-        description: |
+        type: enum
+        values: {M: Male, F: Female, U: Unknown}
+        description: >
           Sex of otter.
-
-          - M: Male
-          - F: Female
-          - U: Unknown
 
       - name: weight
         type: number(quantity)
+        range: [0.8, 45.4]
         description: >
-          Weight of otter in kilograms. Range: 0.8 to 45.4.
+          Weight of otter in kilograms.
 
       - name: tail_lgth_1
         type: number(quantity)
+        range: [0, 313.8]
         description: >
           Length of tail in centimeters; first replicate measurement.
-          Range: 0 to 313.8.
 
       - name: tail_lgth_2
         type: number(quantity)
+        range: [21.5, 37.0]
         description: >
           Length of tail in centimeters; second replicate measurement.
-          Range: 21.5 to 37.0.
 
       - name: tail_lgth_3
         type: number(quantity)
+        range: [22.0, 37.0]
         description: >
           Length of tail in centimeters; third replicate measurement.
-          Range: 22.0 to 37.0.
 
       - name: mean_tail_lgth
         type: number(quantity)
+        range: [15.5, 172.9]
         description: >
           Mean of replicate tail length measurements in centimeters.
-          Range: 15.5 to 172.9.
 
       - name: lgth1
         type: number(quantity)
+        range: [40.2, 155.9]
         description: >
           Length of otter including tail in centimeters; first replicate
-          measurement. Range: 40.2 to 155.9.
+          measurement.
 
       - name: lgth2
         type: number(quantity)
+        range: [90.0, 146.5]
         description: >
           Length of otter including tail in centimeters; second replicate
-          measurement. Range: 90.0 to 146.5.
+          measurement.
 
       - name: lgth3
         type: number(quantity)
+        range: [102.2, 143.7]
         description: >
           Length of otter including tail in centimeters; third replicate
-          measurement. Range: 102.2 to 143.7.
+          measurement.
 
       - name: curvilinear_correction
-        type: enum<1, 0.974>
-        description: |
+        type: enum
+        values:
+          1: No correction (standard length)
+          0.974: Correction for curvilinear length
+        description: >
           Correction factor for lengths measured as curvilinear instead of
           standard length.
 
-          - 1: No correction (standard length)
-          - 0.974: Correction for curvilinear length
-
       - name: mean_lgth
         type: number(quantity)
+        range: [40.2, 155.9]
         description: >
           Mean of replicate otter length measurements in centimeters.
-          Range: 40.2 to 155.9.
 
       - name: true_standard_lgth
         type: number(quantity)
+        range: [40.2, 151.9]
         description: >
           Mean length multiplied by curvilinear correction factor, in
-          centimeters. Range: 40.2 to 151.9.
+          centimeters.
 
       - name: body_lgth
         type: number(quantity)
+        range: [-43.4, 115.2]
         description: >
           Body length not including tail (true_standard_lgth -
-          mean_tail_lgth) in centimeters. Range: -43.4 to 115.2.
+          mean_tail_lgth) in centimeters.
 
       - name: curve_lgth1
         type: number(quantity)
+        range: [47.0, 160.0]
         description: >
           Curvilinear length of otter including tail in centimeters; first
-          replicate measurement. Range: 47.0 to 160.0.
+          replicate measurement.
 
       - name: curve_lgth2
         type: number(quantity)
+        range: [111.5, 166.0]
         description: >
           Curvilinear length of otter including tail in centimeters; second
-          replicate measurement. Range: 111.5 to 166.0.
+          replicate measurement.
 
       - name: girth1
         type: number(quantity)
+        range: [29.5, 96.5]
         description: >
           Circumference of chest at xiphoid in centimeters; first replicate
-          measurement. Range: 29.5 to 96.5.
+          measurement.
 
       - name: girth2
         type: number(quantity)
+        range: [74.5, 78.0]
         description: >
           Circumference of chest at xiphoid in centimeters; second replicate
-          measurement. Range: 74.5 to 78.0.
+          measurement.
 
       - name: mean_girth
         type: number(quantity)
+        range: [29.5, 96.5]
         description: >
           Mean of replicate girth measurements in centimeters.
-          Range: 29.5 to 96.5.
 
       - name: paw
         type: number(quantity)
+        range: [34.0, 63.0]
         description: >
           Width of front paw at widest point in millimeters.
-          Range: 34.0 to 63.0.
 
       - name: w_pup
-        type: enum<N, U, D, Y>
-        description: |
+        type: enum
+        values:
+          N: Not with dependent pup
+          U: Unknown
+          D: The individual is the dependent pup
+          Y: With dependent pup
+        description: >
           Whether an adult female was with a dependent pup at capture or
           collection.
-
-          - N: Not with dependent pup
-          - U: Unknown
-          - D: The individual is the dependent pup
-          - Y: With dependent pup
 
       - name: pup_number
         type: string
@@ -227,124 +236,122 @@ tables:
         examples: ["67002", "92-198", "KOD_04_121", "SO-08-20", "SO-98-50a"]
 
       - name: pup_sex
-        type: enum<F, M, U>
-        description: |
+        type: enum
+        values: {F: Female, M: Male, U: Unknown}
+        description: >
           Sex of pup.
-
-          - F: Female
-          - M: Male
-          - U: Unknown
 
       - name: pup_wght
         type: number(quantity)
+        range: [0.9, 28.0]
         description: >
-          Weight of pup in kilograms. Range: 0.9 to 28.0.
+          Weight of pup in kilograms.
 
       - name: pup_lgth
         type: number(quantity)
+        range: [45.8, 113.5]
         description: >
-          Length of pup in centimeters. Range: 45.8 to 113.5.
+          Length of pup in centimeters.
 
       - name: pup_curvlgth
         type: number(quantity)
+        range: [47.0, 113.0]
         description: >
-          Curvilinear length of pup in centimeters. Range: 47.0 to 113.0.
+          Curvilinear length of pup in centimeters.
 
       - name: fetus_pres
-        type: enum<N, Y, M>
-        description: |
+        type: enum
+        values:
+          N: No fetus present
+          Y: Fetus present
+          M: Multiple fetuses present
+        description: >
           Whether fetus was present at time of collection.
-
-          - N: No fetus present
-          - Y: Fetus present
-          - M: Multiple fetuses present
 
       - name: fetus_num
         type: number(quantity)
+        range: [0, 3]
         description: >
-          Number of fetuses present. Range: 0 to 3.
+          Number of fetuses present.
 
       - name: fetus_sex
-        type: enum<M, F, U>
-        description: |
+        type: enum
+        values: {M: Male, F: Female, U: Unknown}
+        description: >
           Sex of fetus.
-
-          - M: Male
-          - F: Female
-          - U: Unknown
 
       - name: fetus_wt
         type: number(quantity)
+        range: [0, 2112.0]
         description: >
-          Weight of fetus in grams. Range: 0 to 2112.0.
+          Weight of fetus in grams.
 
       - name: fetus_lth
         type: number(quantity)
+        range: [0.3, 65.0]
         description: >
-          Length of fetus in centimeters. Range: 0.3 to 65.0.
+          Length of fetus in centimeters.
 
       - name: fe_rep_con
-        type: enum<IMP, UNI, POS, ANE, PRO, EST, FAI>
-        description: |
+        type: enum
+        values:
+          IMP: Implanted pregnant
+          UNI: Unimplanted pregnant
+          ANE: Anestrous
+          EST: In estrous
+          POS: Undocumented
+          PRO: Undocumented
+          FAI: Undocumented
+        description: >
           Female reproductive condition.
 
-          - IMP: Implanted pregnant
-          - UNI: Unimplanted pregnant
-          - ANE: Anestrous
-          - EST: In estrous
-          - POS: Undocumented
-          - PRO: Undocumented
-          - FAI: Undocumented
-
       - name: fe_rep_sta
-        type: enum<N, M, P>
-        description: |
+        type: enum
+        values: {N: Nulliparous, M: Multiparous, P: Primiparous}
+        description: >
           Female reproductive state (collections only).
 
-          - N: Nulliparous
-          - M: Multiparous
-          - P: Primiparous
-
       - name: pregnancy_status
-        type: enum<NP, U, NPP, P, PP, TT>
-        description: |
+        type: enum
+        values:
+          NP: Not pregnant at collection or capture
+          U: Unknown
+          NPP: Not palpably pregnant at capture
+          P: Fetus present at collection or palpably pregnant at capture
+          PP: Undocumented
+          TT: Undocumented
+        description: >
           Pregnancy status.
-
-          - NP: Not pregnant at collection or capture
-          - U: Unknown
-          - NPP: Not palpably pregnant at capture
-          - P: Fetus present at collection or palpably pregnant at capture
-          - PP: Undocumented
-          - TT: Undocumented
 
       - name: can_dia
         type: number(quantity)
+        range: [2.9, 11.1]
         description: >
           Diameter of canine tooth at gum line (widest dimension) in
-          millimeters. Range: 2.9 to 11.1.
+          millimeters.
 
       - name: final_age
         type: number(ordinal)
+        range: [0, 23]
         description: >
           Age of otter at time of capture or collection in years, based on
           known age, tooth cementum age, or field age estimate.
-          Range: 0 to 23.
 
       - name: age_category
-        type: enum<0, 1.5, 7, 13>
-        description: |
+        type: enum
+        values:
+          0: Less than 1 year
+          1.5: 1-2 years
+          7: 3-10 years
+          13: Greater than 10 years
+        description: >
           Age category of otter.
-
-          - 0: Less than 1 year
-          - 1.5: 1-2 years
-          - 7: 3-10 years
-          - 13: Greater than 10 years
 
       - name: bacula_lgth
         type: number(quantity)
+        range: [2.2, 163.4]
         description: >
           Baculum length in centimeters (males only).
-          Range: 2.2 to 163.4.
 
       - name: comments
         type: string
@@ -352,14 +359,14 @@ tables:
           Notes about the capture or collection event.
 
       - name: cause_of_death_capture_method
-        type: enum<0, 1, 4, 5>
-        description: |
+        type: enum
+        values:
+          0: Typical live capture
+          1: Collected via harvest
+          4: Measured after some time in captivity
+          5: Captured off a beach
+        description: >
           Cause of death or capture method.
-
-          - 0: Typical live capture
-          - 1: Collected via harvest
-          - 4: Measured after some time in captivity
-          - 5: Captured off a beach
 
 relationships:
   - description: >

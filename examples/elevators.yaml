@@ -22,15 +22,11 @@ tables:
         examples: [1D1, 1P26114, 1P47998, 3P14044, 5T722]
 
       - name: device_status
-        type: enum<A, D, H, J, W>
+        type: enum
+        values: {A: active, D: dismantled, H: NYCHA, J: no jurisdiction, W: work in progress}
         constraints: [required]
-        description: |
+        description: >
           Single-letter code for the device's registration status.
-          - `A`: active
-          - `D`: dismantled
-          - `H`: NYCHA
-          - `J`: no jurisdiction
-          - `W`: work in progress
 
       - name: bin
         type: number(id)
@@ -72,24 +68,26 @@ tables:
         examples: ["10001", "10302", "11109", "11362", "99999"]
 
       - name: borough
-        type: enum<Bronx, Brooklyn, Manhattan, Queens, Staten Island>
+        type: enum
+        values: [Bronx, Brooklyn, Manhattan, Queens, Staten Island]
         description: >
           NYC borough where the device is located. A small number of rows
           have this field blank.
 
       - name: device_type
         type: enum
-        description: |
-          Type of elevator device, with a letter code in parentheses.
-          - `Passenger Elevator (P)`
-          - `Freight (F)`
-          - `Escalator (E)`
-          - `Dumbwaiter (D)`
-          - `Sidewalk (S)`
-          - `Private Elevator (T)`
-          - `Handicap Lift (H)`
-          - `Manlift (M)`
-          - `Public Elevator (L)`
+        values:
+          - Passenger Elevator (P)
+          - Freight (F)
+          - Escalator (E)
+          - Dumbwaiter (D)
+          - Sidewalk (S)
+          - Private Elevator (T)
+          - Handicap Lift (H)
+          - Manlift (M)
+          - Public Elevator (L)
+        description: >
+          Type of elevator device.
 
       - name: dv_lastper_insp_date
         type: date
@@ -101,13 +99,10 @@ tables:
 
       - name: dv_lastper_insp_disp
         type: enum
-        description: |
+        values: {DF: deficiency found, NV: no violation, PI: partial inspection, VF: violation filed}
+        description: >
           Disposition code from the last periodic inspection.
-          Missing if no inspection on record. Common codes include:
-          - `DF`: deficiency found
-          - `NV`: no violation
-          - `PI`: partial inspection
-          - `VF`: violation filed
+          Missing if no inspection on record.
 
       - name: dv_approval_date
         type: date
@@ -135,6 +130,7 @@ tables:
 
       - name: dv_speed_fpm
         type: number(quantity)
+        range: [0, 1800]
         description: >
           Speed of the device in feet per minute. Common values include
           50, 100, 200, 350. Converted from string by extracting leading
@@ -143,6 +139,7 @@ tables:
 
       - name: dv_capacity_lbs
         type: number(quantity)
+        range: [0, 20000]
         description: >
           Weight capacity of the device in pounds. Common values include
           2500, 3000, 3500 for passenger elevators. Converted from string
@@ -151,52 +148,35 @@ tables:
           set to missing.
 
       - name: dv_car_buffer_type
-        type: string
-        description: |
+        type: enum
+        values: {S: spring, O: oil}
+        description: >
           Type of car buffer. Often missing, particularly for non-elevator
           devices.
-          - `S`: spring
-          - `O`: oil
 
       - name: dv_governor_type
-        type: string
-        description: |
+        type: enum
+        values: {C: centrifugal, F: fly-ball, N: none}
+        description: >
           Type of speed governor. Often missing for non-elevator devices.
-          - `C`: centrifugal (most common)
-          - `F`: fly-ball
-          - `N`: none
 
       - name: dv_machine_type
         type: enum
-        description: |
+        values: {OG: overhead geared, GL: gearless, OH: overhead, BG: basement geared, BD: basement drum, O: other, T: traction}
+        description: >
           Type of hoisting machine. Missing for some devices.
-          - `OG`: overhead geared
-          - `GL`: gearless
-          - `OH`: overhead
-          - `BG`: basement geared
-          - `BD`: basement drum
-          - `O`: other
-          - `T`: traction
 
       - name: dv_safety_type
-        type: string
-        description: |
+        type: enum
+        values: {I: instantaneous, F: flexible guide clamp, G: governor-operated}
+        description: >
           Type of safety device. Missing for roughly half of all devices.
-          - `I`: instantaneous
-          - `F`: flexible guide clamp
-          - `G`: governor-operated
 
       - name: dv_mode_operation
-        type: string
-        description: |
+        type: enum
+        values: {A: automatic, P: push button, E: escalator, C: car-switch, D: dumbwaiter, S: signal control, H: handicap}
+        description: >
           Mode of operation. Missing for some devices.
-          - `A`: automatic
-          - `P`: push button
-          - `E`: escalator
-          - `C`: car-switch
-          - `D`: dumbwaiter
-          - `S`: signal control
-          - `H`: handicap
 
       - name: dv_status_date
         type: date
@@ -219,7 +199,8 @@ tables:
         examples: ["2", "6", "12", PH, R]
 
       - name: latitude
-        type: number
+        type: number(quantity)
+        range: [40.5, 40.9]
         description: >
           Approximate latitude of the device's building, obtained by
           geocoding the BIN, Borough-Block-Lot, or street address via
@@ -227,7 +208,8 @@ tables:
           in error.
 
       - name: longitude
-        type: number
+        type: number(quantity)
+        range: [-74.3, -73.7]
         description: >
           Approximate longitude of the device's building, obtained by
           geocoding. Not authoritative; some values may be in error.
