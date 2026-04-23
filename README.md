@@ -39,6 +39,8 @@ It's worth noting that while semantic models influenced the design of `data-dict
 
 * **Data validation**: There's currently no way to verify that a dataset and spec are consistent. We plan to provide a tool that ensures that your yaml file is correctly structured and consistent with the corresponding data. This allows a `data-dict.yaml` to serve as a data contract, ensuring that data meets agreed-upon expectations.
 
+* **User facing documentation**: There's currently no way to turn your `.yaml` file into attractive HTML documentation of your data. If you've put the time into maintaining an accurate data dictionary, we want to make it easy to turn it into a beautiful website that you can share with your colleagues.
+
 * **Large tables**: A standalone `data-dict.yaml` is not designed for hundreds of tables or hundreds of columns. We also plan to provide tools that allow you to aggregate multiple dictionaries and index larger data catalogs.
 
-* **User facing documentation**: There's currently no way to turn your `.yaml` file into attractive HTML documentation of your data. If you've put the time into maintaining an accurate data dictionary, we want to make it easy to turn it into a beautiful website that you can share with your colleagues.
+* **Export**: Export your data dictionary to other formats like csv, excel, and googlesheets.

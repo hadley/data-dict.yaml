@@ -119,10 +119,10 @@ The `number` type can be qualified with a measure in parentheses that classifies
 
 The `constraints` property is a list of constraint names. The supported constraints are:
 
-* `primary_key`: the set of columns with the `primary_key` constraint uniquely identifies each row. Implies `required`.
+* `primary_key`: the set of columns with the `primary_key` constraint uniquely identifies each row. Implies `required` and `unique`.
+* `foreign_key`: the column references a primary key in another table. The specific relationship is defined in [`relationships`](#relationships).
 * `required`: the column does not contain null/missing values.
 * `unique`: the column's values are distinct (no duplicates).
-* `foreign_key`: the column references a primary key in another table. The specific relationship is defined in [`relationships`](#relationships).
 
 ## Relationships
 
