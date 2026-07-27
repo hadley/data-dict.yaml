@@ -10,7 +10,7 @@ tables:
         type: enum
         values: []
 ────────────────────────────────────────
-error[S25]: An `enum` column must list at least one value.
+error[S24]: An `enum` column must list at least one value.
   --> dict.yaml:8:17
    |
 LL |   - name: table

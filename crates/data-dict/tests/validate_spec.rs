@@ -715,7 +715,7 @@ fn s13_infinite_bound_wrong_end() {
     diagnostic.assert_contains(&["S13", "is greater than the maximum"]);
 }
 
-// --- enum values (S24, S25) ----------------------------------------------
+// --- enum values (S24) ---------------------------------------------------
 
 // S24: the values of an `enum` are the column's values, so they describe one
 // type. The finding points at the value that disagrees with the first.
@@ -777,9 +777,9 @@ fn s24_numbers_may_mix_int_and_float() {
     "});
 }
 
-// S25: an empty `values` permits nothing, in either form.
+// S24: an empty `values` permits nothing, in either form.
 #[test]
-fn s25_empty_enum_values() {
+fn s24_empty_enum_values() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: table
@@ -788,13 +788,13 @@ fn s25_empty_enum_values() {
                 type: enum
                 values: []
     "});
-    diagnostic.assert_contains(&["S25", "is empty"]);
+    diagnostic.assert_contains(&["S24", "is empty"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
 
 #[test]
-fn s25_empty_enum_values_map_form() {
+fn s24_empty_enum_values_map_form() {
     assert_invalid_dict(
         indoc! {"
             tables:
@@ -804,7 +804,7 @@ fn s25_empty_enum_values_map_form() {
                     type: enum
                     values: {}
         "},
-        &["S25", "is empty"],
+        &["S24", "is empty"],
     );
 }
 

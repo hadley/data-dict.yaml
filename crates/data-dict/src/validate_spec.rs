@@ -1000,11 +1000,11 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
     }
 }
 
-// --- S24 / S25 --------------------------------------------------------
+// --- S24 --------------------------------------------------------------
 
-/// An `enum`'s values are the values of the column, so they must describe one
-/// type (S24) and there must be some (S25). Both forms reach here the same way:
-/// the map form's keys are lowered as its values.
+/// An `enum`'s values are the values of the column, so there must be some and
+/// they must describe one type. Both forms reach here the same way: the map
+/// form's keys are lowered as its values.
 fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
     if col.col_type.as_ref().map(|t| t.value.as_str()) != Some("enum") {
         return;
@@ -1015,7 +1015,7 @@ fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
 
     let Some((first, rest)) = values.items.split_first() else {
         out.push_spec_error(
-            "S25",
+            "S24",
             "An `enum` column must list at least one value.",
             "is empty",
             at(&values.span),
