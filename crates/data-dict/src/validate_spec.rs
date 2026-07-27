@@ -252,9 +252,32 @@ impl TableEnv<'_> {
             Some("boolean") => ColumnKind::Bool,
             Some("date") => ColumnKind::Date,
             Some("datetime") => ColumnKind::Datetime,
-            Some("enum") => ColumnKind::Enum,
+            Some("enum") => Self::enum_kind(col),
             _ => ColumnKind::Untyped,
         }
+    }
+
+    /// An `enum` is whatever type its values are. Values of more than one kind
+    /// describe no single type, so the column stays untyped.
+    fn enum_kind(col: &Column) -> ColumnKind {
+        let Some(values) = &col.values else {
+            return ColumnKind::Untyped;
+        };
+        let mut kind = None;
+        for item in &values.items {
+            let item_kind = match item.value {
+                Scalar::Int(_) | Scalar::Float(_) => ColumnKind::Number,
+                Scalar::String(_) => ColumnKind::String,
+                Scalar::Bool(_) => ColumnKind::Bool,
+                Scalar::Null | Scalar::Compound => return ColumnKind::Untyped,
+            };
+            match kind {
+                None => kind = Some(item_kind),
+                Some(prev) if prev == item_kind => {}
+                Some(_) => return ColumnKind::Untyped,
+            }
+        }
+        kind.unwrap_or(ColumnKind::Untyped)
     }
 }
 
@@ -317,6 +340,7 @@ fn run_assertion_check(
         let expected = match finding.code {
             "S20" => "An assertion may only reference columns of its table.",
             "S22" => "A `COLUMNS(...)` selection should match at least one column.",
+            "S23" => "An assertion may only use columns with a declared `type`.",
             _ => "An assertion must be a well-typed boolean expression.",
         };
         match finding.severity {

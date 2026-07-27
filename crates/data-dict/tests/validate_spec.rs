@@ -1081,6 +1081,83 @@ fn constraints_date_literal_comparison_ok() {
     "});
 }
 
+// An `enum` behaves as whatever type its values are, so a string enum takes the
+// string functions.
+#[test]
+fn constraints_enum_takes_its_value_type() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: sex
+                type: enum
+                values: [M, F, U]
+                constraints:
+                  - assert: LENGTH(sex) = 1
+              - name: grade
+                type: enum
+                values: [1, 2, 3]
+                constraints:
+                  - assert: grade > 0
+    "});
+}
+
+// S21: a number-valued enum is a number, so string functions don't apply.
+#[test]
+fn constraints_s21_enum_value_type_mismatch() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: grade
+                    type: enum
+                    values: [1, 2, 3]
+                    constraints:
+                      - assert: LENGTH(grade) = 1
+        "},
+        &["S21", "LENGTH", "a number"],
+    );
+}
+
+// S23: a column listed by name only has no type, so it can't be used where one
+// matters.
+#[test]
+fn constraints_s23_untyped_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+              - name: notes
+            constraints:
+              - assert: notes > a
+    "});
+    diagnostic.assert_contains(&["S23", "`notes`", "no declared type"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// An untyped column is fine where no type is needed: a null test asks nothing of
+// its operand, and neither does `COLUMNS(*) IS NOT NULL`.
+#[test]
+fn constraints_untyped_column_needs_no_type_for_null_tests() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+              - name: notes
+            constraints:
+              - assert: notes IS NOT NULL
+              - assert: COLUMNS(*) IS NOT NULL
+    "});
+}
+
 // S22: a `COLUMNS('<regex>')` that matches no column is a warning, not an error.
 #[test]
 fn constraints_s22_columns_regex_matches_nothing() {

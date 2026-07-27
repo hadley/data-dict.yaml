@@ -801,9 +801,9 @@ impl<'a> Parser<'a> {
 
 // --- Semantic checking (S20 / S21) ----------------------------------------
 
-/// The kind a column resolves to for type checking. `Enum` and `Untyped` are
-/// wildcards: they never trigger a type mismatch, since an enum's values may be
-/// of any scalar type and an untyped column tells us nothing.
+/// The kind a column resolves to for type checking. An `enum` resolves to the
+/// kind of its values; `Untyped` is a column the dictionary says nothing about,
+/// which can't be used where a type matters (S23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColumnKind {
     Number,
@@ -811,7 +811,6 @@ pub enum ColumnKind {
     Bool,
     Date,
     Datetime,
-    Enum,
     Untyped,
 }
 
@@ -829,8 +828,8 @@ pub trait CheckEnv {
 }
 
 /// One problem found in an assertion, with its byte span in the source
-/// expression. `code` is `"S20"` (unknown column), `"S21"` (ill-typed), or
-/// `"S22"` (empty column selection, a warning).
+/// expression. `code` is `"S20"` (unknown column), `"S21"` (ill-typed), `"S22"`
+/// (empty column selection, a warning), or `"S23"` (untyped column).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub code: &'static str,
@@ -846,10 +845,12 @@ pub enum FindingSeverity {
     Warning,
 }
 
-/// The inferred type of a subexpression. `Any` is the permissive top: it stands
-/// for a value whose type we can't pin down (an untyped/enum column, `NULL`, or
-/// a subexpression already reported as wrong), and it is compatible with
-/// everything so a single root cause yields a single diagnostic.
+/// The inferred type of a subexpression. Two variants are not real types, and
+/// they are opposites: `Any` is the permissive top (`NULL`, or a subexpression
+/// already reported as wrong) and is compatible with everything, so a single
+/// root cause yields a single diagnostic; `Unknown` is a column with no
+/// declared `type`, and is compatible with nothing — using it where a type
+/// matters is S23.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ty {
     Number,
@@ -859,6 +860,7 @@ enum Ty {
     Datetime,
     Interval,
     Any,
+    Unknown,
 }
 
 impl Ty {
@@ -871,6 +873,7 @@ impl Ty {
             Ty::Datetime => "a datetime",
             Ty::Interval => "an interval",
             Ty::Any => "a value",
+            Ty::Unknown => "a value of unknown type",
         }
     }
 }
@@ -882,7 +885,7 @@ fn kind_to_ty(kind: ColumnKind) -> Ty {
         ColumnKind::Bool => Ty::Bool,
         ColumnKind::Date => Ty::Date,
         ColumnKind::Datetime => Ty::Datetime,
-        ColumnKind::Enum | ColumnKind::Untyped => Ty::Any,
+        ColumnKind::Untyped => Ty::Unknown,
     }
 }
 
@@ -895,9 +898,9 @@ fn join_nouns(types: &[Ty]) -> String {
         .join(" or ")
 }
 
-/// Check a parsed assertion against `env`, returning every S20/S21 finding in
-/// source order. The expression must evaluate to a boolean, at most one
-/// `COLUMNS(...)` may appear, and every operand must be well-typed.
+/// Check a parsed assertion against `env`, returning every finding in source
+/// order. The expression must evaluate to a boolean, at most one `COLUMNS(...)`
+/// may appear, and every operand whose type matters must have a known one.
 pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
     let mut cx = Checker {
         env,
@@ -909,6 +912,8 @@ pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
     // stands for each selected column, so every one of those must be boolean.
     if let ExprKind::Columns(sel) = &expr.root.kind {
         cx.require_columns(&expr.root, sel, &[Ty::Bool], "an assertion");
+    } else if ty == Ty::Unknown {
+        cx.report_unknown(&expr.root);
     } else if !matches!(ty, Ty::Bool | Ty::Any) {
         cx.report(
             "S21",
@@ -929,6 +934,9 @@ pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
         }
     }
     cx.findings.sort_by_key(|f| (f.start, f.end));
+    // A node can be visited twice — inferred, then required by its parent — so
+    // the same fault can be recorded twice.
+    cx.findings.dedup();
     cx.findings
 }
 
@@ -949,9 +957,19 @@ impl Checker<'_> {
         });
     }
 
+    /// Report the S23 for a value used where its type matters but isn't known.
+    fn report_unknown(&mut self, e: &Expr) {
+        let message = match &e.kind {
+            ExprKind::Column(name) => format!("column `{name}` has no declared type"),
+            _ => "this value's type is unknown".to_string(),
+        };
+        self.report("S23", message, e);
+    }
+
     /// Require `e` to have a type in `allowed` (with `Any` always accepted),
-    /// reporting an S21 against `e` naming `ctx` if not. A `COLUMNS(...)` operand
-    /// is checked per selected column, since the predicate applies to each.
+    /// reporting an S21 against `e` naming `ctx` if not, or an S23 if `e`'s type
+    /// isn't known at all. A `COLUMNS(...)` operand is checked per selected
+    /// column, since the predicate applies to each.
     fn require(&mut self, e: &Expr, allowed: &[Ty], ctx: &str) {
         if let ExprKind::Columns(sel) = &e.kind {
             self.infer(e);
@@ -959,7 +977,9 @@ impl Checker<'_> {
             return;
         }
         let ty = self.infer(e);
-        if ty != Ty::Any && !allowed.contains(&ty) {
+        if ty == Ty::Unknown {
+            self.report_unknown(e);
+        } else if ty != Ty::Any && !allowed.contains(&ty) {
             self.report(
                 "S21",
                 format!("{ctx} expects {}, found {}", join_nouns(allowed), ty.noun()),
@@ -972,7 +992,9 @@ impl Checker<'_> {
     fn require_columns(&mut self, cols: &Expr, sel: &ColumnsSelector, allowed: &[Ty], ctx: &str) {
         for (name, kind) in self.matched_columns(sel) {
             let ty = kind_to_ty(kind);
-            if ty != Ty::Any && !allowed.contains(&ty) {
+            if ty == Ty::Unknown {
+                self.report("S23", format!("column `{name}` has no declared type"), cols);
+            } else if ty != Ty::Any && !allowed.contains(&ty) {
                 self.report(
                     "S21",
                     format!(
@@ -1086,6 +1108,17 @@ impl Checker<'_> {
     fn infer_arith(&mut self, op: ArithOp, lhs: &Expr, rhs: &Expr) -> Ty {
         let lt = self.infer(lhs);
         let rt = self.infer(rhs);
+        // An unknown operand decides nothing about the result, so report it here
+        // rather than letting the numeric path below blame the other operand.
+        if lt == Ty::Unknown || rt == Ty::Unknown {
+            if lt == Ty::Unknown {
+                self.report_unknown(lhs);
+            }
+            if rt == Ty::Unknown {
+                self.report_unknown(rhs);
+            }
+            return Ty::Any;
+        }
         // Date/datetime plus or minus an interval yields the same date kind.
         if matches!(op, ArithOp::Add | ArithOp::Sub) {
             for (date_ty, other_ty) in [(lt, rt), (rt, lt)] {
@@ -1117,6 +1150,15 @@ impl Checker<'_> {
         }
         let at = self.infer(a);
         let bt = self.infer(b);
+        if at == Ty::Unknown || bt == Ty::Unknown {
+            if at == Ty::Unknown {
+                self.report_unknown(a);
+            }
+            if bt == Ty::Unknown {
+                self.report_unknown(b);
+            }
+            return;
+        }
         if !self.types_comparable(at, a, bt, b) {
             self.report(
                 "S21",
@@ -1129,9 +1171,15 @@ impl Checker<'_> {
     /// Each column a `COLUMNS(...)` node selects must be comparable with `other`.
     fn compare_columns(&mut self, cols: &Expr, sel: &ColumnsSelector, other: &Expr) {
         let ot = self.infer(other);
+        if ot == Ty::Unknown {
+            self.report_unknown(other);
+            return;
+        }
         for (name, kind) in self.matched_columns(sel) {
             let ct = kind_to_ty(kind);
-            if !self.types_comparable(ct, cols, ot, other) {
+            if ct == Ty::Unknown {
+                self.report("S23", format!("column `{name}` has no declared type"), cols);
+            } else if !self.types_comparable(ct, cols, ot, other) {
                 self.report(
                     "S21",
                     format!(
@@ -1302,16 +1350,26 @@ impl Checker<'_> {
             self.require(cond, &[Ty::Bool], "a `CASE` condition");
         }
         // The result type is the branches' common type, or `Any` if they differ.
+        // One unknown branch makes the whole result unknown, so the S23 lands
+        // where the `CASE` is used rather than on an arbitrary branch.
         let mut result: Option<Ty> = None;
+        let mut unknown = false;
         let branches = whens.iter().map(|(_, r)| r).chain(els);
         for r in branches {
             let t = self.infer(r);
+            if t == Ty::Unknown {
+                unknown = true;
+                continue;
+            }
             result = Some(match result {
                 None => t,
                 Some(prev) if prev == t || t == Ty::Any => prev,
                 Some(Ty::Any) => t,
                 Some(_) => Ty::Any,
             });
+        }
+        if unknown {
+            return Ty::Unknown;
         }
         result.unwrap_or(Ty::Any)
     }
@@ -1340,7 +1398,6 @@ mod tests {
             ("start_date", ColumnKind::Date),
             ("end_date", ColumnKind::Date),
             ("ts", ColumnKind::Datetime),
-            ("e", ColumnKind::Enum),
             ("u", ColumnKind::Untyped),
         ];
     }
@@ -1644,10 +1701,39 @@ mod tests {
     }
 
     #[test]
-    fn enum_and_untyped_columns_are_permissive() {
-        assert!(check_str("e = 'anything'").is_empty());
-        assert!(check_str("u > 5").is_empty());
-        assert!(check_str("u").is_empty());
+    fn untyped_column_where_a_type_matters_is_s23() {
+        for expr in ["u > 5", "u", "LENGTH(u)", "u AND flag", "u + 1 > 0"] {
+            let f = check_str(expr);
+            assert!(
+                f.iter()
+                    .any(|f| f.code == "S23" && f.message.contains("`u`")),
+                "expected S23 for `{expr}`, got {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn untyped_column_is_fine_where_no_type_is_needed() {
+        assert!(check_str("u IS NOT NULL").is_empty());
+        assert!(check_str("NOT(q3) OR u IS NULL").is_empty());
+    }
+
+    #[test]
+    fn untyped_column_is_reported_once() {
+        let f = check_str("u + 1 > 0");
+        assert_eq!(f.iter().filter(|f| f.code == "S23").count(), 1);
+    }
+
+    #[test]
+    fn columns_star_reports_untyped_columns_only_when_typed() {
+        // `IS NOT NULL` asks nothing of `u`, but a boolean assertion does.
+        assert!(check_str("COLUMNS(*) IS NOT NULL").is_empty());
+        let f = check_str("COLUMNS(*)");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S23" && f.message.contains("`u`")),
+            "got {f:?}"
+        );
     }
 
     #[test]

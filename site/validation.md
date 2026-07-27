@@ -52,6 +52,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S20 | Unknown assertion column | E | An `assert` expression, or a `COLUMNS([...])` list, references a column not present on the table. |
 | S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, or a malformed `SIMILAR TO` / `COLUMNS('...')` regex. |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
+| S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only, with no declared `type`, somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 

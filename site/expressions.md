@@ -42,23 +42,24 @@ Every expression has a type. These are the language's own types, close to but no
 
 | Type | Where it comes from |
 |------|---------------------|
-| `number` | A `number` column (any measure), a numeric literal, arithmetic, or a numeric function. |
-| `string` | A `string` column or a quoted literal. |
-| `boolean` | A `boolean` column, `TRUE`/`FALSE`, or any comparison or logical operator. |
+| `number` | A `number` column (any measure), a number-valued `enum`, a numeric literal, arithmetic, or a numeric function. |
+| `string` | A `string` column, a string-valued `enum`, or a quoted literal. |
+| `boolean` | A `boolean` column, a boolean-valued `enum`, `TRUE`/`FALSE`, or any comparison or logical operator. |
 | `date` | A `date` column, or a date plus or minus an interval. |
 | `datetime` | A `datetime` column, `NOW()`, or a datetime plus or minus an interval. |
 | `interval` | `interval(<n>, <unit>)`. A duration; it only exists inside an expression, never as a column type. |
 
 : {tbl-colwidths="[15,85]"}
 
-Two kinds of column have no fixed type in an expression, and so are accepted wherever any type is:
+An **`enum`** takes the type of its `values` since that's what the column actually holds: `[M, F, U]` is a `string`, `[1, 2, 3]` a `number`, and `[true, false]` a `boolean`. The map form takes the type of its keys, so `{M: Male, F: Female}` is a `string` too. An enum behaves exactly like its value type — a string enum can be measured with `LENGTH` and matched with `LIKE`, a number enum can be compared with `<`.
 
-* An **`enum`** column, whose `values` may be strings, numbers, or booleans.
-* A column listed by **name only**, with no `type` — the dictionary says nothing about what it holds.
+A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error (S23): nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
 
-`NULL` is likewise typeless and compatible with everything.
+An unknown type is only a problem where a type is actually needed. `IS NULL` and `IS NOT NULL` ask nothing of their operand, so `u IS NOT NULL` — and `COLUMNS(*) IS NOT NULL` on a table with undocumented columns — is fine; `LENGTH(u)` and `u > 5` are not.
 
-The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares.
+`NULL` is the one genuinely typeless thing in the language, and stays compatible with every type.
+
+The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares. Nor does an enum's type follow the *look* of its values: `values: [2024-01-01, 2024-01-02]` is a `string` enum, not a `date` column, so it can't be compared with `NOW()`.
 
 ## Literals
 
@@ -309,7 +310,7 @@ The lambda form (`COLUMNS(c -> ...)`) and the star modifiers (`EXCLUDE`, `REPLAC
 
 Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression is S19, an unknown column S20, an ill-typed expression S21, and an empty column selection S22; see [validation](validation.md) for the full list.
 
-Four rules decide whether an expression is well typed. Types that can't be pinned down are permissive rather than an error, so an `enum` column or a column with no declared `type` never trips a type check. The trade-off is deliberate: adding a `type` buys you more checking.
+Four rules decide whether an expression is well typed, and a fifth (S23, above) requires that every operand whose type matters has one. The more the dictionary says about a column, the more of an expression can be checked.
 
 ### The expression as a whole must be boolean
 
@@ -326,7 +327,7 @@ Two operands may be compared when any of the following holds:
 * They have the same type.
 * Both are temporal — a `date` may be compared with a `datetime`, so `some_date < NOW()` is fine.
 * One is a string literal whose text parses as the other side's type, which is how `birthdate >= '2000-01-01'` works. This applies to literals only; a `string` *column* can't be compared with a `date` column.
-* Either is typeless: an `enum` column, a name-only column, or `NULL`.
+* One is `NULL`, which is compatible with everything.
 
 ### A `CASE` must have one result type
 
