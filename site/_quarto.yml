@@ -20,6 +20,8 @@ website:
         text: Overview
       - href: spec.md
         text: Specification
+      - href: expressions.md
+        text: Expressions
       - href: validation.md
         text: Validation
       - href: examples/index.qmd
