@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: table
+    columns:
+      - name: grade
+        type: enum
+        values: []
+────────────────────────────────────────
+error[S25]: An `enum` column must list at least one value.
+  --> dict.yaml:8:17
+   |
+LL |   - name: table
+LL |     columns:
+LL |       - name: grade
+LL |         type: enum
+LL |         values: []
+   |                 ^ is empty

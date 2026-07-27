@@ -52,10 +52,12 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S20 | Unknown assertion column | E | An `assert` expression, or a `COLUMNS([...])` list, references a column not present on the table. |
 | S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, or a malformed `SIMILAR TO` / `COLUMNS('...')` regex. |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
+| S24 | Mixed enum values | E | An `enum`'s `values` are not all of the same type — some are strings and some numbers, say. The values are what the column holds, so they describe one type or no column at all. Both forms are checked: the list items, and the keys of the map form. |
+| S25 | Empty enum values | E | An `enum`'s `values` is empty (`[]` or `{}`), so it permits nothing and describes no column. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
-(An `enum`'s `values` are constrained structurally by the schema rather than by an `S` check: each value must be a scalar, and in the map form each label must be a string. The `version` map's allowed keys and their value types are likewise structural; S17 covers only the semantics the schema can't express.)
+(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers the part the schema can't express, that they agree with each other. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest.)
 
 ## Metadata-validation checks
 

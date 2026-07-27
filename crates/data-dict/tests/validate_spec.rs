@@ -715,6 +715,99 @@ fn s13_infinite_bound_wrong_end() {
     diagnostic.assert_contains(&["S13", "is greater than the maximum"]);
 }
 
+// --- enum values (S24, S25) ----------------------------------------------
+
+// S24: the values of an `enum` are the column's values, so they describe one
+// type. The finding points at the value that disagrees with the first.
+#[test]
+fn s24_mixed_enum_values() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: [1, 2, unknown]
+    "});
+    diagnostic.assert_contains(&["S24", "is a string, but the first value is a number"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S24: the map form is checked the same way, since its keys are its values.
+#[test]
+fn s24_mixed_enum_values_map_form() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: grade
+                    type: enum
+                    values: {1: One, unknown: Unknown}
+        "},
+        &["S24", "is a string, but the first value is a number"],
+    );
+}
+
+// Every value that disagrees is reported, not just the first.
+#[test]
+fn s24_reports_every_mixed_value() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: [1, unknown, missing]
+    "});
+    assert_eq!(diagnostic.rendered.matches("S24").count(), 2);
+}
+
+// Integers and floats are both numbers, so they may be mixed freely.
+#[test]
+fn s24_numbers_may_mix_int_and_float() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: [1, 2.5, 3]
+    "});
+}
+
+// S25: an empty `values` permits nothing, in either form.
+#[test]
+fn s25_empty_enum_values() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: []
+    "});
+    diagnostic.assert_contains(&["S25", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s25_empty_enum_values_map_form() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: grade
+                    type: enum
+                    values: {}
+        "},
+        &["S25", "is empty"],
+    );
+}
+
 // --- version (S17) -------------------------------------------------------
 
 // The three valid forms of the optional top-level `version`: a date, a
