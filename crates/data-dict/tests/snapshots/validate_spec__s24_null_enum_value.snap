@@ -8,14 +8,14 @@ tables:
     columns:
       - name: grade
         type: enum
-        values: [1, 2, unknown]
+        values: {pass: Pass, ~: Unknown}
 ────────────────────────────────────────
-error[S24]: An `enum`'s values must all be of the same type.
-  --> dict.yaml:8:24
+error[S24]: An `enum`'s values must be strings.
+  --> dict.yaml:8:30
    |
 LL |   - name: table
 LL |     columns:
 LL |       - name: grade
 LL |         type: enum
-LL |         values: [1, 2, unknown]
-   |                        ^^^^^^^ is a string, but the first value is a number
+LL |         values: {pass: Pass, ~: Unknown}
+   |                              ^ is null

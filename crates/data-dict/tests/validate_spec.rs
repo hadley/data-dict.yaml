@@ -717,64 +717,36 @@ fn s13_infinite_bound_wrong_end() {
 
 // --- enum values (S24) ---------------------------------------------------
 
-// S24: the values of an `enum` are the column's values, so they describe one
-// type. The finding points at the value that disagrees with the first.
+// S24: a value that can't be a category whichever way it was written. A number
+// or boolean is accepted instead, because the parser discards quote style, so
+// `1` here may be `'1'` in the file (the limitation S12 works around too).
 #[test]
-fn s24_mixed_enum_values() {
+fn s24_null_enum_value() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: table
             columns:
               - name: grade
                 type: enum
-                values: [1, 2, unknown]
+                values: {pass: Pass, ~: Unknown}
     "});
-    diagnostic.assert_contains(&["S24", "is a string, but the first value is a number"]);
+    diagnostic.assert_contains(&["S24", "is null"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
 
-// S24: the map form is checked the same way, since its keys are its values.
+// A category coded as a number reaches us as a number even when quoted, so it
+// has to be accepted.
 #[test]
-fn s24_mixed_enum_values_map_form() {
-    assert_invalid_dict(
-        indoc! {"
-            tables:
-              - name: table
-                columns:
-                  - name: grade
-                    type: enum
-                    values: {1: One, unknown: Unknown}
-        "},
-        &["S24", "is a string, but the first value is a number"],
-    );
-}
-
-// Every value that disagrees is reported, not just the first.
-#[test]
-fn s24_reports_every_mixed_value() {
-    let diagnostic = failing_dict(indoc! {"
+fn s24_numeric_codes_ok() {
+    assert_valid_dict(indoc! {r#"
         tables:
           - name: table
             columns:
               - name: grade
                 type: enum
-                values: [1, unknown, missing]
-    "});
-    assert_eq!(diagnostic.rendered.matches("S24").count(), 2);
-}
-
-// Integers and floats are both numbers, so they may be mixed freely.
-#[test]
-fn s24_numbers_may_mix_int_and_float() {
-    assert_valid_dict(indoc! {"
-        tables:
-          - name: table
-            columns:
-              - name: grade
-                type: enum
-                values: [1, 2.5, 3]
-    "});
+                values: ["1", "2", "3"]
+    "#});
 }
 
 // S24: an empty `values` permits nothing, in either form.

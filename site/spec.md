@@ -137,7 +137,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property.
+* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
 
 #### Measures
 
@@ -162,7 +162,7 @@ A `number(quantity)` column can also declare its `units`: a free-text string nam
 
 Every type has some way of representing the data it contains: an exhaustive set of values, a range, or a handful of examples. Each such column carries exactly one of the following three properties, determined by the column's `type`:
 
-* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be scalars (string, number, or boolean); in the map form the labels must be strings. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.) All of the values must be of the **same** type — all strings, all numbers, or all booleans — and there must be at least one of them.
+* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be **strings**, and there must be at least one of them; in the map form the labels must be strings too. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
 * `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Used for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`.

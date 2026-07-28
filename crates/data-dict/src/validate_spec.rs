@@ -1002,9 +1002,9 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
 
 // --- S24 --------------------------------------------------------------
 
-/// An `enum`'s values are the values of the column, so there must be some and
-/// they must describe one type. Both forms reach here the same way: the map
-/// form's keys are lowered as its values.
+/// An enum's values are the categories of the column, so there must be some and
+/// each must be a string. Both forms reach here the same way: the map form's
+/// keys are lowered as its values.
 fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
     if col.col_type.as_ref().map(|t| t.value.as_str()) != Some("enum") {
         return;
@@ -1013,7 +1013,7 @@ fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
     let Some(values) = &col.values else { return };
     let at = |span: &SourceInfo| [table.name.span.clone(), col.name.span.clone(), span.clone()];
 
-    let Some((first, rest)) = values.items.split_first() else {
+    if values.items.is_empty() {
         out.push_spec_error(
             "S24",
             "An `enum` column must list at least one value.",
@@ -1021,36 +1021,21 @@ fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
             at(&values.span),
         );
         return;
-    };
-    for item in rest {
-        if !same_scalar_kind(&first.value, &item.value) {
+    }
+    // The spec requires strings, but the YAML parser discards quote style — a
+    // quoted `'1'` arrives as a number, exactly as it does for S12 — so a
+    // number or boolean here may well be a string in the file. Only a value
+    // that can't be a category either way is rejected.
+    for item in &values.items {
+        if matches!(item.value, Scalar::Null | Scalar::Compound) {
             out.push_spec_error(
                 "S24",
-                "An `enum`'s values must all be of the same type.",
-                format!(
-                    "is {}, but the first value is {}",
-                    item.value.noun(),
-                    first.value.noun()
-                ),
+                "An `enum`'s values must be strings.",
+                format!("is {}", item.value.noun()),
                 at(&item.span),
             );
         }
     }
-}
-
-/// Whether two values are of the same kind, which for a number means either
-/// spelling: `[1, 2.5]` is one type.
-fn same_scalar_kind(a: &Scalar, b: &Scalar) -> bool {
-    matches!(
-        (a, b),
-        (
-            Scalar::Int(_) | Scalar::Float(_),
-            Scalar::Int(_) | Scalar::Float(_)
-        ) | (Scalar::String(_), Scalar::String(_))
-            | (Scalar::Bool(_), Scalar::Bool(_))
-            | (Scalar::Null, Scalar::Null)
-            | (Scalar::Compound, Scalar::Compound)
-    )
 }
 
 // --- S13 --------------------------------------------------------------
