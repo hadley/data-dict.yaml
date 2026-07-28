@@ -11,6 +11,8 @@ The metadata keys are:
 
 The descriptive keys — `name`, `label`, `description`, and `details` — identify and document the dataset as a whole. All four are optional here, and work the same way at every level of the dictionary; see [Name, label, description & details](#name-label-description--details) for their full meaning. For the dataset, `name` is a terse identifier (e.g. `foodbank`) and `label` its human-readable title.
 
+The dataset may also carry an optional `origin` key: a link to the code that produced it (see [Origin](#origin)). The same key is available on each table.
+
 In the common case of a dictionary that describes a single table, these top-level keys should be used to describe the dataset, leaving the table itself undescribed.
 
 The content keys all hold the actual information about the data:
@@ -27,6 +29,7 @@ The content keys all hold the actual information about the data:
 * `name` (required): the table's name. Used to match the table to the underlying data and to refer to it from `relationships`. Must be non-empty and unique within the dictionary.
 * `label`, `description`, `details`: human-readable documentation for the table; see [Name, label, description & details](#name-label-description--details).
 * `source`: ways to access the data. Optional at the spec level, so you can draft a dictionary before its data exists, but required to validate against data (see [Validation](validation.md)).
+* `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
 
@@ -78,6 +81,22 @@ source:
 Parquet is the only source `data-dict` can currently validate against, so it's the only one the spec defines. We expect to add more access methods in the future — most importantly `SQL` (a schema-qualified table name such as `foodbank.food`, or a full `SELECT` query), and likely others such as R, Python, and Posit Connect pins.
 
 `source` is optional while you're only validating the spec, letting you sketch a table before its data exists. But the metadata and data levels validate the dictionary against real data, so every table they check must declare a `source` whose file exists and is readable.
+
+### Origin
+
+`origin` is an optional link to the code that produced the data — the script, pipeline, or repository a reader can follow to see how the data was built. It's a single string holding either a URL or a path:
+
+```yaml
+# A URL...
+origin: https://github.com/example/foodbank/blob/main/data-raw/food.R
+
+# ...or a path, resolved relative to the dictionary file.
+origin: data-raw/food.R
+```
+
+A path points at a script alongside the dictionary; a URL points anywhere, such as a repository or the entry point of a workflow tool like `targets`. The validator treats `origin` as a reference for a human or agent to follow — it never fetches a URL or checks that a path exists.
+
+`origin` may be given for the whole dataset (at the top level) or for an individual table. Use the dataset level when a single pipeline produces everything, and the table level when tables are built by different scripts. If several scripts feed one table, link the directory or repository rather than listing them all.
 
 ### Columns
 

@@ -220,6 +220,38 @@ fn top_level_description_no_s16() {
     "});
 }
 
+// `origin` is a loose, unenforced reference (a URL or a dictionary-relative
+// path) accepted at both the dataset and table levels.
+#[test]
+fn origin_dataset_and_table() {
+    assert_clean_dict(indoc! {"
+        name: foodbank
+        origin: https://github.com/example/foodbank/blob/main/data-raw/all.R
+        tables:
+          - name: food
+            origin: data-raw/food.R
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+    "});
+}
+
+// `origin` is not a column-level key: the closed column object rejects it.
+#[test]
+fn origin_on_column_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: food
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+                origin: data-raw/food.R
+    "});
+    diagnostic.assert_contains(&["Unknown property 'origin'"]);
+}
+
 #[test]
 fn restricted_display_is_valid() {
     assert_clean_dict(indoc! {"

@@ -39,6 +39,10 @@ object:
     description: string
     details: string
 
+    # A loose link (URL or dictionary-relative path) to the code that produced
+    # the dataset. Unenforced: no S-check, never fetched or resolved.
+    origin: string
+
     tables:
       arrayOf:
         object:
@@ -56,6 +60,7 @@ object:
             label: string
             description: string
             details: string
+            origin: string
 
             source:
               object:
