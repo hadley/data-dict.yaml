@@ -91,14 +91,22 @@ pub struct ValueCount {
     pub error: usize,
 }
 
+/// How a column's values are distributed, plus the float values that have no
+/// place in that distribution.
+///
+/// The three counts are float-only and are all 0 otherwise. None of the values
+/// they count reaches the bins, the extremes, the distinct count or the
+/// examples: a NaN isn't equal to itself, and an infinity as a minimum or a
+/// maximum would stretch every bin to infinite width. Counting them here keeps
+/// them visible without letting them distort everything else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Histogram {
-    /// Equal-width bins spanning the column's range, low to high. Nulls are
-    /// never binned — that is `null_count`, which applies to every type.
+    /// Equal-width bins spanning the column's finite range, low to high. Nulls
+    /// are never binned — that is `null_count`, which applies to every type.
     pub bins: Vec<Bin>,
-    /// NaNs, for float columns only. A NaN is neither null nor orderable, so it
-    /// belongs to no bin.
     pub nan_count: usize,
+    pub negative_infinity_count: usize,
+    pub positive_infinity_count: usize,
 }
 
 /// Counts the values in `(lower, upper]`, or `[lower, upper]` for the first bin
@@ -316,12 +324,36 @@ trait Observe {
     }
 }
 
+/// Float values that belong to no bin, tallied by what they are.
+#[derive(Default, Clone, Copy)]
+struct NotFinite {
+    nans: usize,
+    negative: usize,
+    positive: usize,
+}
+
+impl NotFinite {
+    fn add(&mut self, value: f64, count: usize) {
+        if value.is_nan() {
+            self.nans += count;
+        } else if value.is_sign_negative() {
+            self.negative += count;
+        } else {
+            self.positive += count;
+        }
+    }
+
+    fn any(self) -> bool {
+        self.nans + self.negative + self.positive > 0
+    }
+}
+
 /// Everything a profile needs, accumulated in bounded space.
 struct Accumulator {
     /// Whether the values are ordered, so tracking extremes is meaningful.
     ordered: bool,
     nulls: usize,
-    nans: usize,
+    not_finite: NotFinite,
     min: Option<Value>,
     max: Option<Value>,
     counts: SpaceSaving,
@@ -336,7 +368,7 @@ impl Accumulator {
         Accumulator {
             ordered: target.kind.is_ordered(),
             nulls: 0,
-            nans: 0,
+            not_finite: NotFinite::default(),
             min: None,
             max: None,
             counts: SpaceSaving::new(TRACKED_VALUES),
@@ -354,13 +386,12 @@ impl Accumulator {
             Distinct::Exact(self.counts.len())
         };
         let histogram = match self.bins {
-            Some(bins) => Some(bins.finish(self.nans)),
-            // Every value was a NaN, so there is no range to bin, but the NaNs
-            // themselves are still worth reporting.
-            None if self.nans > 0 && target.kind.is_binnable() => Some(Histogram {
-                bins: Vec::new(),
-                nan_count: self.nans,
-            }),
+            Some(bins) => Some(bins.finish(self.not_finite)),
+            // No value had a place on the number line, so there is no range to
+            // bin — but what was there is still worth reporting.
+            None if self.not_finite.any() && target.kind.is_binnable() => {
+                Some(empty_histogram(self.not_finite))
+            }
             None => None,
         };
         ColumnProfile {
@@ -391,8 +422,8 @@ impl Observe for Accumulator {
     fn observe(&mut self, decoded: Decoded, count: usize) {
         let value = match decoded {
             Decoded::Value(value) => value,
-            Decoded::Nan => {
-                self.nans += count;
+            Decoded::NotFinite(float) => {
+                self.not_finite.add(float, count);
                 return;
             }
             Decoded::NotUtf8 => {
@@ -464,11 +495,13 @@ impl BinCounts {
     }
 
     /// The bins spanning an observed range, or `None` when there was nothing to
-    /// bin or the values aren't numbers.
+    /// bin or the values aren't numbers. The extremes are finite by
+    /// construction (see [`crate::F64::new`]); the check restates that here, so
+    /// that a non-finite edge can never silently turn every bin into NaN.
     fn spanning(min: &Option<Value>, max: &Option<Value>) -> Option<BinCounts> {
         let low = min.as_ref()?.as_f64()?;
         let high = max.as_ref()?.as_f64()?;
-        Some(BinCounts::new(low, high))
+        (low.is_finite() && high.is_finite()).then(|| BinCounts::new(low, high))
     }
 
     fn width(&self) -> f64 {
@@ -487,7 +520,7 @@ impl BinCounts {
         self.counts[index.min(last)] += count;
     }
 
-    fn finish(self, nan_count: usize) -> Histogram {
+    fn finish(self, not_finite: NotFinite) -> Histogram {
         let width = self.width();
         let bins = self
             .counts
@@ -500,7 +533,20 @@ impl BinCounts {
                 count,
             })
             .collect();
-        Histogram { bins, nan_count }
+        Histogram {
+            bins,
+            ..empty_histogram(not_finite)
+        }
+    }
+}
+
+/// A histogram with no bins, holding only the values that belong to none.
+fn empty_histogram(not_finite: NotFinite) -> Histogram {
+    Histogram {
+        bins: Vec::new(),
+        nan_count: not_finite.nans,
+        negative_infinity_count: not_finite.negative,
+        positive_infinity_count: not_finite.positive,
     }
 }
 
@@ -728,7 +774,7 @@ fn level_bits(max_def: i16) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINS, BinCounts, count_dictionary, level_bits};
+    use super::{BINS, BinCounts, NotFinite, count_dictionary, level_bits};
     use crate::column_scan::plan_column;
     use crate::value::{Repr, Value, classify};
     use parquet::file::properties::{WriterProperties, WriterVersion};
@@ -839,7 +885,7 @@ mod tests {
         bins.add(1.0, 1); // as does its upper bound
         bins.add(1.5, 1); // above it, so the second
         bins.add(20.0, 1); // the maximum lands in the last
-        let histogram = bins.finish(0);
+        let histogram = bins.finish(NotFinite::default());
         assert_eq!(histogram.bins.len(), BINS);
         assert_eq!(histogram.bins[0].count, 2);
         assert_eq!(histogram.bins[1].count, 1);
@@ -854,7 +900,7 @@ mod tests {
     fn a_single_value_gets_one_bin() {
         let mut bins = BinCounts::new(7.0, 7.0);
         bins.add(7.0, 3);
-        let histogram = bins.finish(0);
+        let histogram = bins.finish(NotFinite::default());
         assert_eq!(histogram.bins.len(), 1);
         assert_eq!(histogram.bins[0].count, 3);
         assert_eq!(

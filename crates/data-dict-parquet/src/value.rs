@@ -37,7 +37,7 @@ impl Value {
     }
 }
 
-/// A non-NaN `f64` with a total order, so floats can key a hash map and sort.
+/// A finite `f64` with a total order, so floats can key a hash map and sort.
 /// `-0.0` is canonicalized to `0.0` on construction, matching how the value
 /// scanners hash floats (see the "comparable types" section of
 /// `site/validation.md`).
@@ -45,12 +45,19 @@ impl Value {
 pub struct F64(f64);
 
 impl F64 {
-    /// `None` for NaN: it is neither orderable nor equal to itself, and the
-    /// profiler counts NaNs separately (see [`Histogram::nan_count`]).
+    /// `None` unless `value` is finite. NaN is not equal to itself, and an
+    /// infinity has no position on the number line — as a minimum or a maximum
+    /// it would stretch a histogram's bins to infinite width. The profiler
+    /// counts both apart from the values (see [`Histogram`]).
     ///
-    /// [`Histogram::nan_count`]: crate::Histogram::nan_count
+    /// This is what guarantees every [`Value::Float`] is finite, so anything
+    /// derived from one — bin edges above all — is finite too.
+    ///
+    /// [`Histogram`]: crate::Histogram
     pub fn new(value: f64) -> Option<F64> {
-        (!value.is_nan()).then_some(F64(if value == 0.0 { 0.0 } else { value }))
+        value
+            .is_finite()
+            .then_some(F64(if value == 0.0 { 0.0 } else { value }))
     }
 
     pub fn get(self) -> f64 {
@@ -156,8 +163,10 @@ pub(crate) enum Repr {
 /// The outcome of turning one raw value into a [`Value`].
 pub(crate) enum Decoded {
     Value(Value),
-    /// A float NaN: neither null nor an orderable value, so it is counted apart.
-    Nan,
+    /// A NaN or an infinity, which is neither null nor a value with a place on
+    /// the number line, so it is counted apart. Carries the float itself, which
+    /// is all the caller needs to tell the three cases apart.
+    NotFinite(f64),
     /// A byte array that isn't UTF-8, which downgrades its whole column to
     /// [`ValueKind::Unsupported`].
     NotUtf8,
@@ -323,8 +332,8 @@ fn unsign(raw: i64, bits: u32) -> i64 {
 
 fn float(value: f64) -> Decoded {
     match F64::new(value) {
-        Some(value) => Decoded::Value(Value::Float(value)),
-        None => Decoded::Nan,
+        Some(finite) => Decoded::Value(Value::Float(finite)),
+        None => Decoded::NotFinite(value),
     }
 }
 
@@ -433,11 +442,15 @@ mod tests {
     }
 
     #[test]
-    fn signed_zeros_collapse_and_nan_has_no_value() {
+    fn signed_zeros_collapse_and_only_finite_floats_are_values() {
         assert_eq!(F64::new(-0.0), F64::new(0.0));
-        assert!(F64::new(f64::NAN).is_none());
         assert!(F64::new(-1.0) < F64::new(1.0));
         assert_eq!(Value::Int(7).as_f64(), Some(7.0));
         assert_eq!(Value::Text("x".into()).as_f64(), None);
+
+        // Nothing that would make a bin edge non-finite can become a value.
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(F64::new(value).is_none(), "{value} must not be a value");
+        }
     }
 }

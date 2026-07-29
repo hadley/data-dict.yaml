@@ -301,9 +301,59 @@ fn nans_are_counted_apart_from_nulls_and_values() {
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
 }
 
+/// An infinity would stretch the bins to infinite width, making every boundary
+/// meaningless, so it is counted apart from the values just as a NaN is — and
+/// the finite values around it still get a usable histogram.
 #[test]
-fn a_column_of_nothing_but_nans_has_no_range() {
-    let values = Values::Double(vec![Some(f64::NAN), Some(f64::NAN)]);
+fn infinities_are_counted_apart_and_leave_the_bins_finite() {
+    let values = Values::Double(vec![
+        Some(0.0),
+        Some(f64::INFINITY),
+        Some(10.0),
+        Some(f64::NEG_INFINITY),
+        Some(f64::INFINITY),
+    ]);
+    let path = Fixture::column("REQUIRED DOUBLE v", values).write();
+    let profile = one(&path);
+
+    assert_eq!(profile.distinct, Distinct::Exact(2));
+    assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(0.0));
+    assert_eq!(profile.max.and_then(|v| v.as_f64()), Some(10.0));
+    assert!(
+        !profile
+            .examples
+            .iter()
+            .any(|value| value.as_f64().is_some_and(|number| !number.is_finite())),
+        "an infinity is not an example value"
+    );
+
+    let histogram = profile.histogram.unwrap();
+    assert_eq!(histogram.positive_infinity_count, 2);
+    assert_eq!(histogram.negative_infinity_count, 1);
+    assert_eq!(histogram.nan_count, 0);
+    assert_eq!(histogram.bins.len(), 20);
+    assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
+    assert!(
+        histogram
+            .bins
+            .iter()
+            .all(|bin| bin.lower.is_finite() && bin.upper.is_finite()),
+        "every bin boundary must be a real number"
+    );
+    assert_eq!(
+        (histogram.bins[0].lower, histogram.bins[19].upper),
+        (0.0, 10.0)
+    );
+}
+
+#[test]
+fn a_column_with_no_finite_values_has_no_range() {
+    let values = Values::Double(vec![
+        Some(f64::NAN),
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+        Some(f64::NEG_INFINITY),
+    ]);
     let path = Fixture::column("REQUIRED DOUBLE v", values).write();
     let profile = one(&path);
 
@@ -312,9 +362,11 @@ fn a_column_of_nothing_but_nans_has_no_range() {
     assert_eq!(profile.distinct, Distinct::Exact(0));
     let histogram = profile
         .histogram
-        .expect("the NaNs are still worth reporting");
+        .expect("still worth reporting what is there");
     assert!(histogram.bins.is_empty());
     assert_eq!(histogram.nan_count, 2);
+    assert_eq!(histogram.positive_infinity_count, 1);
+    assert_eq!(histogram.negative_infinity_count, 1);
 }
 
 #[test]
