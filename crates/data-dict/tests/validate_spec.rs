@@ -220,6 +220,38 @@ fn top_level_description_no_s16() {
     "});
 }
 
+// `origin` is a loose, unenforced reference (a URL or a dictionary-relative
+// path) accepted at both the dataset and table levels.
+#[test]
+fn origin_dataset_and_table() {
+    assert_clean_dict(indoc! {"
+        name: foodbank
+        origin: https://github.com/example/foodbank/blob/main/data-raw/all.R
+        tables:
+          - name: food
+            origin: data-raw/food.R
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+    "});
+}
+
+// `origin` is not a column-level key: the closed column object rejects it.
+#[test]
+fn origin_on_column_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: food
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+                origin: data-raw/food.R
+    "});
+    diagnostic.assert_contains(&["Unknown property 'origin'"]);
+}
+
 #[test]
 fn restricted_display_is_valid() {
     assert_clean_dict(indoc! {"
@@ -713,6 +745,71 @@ fn s13_infinite_bound_wrong_end() {
                 range: [.inf, 2019-04-01]
     "});
     diagnostic.assert_contains(&["S13", "is greater than the maximum"]);
+}
+
+// --- enum values (S24) ---------------------------------------------------
+
+// S24: a value that can't be a category whichever way it was written. A number
+// or boolean is accepted instead, because the parser discards quote style, so
+// `1` here may be `'1'` in the file (the limitation S12 works around too).
+#[test]
+fn s24_null_enum_value() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: {pass: Pass, ~: Unknown}
+    "});
+    diagnostic.assert_contains(&["S24", "is null"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A category coded as a number reaches us as a number even when quoted, so it
+// has to be accepted.
+#[test]
+fn s24_numeric_codes_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: ["1", "2", "3"]
+    "#});
+}
+
+// S24: an empty `values` permits nothing, in either form.
+#[test]
+fn s24_empty_enum_values() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: []
+    "});
+    diagnostic.assert_contains(&["S24", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_empty_enum_values_map_form() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: grade
+                    type: enum
+                    values: {}
+        "},
+        &["S24", "is empty"],
+    );
 }
 
 // --- version (S17) -------------------------------------------------------

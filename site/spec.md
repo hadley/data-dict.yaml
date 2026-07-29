@@ -11,6 +11,8 @@ The metadata keys are:
 
 The descriptive keys — `name`, `label`, `description`, and `details` — identify and document the dataset as a whole. All four are optional here, and work the same way at every level of the dictionary; see [Name, label, description & details](#name-label-description--details) for their full meaning. For the dataset, `name` is a terse identifier (e.g. `foodbank`) and `label` its human-readable title.
 
+The dataset may also carry an optional `origin` key: a link to the code that produced it (see [Origin](#origin)). The same key is available on each table.
+
 In the common case of a dictionary that describes a single table, these top-level keys should be used to describe the dataset, leaving the table itself undescribed.
 
 The content keys all hold the actual information about the data:
@@ -27,6 +29,7 @@ The content keys all hold the actual information about the data:
 * `name` (required): the table's name. Used to match the table to the underlying data and to refer to it from `relationships`. Must be non-empty and unique within the dictionary.
 * `label`, `description`, `details`: human-readable documentation for the table; see [Name, label, description & details](#name-label-description--details).
 * `source`: ways to access the data. Optional at the spec level, so you can draft a dictionary before its data exists, but required to validate against data (see [Validation](validation.md)).
+* `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
 
@@ -78,6 +81,22 @@ source:
 Parquet is the only source `data-dict` can currently validate against, so it's the only one the spec defines. We expect to add more access methods in the future — most importantly `SQL` (a schema-qualified table name such as `foodbank.food`, or a full `SELECT` query), and likely others such as R, Python, and Posit Connect pins.
 
 `source` is optional while you're only validating the spec, letting you sketch a table before its data exists. But the metadata and data levels validate the dictionary against real data, so every table they check must declare a `source` whose file exists and is readable.
+
+### Origin
+
+`origin` is an optional link to the code that produced the data — the script, pipeline, or repository a reader can follow to see how the data was built. It's a single string holding either a URL or a path:
+
+```yaml
+# A URL...
+origin: https://github.com/example/foodbank/blob/main/data-raw/food.R
+
+# ...or a path, resolved relative to the dictionary file.
+origin: data-raw/food.R
+```
+
+A path points at a script alongside the dictionary; a URL points anywhere, such as a repository or the entry point of a workflow tool like `targets`. The validator treats `origin` as a reference for a human or agent to follow — it never fetches a URL or checks that a path exists.
+
+`origin` may be given for the whole dataset (at the top level) or for an individual table. Use the dataset level when a single pipeline produces everything, and the table level when tables are built by different scripts. If several scripts feed one table, link the directory or repository rather than listing them all.
 
 ### Columns
 
@@ -137,7 +156,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property.
+* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
 
 #### Measures
 
@@ -162,7 +181,7 @@ A `number(quantity)` column can also declare its `units`: a free-text string nam
 
 Every type has some way of representing the data it contains: an exhaustive set of values, a range, or a handful of examples. Each such column carries exactly one of the following three properties, determined by the column's `type`:
 
-* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be scalars (string, number, or boolean); in the map form the labels must be strings. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
+* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be **strings**, and there must be at least one of them; in the map form the labels must be strings too. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
 * `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Used for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`.

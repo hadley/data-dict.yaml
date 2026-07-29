@@ -53,10 +53,20 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, or a malformed `SIMILAR TO` / `COLUMNS('...')` regex. |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
 | S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only, with no declared `type`, somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
+| S24 | Invalid enum values | E | An `enum`'s `values` are not a non-empty set of strings: they are empty (`[]` or `{}`), so nothing is permitted, or a value is null or a nested list/map. Values must be strings, but a quoted `'1'` is indistinguishable from `1` once parsed (see [below](#quote-style)), so a number or boolean is accepted here. Both forms are checked: the list items, and the keys of the map form. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
-(An `enum`'s `values` are constrained structurally by the schema rather than by an `S` check: each value must be a scalar, and in the map form each label must be a string. The `version` map's allowed keys and their value types are likewise structural; S17 covers only the semantics the schema can't express.)
+(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers what the schema can't reach, including the keys of the map form. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest.)
+
+### Quote style is not preserved {#quote-style}
+
+The YAML parser reports a scalar's value but not how it was written, so a quoted `'1'` reaches validation as the number `1`, and a quoted `'null'` as null. Two checks are looser than the spec as a result:
+
+* S24 accepts a number or boolean among an `enum`'s `values`, even though values must be strings, because the value may have been quoted in the file.
+* S12 accepts any scalar in a `string` column's `examples`, for the same reason.
+
+Both would tighten if the parser preserved quote style. In the meantime, a dictionary that writes its categories unquoted still validates.
 
 ## Metadata-validation checks
 
