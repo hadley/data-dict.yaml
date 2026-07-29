@@ -274,8 +274,11 @@ fn profile_column(
     }
 
     // Without footer statistics the range is only known once the values have
-    // been seen, so binning them takes a second pass. Nothing is buffered in
-    // between: the first pass already reduced the column to its extremes.
+    // been seen, so binning them takes a second pass. Nearly every writer
+    // records min/max, making this the rare path — but a file that lacks them
+    // is still worth describing, so it costs a re-read rather than a missing
+    // histogram. Nothing is buffered in between: the first pass already
+    // reduced the column to its extremes.
     if accumulator.bins.is_none()
         && target.kind.is_binnable()
         && let Some(bins) = BinCounts::spanning(&accumulator.min, &accumulator.max)
