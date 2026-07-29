@@ -1081,10 +1081,10 @@ fn constraints_date_literal_comparison_ok() {
     "});
 }
 
-// An `enum` behaves as whatever type its values are, so a string enum takes the
-// string functions.
+// An `enum`'s values are its categories, so an enum is a string and takes the
+// string functions, whatever its values look like.
 #[test]
-fn constraints_enum_takes_its_value_type() {
+fn constraints_enum_is_a_string() {
     assert_valid_dict(indoc! {"
         tables:
           - name: t
@@ -1098,13 +1098,14 @@ fn constraints_enum_takes_its_value_type() {
                 type: enum
                 values: [1, 2, 3]
                 constraints:
-                  - assert: grade > 0
+                  - assert: grade LIKE '_'
     "});
 }
 
-// S21: a number-valued enum is a number, so string functions don't apply.
+// S21: an enum is a string even when its values look like numbers, so numeric
+// comparisons don't apply.
 #[test]
-fn constraints_s21_enum_value_type_mismatch() {
+fn constraints_s21_enum_compared_with_number() {
     assert_invalid_dict(
         indoc! {"
             tables:
@@ -1114,9 +1115,9 @@ fn constraints_s21_enum_value_type_mismatch() {
                     type: enum
                     values: [1, 2, 3]
                     constraints:
-                      - assert: LENGTH(grade) = 1
+                      - assert: grade > 0
         "},
-        &["S21", "LENGTH", "a number"],
+        &["S21", "a string", "a number"],
     );
 }
 

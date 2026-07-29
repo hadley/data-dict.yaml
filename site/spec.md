@@ -137,7 +137,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property. An `enum` behaves as whatever type its values are — a string enum is a string, a number enum a number — both in the data and in [expressions](expressions.md#types).
+* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property.
 
 #### Measures
 

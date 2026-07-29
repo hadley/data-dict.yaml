@@ -42,16 +42,16 @@ Every expression has a type. These are the language's own types, close to but no
 
 | Type | Where it comes from |
 |------|---------------------|
-| `number` | A `number` column (any measure), a number-valued `enum`, a numeric literal, arithmetic, or a numeric function. |
-| `string` | A `string` column, a string-valued `enum`, or a quoted literal. |
-| `boolean` | A `boolean` column, a boolean-valued `enum`, `TRUE`/`FALSE`, or any comparison or logical operator. |
+| `number` | A `number` column (any measure), a numeric literal, arithmetic, or a numeric function. |
+| `string` | A `string` column, an `enum` column, or a quoted literal. |
+| `boolean` | A `boolean` column, `TRUE`/`FALSE`, or any comparison or logical operator. |
 | `date` | A `date` column, or a date plus or minus an interval. |
 | `datetime` | A `datetime` column, `NOW()`, or a datetime plus or minus an interval. |
 | `interval` | `interval(<n>, <unit>)`. A duration; it only exists inside an expression, never as a column type. |
 
 : {tbl-colwidths="[15,85]"}
 
-An **`enum`** takes the type of its `values` since that's what the column actually holds: `[M, F, U]` is a `string`, `[1, 2, 3]` a `number`, and `[true, false]` a `boolean`. The map form takes the type of its keys, so `{M: Male, F: Female}` is a `string` too. An enum behaves exactly like its value type — a string enum can be measured with `LENGTH` and matched with `LIKE`, a number enum can be compared with `<`.
+An **`enum`** is a `string`, because [its values are always strings](spec.md#representative-values). It behaves like any other string column: `sex` declared as `values: [M, F, U]` can be measured with `LENGTH` and matched with `LIKE`. The *look* of the values doesn't change that — `values: [2024-01-01, 2024-01-02]` is still a `string`, not a `date`, so it can't be compared with `NOW()`, and `values: [1, 2, 3]` can't be compared with `<`.
 
 A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error (S23): nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
 
@@ -59,7 +59,7 @@ An unknown type is only a problem where a type is actually needed. `IS NULL` and
 
 `NULL` is the one genuinely typeless thing in the language, and stays compatible with every type.
 
-The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares. Nor does an enum's type follow the *look* of its values: `values: [2024-01-01, 2024-01-02]` is a `string` enum, not a `date` column, so it can't be compared with `NOW()`.
+The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares.
 
 ## Literals
 
