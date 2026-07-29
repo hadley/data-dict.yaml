@@ -51,7 +51,7 @@ fn numbers_are_profiled() {
 
     let histogram = profile.histogram.expect("numbers are binnable");
     assert_eq!(histogram.bins.len(), 20);
-    assert_eq!(histogram.nan_count, 0);
+    assert_eq!(histogram.not_finite.nan_count, 0);
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 6);
     assert_eq!(histogram.bins[0].count, 1);
     assert_eq!(histogram.bins[19].count, 3);
@@ -297,7 +297,7 @@ fn nans_are_counted_apart_from_nulls_and_values() {
     assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(1.0));
     assert_eq!(profile.max.and_then(|v| v.as_f64()), Some(3.0));
     let histogram = profile.histogram.unwrap();
-    assert_eq!(histogram.nan_count, 2);
+    assert_eq!(histogram.not_finite.nan_count, 2);
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
 }
 
@@ -328,9 +328,9 @@ fn infinities_are_counted_apart_and_leave_the_bins_finite() {
     );
 
     let histogram = profile.histogram.unwrap();
-    assert_eq!(histogram.positive_infinity_count, 2);
-    assert_eq!(histogram.negative_infinity_count, 1);
-    assert_eq!(histogram.nan_count, 0);
+    assert_eq!(histogram.not_finite.positive_infinity_count, 2);
+    assert_eq!(histogram.not_finite.negative_infinity_count, 1);
+    assert_eq!(histogram.not_finite.nan_count, 0);
     assert_eq!(histogram.bins.len(), 20);
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
     assert!(
@@ -364,9 +364,9 @@ fn a_column_with_no_finite_values_has_no_range() {
         .histogram
         .expect("still worth reporting what is there");
     assert!(histogram.bins.is_empty());
-    assert_eq!(histogram.nan_count, 2);
-    assert_eq!(histogram.positive_infinity_count, 1);
-    assert_eq!(histogram.negative_infinity_count, 1);
+    assert_eq!(histogram.not_finite.nan_count, 2);
+    assert_eq!(histogram.not_finite.positive_infinity_count, 1);
+    assert_eq!(histogram.not_finite.negative_infinity_count, 1);
 }
 
 #[test]

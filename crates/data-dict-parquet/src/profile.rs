@@ -25,7 +25,7 @@ use rayon::prelude::*;
 use crate::ParquetError;
 use crate::column_scan::{PlannedColumn, plan_column, read_batch};
 use crate::rle::HybridDecoder;
-use crate::sketch::{BottomK, HyperLogLog, SpaceSaving, hash_value};
+use crate::sketch::{BottomK, HyperLogLog, SpaceSaving, ValueCount, hash_value};
 use crate::value::{Decoded, Repr, Value, ValueKind, batch_value, classify, decode_dictionary};
 
 /// Distinct values counted exactly per column before counts turn approximate.
@@ -79,34 +79,49 @@ impl Distinct {
     }
 }
 
-/// How often one value occurs. Once a column exceeds [`TRACKED_VALUES`]
-/// distinct values, a value first seen after that point inherits the count of
-/// the entry it displaced, so `count` becomes an upper bound: the true count is
-/// somewhere in `count - error ..= count`. Below that threshold `error` is 0
-/// and `count` is exact.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ValueCount {
-    pub value: Value,
-    pub count: usize,
-    pub error: usize,
-}
-
 /// How a column's values are distributed, plus the float values that have no
 /// place in that distribution.
-///
-/// The three counts are float-only and are all 0 otherwise. None of the values
-/// they count reaches the bins, the extremes, the distinct count or the
-/// examples: a NaN isn't equal to itself, and an infinity as a minimum or a
-/// maximum would stretch every bin to infinite width. Counting them here keeps
-/// them visible without letting them distort everything else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Histogram {
     /// Equal-width bins spanning the column's finite range, low to high. Nulls
     /// are never binned — that is `null_count`, which applies to every type.
     pub bins: Vec<Bin>,
+    pub not_finite: NotFinite,
+}
+
+/// Float values with no place on the number line, tallied by what they are.
+///
+/// These reach none of the rest of a profile — not the bins, the extremes, the
+/// distinct count or the examples. A NaN isn't equal to itself, and an infinity
+/// as a minimum or a maximum would stretch every bin to infinite width, so
+/// [`F64::new`] refuses to make a value of either. Counting them keeps them
+/// visible without letting them distort everything else. All zero for any
+/// column that isn't a float.
+///
+/// [`F64::new`]: crate::F64::new
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct NotFinite {
     pub nan_count: usize,
     pub negative_infinity_count: usize,
     pub positive_infinity_count: usize,
+}
+
+impl NotFinite {
+    fn add(&mut self, value: f64, count: usize) {
+        if value.is_nan() {
+            self.nan_count += count;
+        } else if value.is_sign_negative() {
+            self.negative_infinity_count += count;
+        } else {
+            self.positive_infinity_count += count;
+        }
+    }
+
+    /// Whether anything at all was counted, so a column of nothing but these
+    /// still has something to report.
+    pub fn any(self) -> bool {
+        self.nan_count + self.negative_infinity_count + self.positive_infinity_count > 0
+    }
 }
 
 /// Counts the values in `(lower, upper]`, or `[lower, upper]` for the first bin
@@ -324,30 +339,6 @@ trait Observe {
     }
 }
 
-/// Float values that belong to no bin, tallied by what they are.
-#[derive(Default, Clone, Copy)]
-struct NotFinite {
-    nans: usize,
-    negative: usize,
-    positive: usize,
-}
-
-impl NotFinite {
-    fn add(&mut self, value: f64, count: usize) {
-        if value.is_nan() {
-            self.nans += count;
-        } else if value.is_sign_negative() {
-            self.negative += count;
-        } else {
-            self.positive += count;
-        }
-    }
-
-    fn any(self) -> bool {
-        self.nans + self.negative + self.positive > 0
-    }
-}
-
 /// Everything a profile needs, accumulated in bounded space.
 struct Accumulator {
     /// Whether the values are ordered, so tracking extremes is meaningful.
@@ -389,9 +380,10 @@ impl Accumulator {
             Some(bins) => Some(bins.finish(self.not_finite)),
             // No value had a place on the number line, so there is no range to
             // bin — but what was there is still worth reporting.
-            None if self.not_finite.any() && target.kind.is_binnable() => {
-                Some(empty_histogram(self.not_finite))
-            }
+            None if self.not_finite.any() && target.kind.is_binnable() => Some(Histogram {
+                bins: Vec::new(),
+                not_finite: self.not_finite,
+            }),
             None => None,
         };
         ColumnProfile {
@@ -402,16 +394,7 @@ impl Accumulator {
             distinct,
             min: self.min,
             max: self.max,
-            value_counts: self
-                .counts
-                .top(TOP_VALUES)
-                .into_iter()
-                .map(|(value, count, error)| ValueCount {
-                    value,
-                    count,
-                    error,
-                })
-                .collect(),
+            value_counts: self.counts.top(TOP_VALUES),
             histogram,
             examples: self.sample.examples(EXAMPLES),
         }
@@ -533,20 +516,7 @@ impl BinCounts {
                 count,
             })
             .collect();
-        Histogram {
-            bins,
-            ..empty_histogram(not_finite)
-        }
-    }
-}
-
-/// A histogram with no bins, holding only the values that belong to none.
-fn empty_histogram(not_finite: NotFinite) -> Histogram {
-    Histogram {
-        bins: Vec::new(),
-        nan_count: not_finite.nans,
-        negative_infinity_count: not_finite.negative,
-        positive_infinity_count: not_finite.positive,
+        Histogram { bins, not_finite }
     }
 }
 

@@ -1,10 +1,15 @@
-//! Bounded-memory summaries of an unbounded stream of values.
+//! Approximate summaries of an unbounded stream of values.
 //!
 //! A profile has to describe a column of any size in a fixed amount of space,
-//! which rules out an exact map of every distinct value. Three sketches share
-//! one hash per observed value: [`SpaceSaving`] for the frequent values,
-//! [`HyperLogLog`] for the distinct count once the tracker is full, and
-//! [`BottomK`] for a sample of the distinct values to draw examples from.
+//! which rules out an exact map of every distinct value. Each sketch here buys
+//! that bound with some accuracy, and needs to know nothing about the data in
+//! advance: [`SpaceSaving`] for the frequent values, [`HyperLogLog`] for the
+//! distinct count once the tracker is full, and [`BottomK`] for a sample of the
+//! distinct values to draw examples from. All three share one hash per value.
+//!
+//! A histogram is a bounded summary too, but an exact one, and it can't count a
+//! single value until it knows the range to divide — so `profile::BinCounts`
+//! sits beside the code that establishes that range instead of here.
 
 use std::collections::BTreeSet;
 use std::collections::BinaryHeap;
@@ -99,6 +104,19 @@ struct Slot {
     error: usize,
 }
 
+/// How often one value occurs, as [`SpaceSaving`] counts it.
+///
+/// `count` is exact while the tracker has room. Once it is full, a value first
+/// seen after that point inherits the count of the entry it displaced, so
+/// `count` becomes an upper bound and `error` is how much of it was inherited:
+/// the true count lies in `count - error ..= count`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueCount {
+    pub value: Value,
+    pub count: usize,
+    pub error: usize,
+}
+
 impl SpaceSaving {
     pub(crate) fn new(capacity: usize) -> Self {
         SpaceSaving {
@@ -162,14 +180,18 @@ impl SpaceSaving {
         self.saturated
     }
 
-    /// The `k` most frequent values as `(value, count, error)`, most frequent
-    /// first and ties broken by value so the result is deterministic.
-    pub(crate) fn top(&self, k: usize) -> Vec<(Value, usize, usize)> {
+    /// The `k` most frequent values, most frequent first and ties broken by
+    /// value so the result is deterministic.
+    pub(crate) fn top(&self, k: usize) -> Vec<ValueCount> {
         let mut top: Vec<&Slot> = self.slots.iter().collect();
         top.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
         top.into_iter()
             .take(k)
-            .map(|slot| (slot.value.clone(), slot.count, slot.error))
+            .map(|slot| ValueCount {
+                value: slot.value.clone(),
+                count: slot.count,
+                error: slot.error,
+            })
             .collect()
     }
 }
@@ -236,11 +258,19 @@ impl BottomK {
 
 #[cfg(test)]
 mod tests {
-    use super::{BottomK, HyperLogLog, SpaceSaving, hash_value};
+    use super::{BottomK, HyperLogLog, SpaceSaving, ValueCount, hash_value};
     use crate::value::Value;
 
     fn int(value: i64) -> Value {
         Value::Int(value)
+    }
+
+    fn counted(value: i64, count: usize, error: usize) -> ValueCount {
+        ValueCount {
+            value: int(value),
+            count,
+            error,
+        }
     }
 
     #[test]
@@ -274,7 +304,7 @@ mod tests {
         }
         assert!(!tracker.is_saturated());
         assert_eq!(tracker.len(), 10);
-        assert_eq!(tracker.top(2), vec![(int(9), 10, 0), (int(8), 9, 0)]);
+        assert_eq!(tracker.top(2), vec![counted(9, 10, 0), counted(8, 9, 0)]);
     }
 
     #[test]
@@ -290,10 +320,15 @@ mod tests {
         assert!(tracker.is_saturated());
         assert_eq!(tracker.len(), 4);
         let top = tracker.top(1);
-        let (value, count, error) = top[0].clone();
-        assert_eq!(value, int(99));
+        let hitter = &top[0];
+        assert_eq!(hitter.value, int(99));
         // The evicted entry's count is inherited, so the true 100 is bracketed.
-        assert!(count - error <= 100 && 100 <= count, "{count} ± {error}");
+        assert!(
+            hitter.count - hitter.error <= 100 && 100 <= hitter.count,
+            "{} ± {}",
+            hitter.count,
+            hitter.error
+        );
     }
 
     #[test]
