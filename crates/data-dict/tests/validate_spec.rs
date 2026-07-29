@@ -747,6 +747,71 @@ fn s13_infinite_bound_wrong_end() {
     diagnostic.assert_contains(&["S13", "is greater than the maximum"]);
 }
 
+// --- enum values (S24) ---------------------------------------------------
+
+// S24: a value that can't be a category whichever way it was written. A number
+// or boolean is accepted instead, because the parser discards quote style, so
+// `1` here may be `'1'` in the file (the limitation S12 works around too).
+#[test]
+fn s24_null_enum_value() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: {pass: Pass, ~: Unknown}
+    "});
+    diagnostic.assert_contains(&["S24", "is null"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A category coded as a number reaches us as a number even when quoted, so it
+// has to be accepted.
+#[test]
+fn s24_numeric_codes_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: ["1", "2", "3"]
+    "#});
+}
+
+// S24: an empty `values` permits nothing, in either form.
+#[test]
+fn s24_empty_enum_values() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: []
+    "});
+    diagnostic.assert_contains(&["S24", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_empty_enum_values_map_form() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: grade
+                    type: enum
+                    values: {}
+        "},
+        &["S24", "is empty"],
+    );
+}
+
 // --- version (S17) -------------------------------------------------------
 
 // The three valid forms of the optional top-level `version`: a date, a

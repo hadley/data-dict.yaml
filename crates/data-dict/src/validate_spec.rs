@@ -225,6 +225,7 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
             if validate_s11_column_name(table, col, out) {
                 validate_s10_unique_name(table, col, &mut seen, out);
             }
+            validate_enum_values(table, col, out);
             if validate_s07_representation(table, col, out)
                 && validate_s12_value_types(table, col, out)
             {
@@ -996,6 +997,44 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
         "datetime" if tz_present => "a zoneless ISO 8601 datetime (e.g. 2024-01-31T09:30:00)",
         "datetime" => "an ISO 8601 datetime with a timezone (e.g. 2024-01-31T09:30:00Z)",
         _ => "a number",
+    }
+}
+
+// --- S24 --------------------------------------------------------------
+
+/// An enum's values are the categories of the column, so there must be some and
+/// each must be a string. Both forms reach here the same way: the map form's
+/// keys are lowered as its values.
+fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
+    if col.col_type.as_ref().map(|t| t.value.as_str()) != Some("enum") {
+        return;
+    }
+    // A missing `values` is S07's to report.
+    let Some(values) = &col.values else { return };
+    let at = |span: &SourceInfo| [table.name.span.clone(), col.name.span.clone(), span.clone()];
+
+    if values.items.is_empty() {
+        out.push_spec_error(
+            "S24",
+            "An `enum` column must list at least one value.",
+            "is empty",
+            at(&values.span),
+        );
+        return;
+    }
+    // The spec requires strings, but the YAML parser discards quote style — a
+    // quoted `'1'` arrives as a number, exactly as it does for S12 — so a
+    // number or boolean here may well be a string in the file. Only a value
+    // that can't be a category either way is rejected.
+    for item in &values.items {
+        if matches!(item.value, Scalar::Null | Scalar::Compound) {
+            out.push_spec_error(
+                "S24",
+                "An `enum`'s values must be strings.",
+                format!("is {}", item.value.noun()),
+                at(&item.span),
+            );
+        }
     }
 }
 
