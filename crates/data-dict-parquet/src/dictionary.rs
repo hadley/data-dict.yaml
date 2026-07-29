@@ -13,12 +13,13 @@
 
 use std::collections::HashSet;
 
-use parquet::basic::{Encoding, PageType, Type as PhysicalType};
+use parquet::basic::{PageType, Type as PhysicalType};
 use parquet::column::page::{Page, PageReader};
 use parquet::file::metadata::ColumnChunkMetaData;
 use parquet::file::reader::FileReader;
 
 use crate::ParquetError;
+use crate::page::{for_each_plain_byte_array, is_dictionary};
 
 /// Whether every non-null value in the `leaf`th column is provably in `allowed`,
 /// determined from the row groups' dictionary pages alone. `false` means "not
@@ -88,13 +89,6 @@ fn data_pages_all_dictionary(
     Ok(data_pages > 0)
 }
 
-fn is_dictionary(encoding: Encoding) -> bool {
-    matches!(
-        encoding,
-        Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY
-    )
-}
-
 /// Whether every value in a PLAIN-encoded dictionary page is in `allowed`.
 /// `false` for physical types an enum can't sensibly use, or a malformed buffer.
 fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<String>) -> bool {
@@ -123,29 +117,12 @@ fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<Stri
     }
 }
 
-/// Decode `count` PLAIN byte-array values (`[u32 length][bytes]`), requiring each
-/// to be UTF-8 (matching `field_key`, which only keys `Field::Str`) and present
-/// in `allowed`.
+/// Whether every PLAIN byte-array value is UTF-8 (matching `field_key`, which
+/// only keys `Field::Str`) and present in `allowed`.
 fn byte_arrays_in_set(buf: &[u8], count: usize, allowed: &HashSet<String>) -> bool {
-    let mut pos = 0;
-    for _ in 0..count {
-        let Some(len_bytes) = buf.get(pos..pos + 4) else {
-            return false;
-        };
-        let len = u32::from_le_bytes(len_bytes.try_into().unwrap()) as usize;
-        pos += 4;
-        let Some(value) = buf.get(pos..pos + len) else {
-            return false;
-        };
-        pos += len;
-        let Ok(text) = std::str::from_utf8(value) else {
-            return false;
-        };
-        if !allowed.contains(text) {
-            return false;
-        }
-    }
-    true
+    for_each_plain_byte_array(buf, count, |value| {
+        std::str::from_utf8(value).is_ok_and(|text| allowed.contains(text))
+    })
 }
 
 /// Decode `count` fixed-width PLAIN values, canonicalizing each with `key`.

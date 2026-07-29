@@ -24,6 +24,7 @@ use rayon::prelude::*;
 
 use crate::ParquetError;
 use crate::column_scan::{PlannedColumn, plan_column, read_batch};
+use crate::page::is_dictionary;
 use crate::rle::HybridDecoder;
 use crate::sketch::{BottomK, HyperLogLog, SpaceSaving, ValueCount, hash_value};
 use crate::value::{Decoded, Repr, Value, ValueKind, batch_value, classify, decode_dictionary};
@@ -633,13 +634,6 @@ fn encoding_stats_all_dictionary(chunk: &ColumnChunkMetaData) -> bool {
         .iter()
         .filter(|stat| matches!(stat.page_type, PageType::DATA_PAGE | PageType::DATA_PAGE_V2))
         .all(|stat| is_dictionary(stat.encoding))
-}
-
-fn is_dictionary(encoding: Encoding) -> bool {
-    matches!(
-        encoding,
-        Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY
-    )
 }
 
 /// Add one data page's dictionary references to `counts`, and its nulls to

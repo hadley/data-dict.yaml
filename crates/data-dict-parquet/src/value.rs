@@ -11,6 +11,7 @@ use parquet::basic::{LogicalType, Repetition, TimeUnit, Type as PhysicalType};
 use parquet::schema::types::Type;
 
 use crate::column_scan::ColumnBatch;
+use crate::page::for_each_plain_byte_array;
 
 /// One column value, canonicalized so logically-equal values compare equal.
 ///
@@ -290,17 +291,15 @@ pub(crate) fn decode_dictionary(
     }
 }
 
-/// Decode `count` PLAIN byte arrays, each a `[u32 length][bytes]` record.
+/// Decode `count` PLAIN byte arrays. Every one is kept, valid UTF-8 or not —
+/// which of the two it is decides the whole column's fate, not this value's.
 fn decode_byte_arrays(buf: &[u8], count: usize) -> Option<Vec<Decoded>> {
     let mut values = Vec::with_capacity(count);
-    let mut pos = 0;
-    for _ in 0..count {
-        let len = u32::from_le_bytes(buf.get(pos..pos + 4)?.try_into().unwrap()) as usize;
-        pos += 4;
-        values.push(text(buf.get(pos..pos + len)?));
-        pos += len;
-    }
-    Some(values)
+    let complete = for_each_plain_byte_array(buf, count, |value| {
+        values.push(text(value));
+        true
+    });
+    complete.then_some(values)
 }
 
 fn decode_fixed<const N: usize>(

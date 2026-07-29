@@ -4,6 +4,7 @@ mod column_scan;
 mod dictionary;
 mod foreign_key;
 mod metadata;
+mod page;
 mod profile;
 mod rle;
 mod scan;
