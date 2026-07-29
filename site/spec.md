@@ -232,7 +232,7 @@ columns:
       - assert: LENGTH(postcode) <= 10
 ```
 
-Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. See [Assertions](#assertions) for the expression grammar.
+Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
 
 Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
 
@@ -254,62 +254,24 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table, row-level boolean expression written in a small SQL-like sublanguage. It is evaluated against every row, and the constraint holds unless the expression is *false* for some row. Bare names refer to columns of the table.
+An `assert` expression is a single-table, row-level boolean expression written in data-dict's small SQL-like [expression language](expressions.md). It is evaluated against every row, and the constraint holds unless the expression is *false* for some row. Bare names refer to columns of the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
-Assertions are deliberately **per-row and single-table**: an expression sees only the columns of one row at a time. There are no aggregates and no subqueries — cross-table rules belong in [`relationships`](#relationships), and the per-row restriction keeps assertions cheap to check. Aside from `NOW()`, they are also deterministic: the same row always gives the same result. `NOW()` is the one exception — it reads the current time, so an assertion that uses it (for example, a freshness check like `some_date >= NOW() - interval(2, weeks)`) can pass one day and fail the next even though the data hasn't changed.
+Assertions state what must be **true**, so conditional rules are written as implications, e.g. `NOT(q3) OR q4 IS NOT NULL`.
 
-The supported grammar is:
+Assertions are deliberately **per-row and single-table**: an expression sees only the columns of one row at a time. There are no aggregates and no subqueries — cross-table rules belong in [`relationships`](#relationships), and the per-row restriction keeps assertions cheap to check. Aside from `NOW()`, they are also deterministic: the same row always gives the same result.
 
-* **Comparison:** `=`, `!=` / `<>`, `<`, `<=`, `>`, `>=`
-* **Logic:** `AND`, `OR`, `NOT`, parentheses for grouping
-* **Null tests:** `IS NULL`, `IS NOT NULL`
-* **Membership:** `x BETWEEN lo AND hi`, `x IN (...)`, `x NOT IN (...)`
-* **Pattern matching:** `LIKE` / `NOT LIKE` (with `%` and `_` wildcards) and `SIMILAR TO` / `NOT SIMILAR TO` (regular expressions). A `SIMILAR TO` pattern is an [RE2](https://github.com/google/re2/wiki/Syntax) regular expression, anchored so it must match the whole string (as in DuckDB, and unlike PostgreSQL's `SIMILAR TO`, it does not use `%`/`_` wildcards).
-* **Conditional:** `CASE WHEN ... THEN ... ELSE ... END`
-* **String functions:** `LENGTH`, `LOWER`, `UPPER`, `TRIM`, `STARTS_WITH`, `ENDS_WITH`
-* **Numeric functions & arithmetic:** `ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`, and `+ - * /`
-* **Date/time:** `NOW()`, `interval(<n>, <unit>)`, and arithmetic between dates and intervals. The `<unit>` is one of `seconds`, `minutes`, `hours`, `days`, or `weeks` — all fixed-length. Calendar units (`months`, `years`) are deliberately excluded: they're non-uniform (adding a month lands on a different number of days depending on the date, and clamps at month ends), which would make an assertion's meaning depend on the calendar. Express a rough month as `interval(30, days)` if you need it.
-* **Column selection:** `COLUMNS(...)`, to apply one predicate to many columns at once (see below)
-
-Operator precedence and associativity follow standard SQL (so, from tightest to loosest: arithmetic, then comparisons, then `NOT`, `AND`, `OR`); use parentheses when in doubt.
-
-Keywords and function names are case-insensitive, as in SQL — `AND`, `and`, `LENGTH`, and `length` are all accepted. Column names are the exception: unlike SQL's unquoted identifiers, they are case-sensitive, matched exactly against the column names in the data (which may themselves differ only by case), consistent with how `name` is matched everywhere else. Value comparisons (`=`, `LIKE`, `SIMILAR TO`, …) are case-sensitive too.
-
-Assertions state what must be **true**, so conditional rules are written as implications, e.g. `NOT(q3) OR q4 IS NOT NULL` or `NOT(q3 AND q4 IS NULL)`.
-
-Operands are column names, literals, and function results. The literal forms are:
-
-* **Numbers** — an integer (`42`) or decimal (`3.14`); a leading `-` is unary minus.
-* **Strings** — single-quoted (`'ABC'`); double a quote to include one (`'O''Brien'`).
-* **Booleans** — `TRUE` or `FALSE`.
-* **Null** — `NULL`.
-
-There is no dedicated date/datetime literal: a date or datetime is written as a single-quoted ISO 8601 string (`'2024-01-31'`, `'2024-01-31T09:30:00Z'`) and compared against a `date`/`datetime` column, or produced by `NOW()` and `interval(...)`.
-
-An `assert` expression as a whole must be **boolean** — a bare non-boolean column (e.g. a number) is not a valid assertion on its own; compare or test it (`qty > 0`, `postcode IS NOT NULL`). Functions take fixed arities: the string functions `LENGTH`, `LOWER`, `UPPER`, `TRIM` take one argument; `STARTS_WITH`, `ENDS_WITH`, `MOD` take two; `ABS`, `FLOOR`, `CEIL` take one; `ROUND` takes one or two (the second is the number of decimal places); `NOW()` takes none; and `interval(<n>, <unit>)` takes an integer and a unit keyword.
-
-#### Selecting multiple columns
-
-To apply the same predicate to a group of columns without repeating it, an assertion may use a `COLUMNS(...)` expression — a simple subset of [DuckDB's `COLUMNS`](https://duckdb.org/docs/current/sql/expressions/star). The supported forms select columns by:
-
-* `COLUMNS(*)`: all columns in the table.
-* `COLUMNS('<regex>')`: columns whose name matches the regular expression. The pattern is an [RE2](https://github.com/google/re2/wiki/Syntax) regular expression matched unanchored (a partial match, as in DuckDB), so `COLUMNS('q')` selects every column whose name contains a `q`; anchor it with `^`/`$` to match the whole name. (This is the one place a regex is unanchored — `SIMILAR TO` anchors.)
-* `COLUMNS([a, b, c])`: an explicit list of column names.
-
-The enclosing expression is evaluated once per selected column, and the assertion holds only when it is true for **every** selected column (the results are combined with `AND`). At most one `COLUMNS(...)` may appear in an `assert` expression, so there's no ambiguity about how multiple selections would combine. Because the predicate is applied to each selected column, every one of them must fit the way the expression uses it — `LENGTH(COLUMNS('name_.*'))` requires that each matched column is a string, just as a bare column reference would. A `COLUMNS('<regex>')` whose pattern matches no column is almost always a typo, so it's reported as a warning (the assertion would otherwise hold vacuously). So:
+The language offers the SQL operators you'd expect — comparisons, `AND`/`OR`/`NOT`, `IS NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR TO`, `CASE`, and arithmetic — over column references, numeric, string, boolean, and `NULL` literals, plus a handful of string (`LENGTH`, `LOWER`, `UPPER`, `TRIM`, `STARTS_WITH`, `ENDS_WITH`), numeric (`ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`), and date/time (`NOW()`, `interval(<n>, <unit>)`) functions. A `COLUMNS(...)` expression applies one predicate to many columns at once:
 
 ```yaml
 constraints:
   # Every q4–q8 answer is present whenever q3 is true.
   - assert: NOT(q3) OR COLUMNS('q[4-8]') IS NOT NULL
     description: q4–q8 must be answered when q3 is true.
-  # No column anywhere in the table is null.
-  - assert: COLUMNS(*) IS NOT NULL
 ```
 
-The lambda form (`COLUMNS(c -> ...)`) and the star modifiers (`EXCLUDE`, `REPLACE`, `RENAME`) are **not** supported.
+[Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
 
 ## Relationships
 

@@ -253,7 +253,8 @@ impl TableEnv<'_> {
             Some("boolean") => ColumnKind::Bool,
             Some("date") => ColumnKind::Date,
             Some("datetime") => ColumnKind::Datetime,
-            Some("enum") => ColumnKind::Enum,
+            // An enum's values are its categories, and those are always strings.
+            Some("enum") => ColumnKind::String,
             _ => ColumnKind::Untyped,
         }
     }
@@ -318,6 +319,7 @@ fn run_assertion_check(
         let expected = match finding.code {
             "S20" => "An assertion may only reference columns of its table.",
             "S22" => "A `COLUMNS(...)` selection should match at least one column.",
+            "S23" => "An assertion may only use columns with a declared `type`.",
             _ => "An assertion must be a well-typed boolean expression.",
         };
         match finding.severity {
