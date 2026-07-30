@@ -45,7 +45,6 @@ const BINS: usize = 20;
 pub struct ColumnProfile {
     pub name: String,
     pub kind: ValueKind,
-    pub row_count: usize,
     /// Nulls in the column. For a [`ValueKind::Unsupported`] column, which is
     /// never read, this is the footer's count and falls back to 0 when the file
     /// carries no statistics.
@@ -62,6 +61,13 @@ pub struct ColumnProfile {
     /// Up to [`EXAMPLES`] representative values, spread along the sorted
     /// distinct values.
     pub examples: Vec<Value>,
+}
+
+/// A summary of one Parquet file's data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileProfile {
+    pub row_count: usize,
+    pub columns: Vec<ColumnProfile>,
 }
 
 /// A distinct-value count, which stops being exact once a column exceeds
@@ -142,7 +148,7 @@ pub struct Bin {
 
 /// Profile every column of a Parquet file, or just `columns` when given, in the
 /// order requested. Unknown column names are an error.
-pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<Vec<ColumnProfile>, ParquetError> {
+pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, ParquetError> {
     let file =
         File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
     let reader = SerializedFileReader::new(file)?;
@@ -153,16 +159,17 @@ pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<Vec<ColumnProfil
     // Columns are independent, and each holds only its own bounded summary
     // while it runs, so the peak memory is set by the pool size rather than by
     // how wide the file is.
-    targets
+    let columns = targets
         .par_iter()
         .map(|target| {
             if target.readable() {
-                profile_column(path, target, row_count)
+                profile_column(path, target)
             } else {
-                Ok(stub(target, row_count, footer_nulls(meta, target.leaf)))
+                Ok(stub(target, footer_nulls(meta, target.leaf)))
             }
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(FileProfile { row_count, columns })
 }
 
 /// A column to profile: what it holds, and where to read it.
@@ -209,11 +216,10 @@ fn select(meta: &ParquetMetaData, columns: Option<&[&str]>) -> Result<Vec<Target
 }
 
 /// The profile of a column whose values are never read.
-fn stub(target: &Target, row_count: usize, null_count: usize) -> ColumnProfile {
+fn stub(target: &Target, null_count: usize) -> ColumnProfile {
     ColumnProfile {
         name: target.name.clone(),
         kind: target.kind.clone(),
-        row_count,
         null_count,
         distinct: Distinct::Exact(0),
         min: None,
@@ -240,11 +246,7 @@ fn footer_nulls(meta: &ParquetMetaData, leaf: Option<usize>) -> usize {
         .unwrap_or(0)
 }
 
-fn profile_column(
-    path: &Path,
-    target: &Target,
-    row_count: usize,
-) -> Result<ColumnProfile, ParquetError> {
+fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, ParquetError> {
     let file =
         File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
     let reader = SerializedFileReader::new(file)?;
@@ -271,7 +273,7 @@ fn profile_column(
         // The scan stopped where the bad value was, so its running null count
         // covers only part of the column; the footer's covers all of it.
         let nulls = footer_nulls(reader.metadata(), target.leaf);
-        return Ok(stub(&target, row_count, nulls));
+        return Ok(stub(&target, nulls));
     }
 
     // Without footer statistics the range is only known once the values have
@@ -288,7 +290,7 @@ fn profile_column(
         scan(&reader, &planned, target.repr, &mut binner)?;
         accumulator.bins = Some(binner.bins);
     }
-    Ok(accumulator.finish(target, row_count))
+    Ok(accumulator.finish(target))
 }
 
 /// The `[min, max]` range every row group's footer agrees on, or `None` if any
@@ -374,7 +376,7 @@ impl Accumulator {
         }
     }
 
-    fn finish(self, target: &Target, row_count: usize) -> ColumnProfile {
+    fn finish(self, target: &Target) -> ColumnProfile {
         let distinct = if self.counts.is_saturated() {
             Distinct::Approx(self.distinct.estimate())
         } else {
@@ -393,7 +395,6 @@ impl Accumulator {
         ColumnProfile {
             name: target.name.clone(),
             kind: target.kind.clone(),
-            row_count,
             null_count: self.nulls,
             distinct,
             min: self.min,

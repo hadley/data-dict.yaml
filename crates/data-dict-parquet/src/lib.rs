@@ -17,7 +17,7 @@ pub use metadata::{
     ColumnMeta, ColumnTypeInfo, column_meta, column_type_info, column_types, uniqueness_barriers,
 };
 pub use parquet::errors::ParquetError;
-pub use profile::{Bin, ColumnProfile, Distinct, Histogram, NotFinite, profile};
+pub use profile::{Bin, ColumnProfile, Distinct, FileProfile, Histogram, NotFinite, profile};
 pub use scan::{ColumnNeeds, ColumnStats, column_stats};
 pub use sketch::ValueCount;
 pub use uniqueness::{UniquenessCheck, UniquenessStats, uniqueness_stats};

@@ -11,9 +11,9 @@ use data_dict_parquet::{
 use parquet::file::properties::WriterVersion;
 
 fn one(path: &Path) -> ColumnProfile {
-    let mut profiles = profile(path, None).unwrap();
-    assert_eq!(profiles.len(), 1, "expected a one-column file");
-    profiles.remove(0)
+    let mut profile = profile(path, None).unwrap();
+    assert_eq!(profile.columns.len(), 1, "expected a one-column file");
+    profile.columns.remove(0)
 }
 
 fn counts(profile: &ColumnProfile) -> Vec<(Value, usize)> {
@@ -31,7 +31,6 @@ fn numbers_are_profiled() {
 
     assert_eq!(profile.name, "v");
     assert_eq!(profile.kind, ValueKind::Int);
-    assert_eq!(profile.row_count, 6);
     assert_eq!(profile.null_count, 0);
     assert_eq!(profile.distinct, Distinct::Exact(3));
     assert_eq!(profile.min, Some(Value::Int(1)));
@@ -120,7 +119,6 @@ fn nulls_are_counted_and_never_binned() {
     let path = Fixture::column("OPTIONAL INT64 v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.row_count, 5);
     assert_eq!(profile.null_count, 3);
     assert_eq!(profile.distinct, Distinct::Exact(2));
     let histogram = profile.histogram.unwrap();
@@ -179,7 +177,6 @@ fn row_groups_are_combined() {
         .write();
     let profile = one(&path);
 
-    assert_eq!(profile.row_count, 5);
     assert_eq!(profile.null_count, 1);
     assert_eq!(profile.distinct, Distinct::Exact(3));
     assert_eq!(profile.min, Some(Value::Int(1)));
@@ -197,7 +194,6 @@ fn a_chunk_that_abandons_its_dictionary_is_still_exact() {
         .write();
     let profile = one(&path);
 
-    assert_eq!(profile.row_count, 500);
     assert_eq!(profile.distinct, Distinct::Exact(200));
     assert_eq!(profile.min, Some(Value::Int(0)));
     assert_eq!(profile.max, Some(Value::Int(199)));
@@ -401,7 +397,6 @@ fn an_all_null_column_reports_only_nulls() {
     let path = Fixture::column("OPTIONAL INT64 v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.row_count, 3);
     assert_eq!(profile.null_count, 3);
     assert_eq!(profile.distinct, Distinct::Exact(0));
     assert_eq!(profile.min, None);
@@ -413,9 +408,10 @@ fn an_all_null_column_reports_only_nulls() {
 #[test]
 fn an_empty_file_profiles_to_nothing() {
     let path = Fixture::new(&["OPTIONAL INT64 v"]).write();
-    let profile = one(&path);
+    let mut file = profile(&path, None).unwrap();
+    assert_eq!(file.row_count, 0);
+    let profile = file.columns.remove(0);
 
-    assert_eq!(profile.row_count, 0);
     assert_eq!(profile.null_count, 0);
     assert_eq!(profile.distinct, Distinct::Exact(0));
     assert_eq!(profile.min, None);
@@ -430,20 +426,25 @@ fn only_the_requested_columns_are_profiled() {
 
     let all = profile(&path, None).unwrap();
     assert_eq!(
-        all.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        all.columns
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
         ["a", "b"]
     );
+    assert_eq!(all.row_count, 2);
 
     let selected = profile(&path, Some(&["b"])).unwrap();
-    assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].name, "b");
+    assert_eq!(selected.columns.len(), 1);
+    assert_eq!(selected.columns[0].name, "b");
+    assert_eq!(selected.row_count, 2);
 
     let missing = profile(&path, Some(&["nope"]));
     assert!(missing.is_err(), "an unknown column must be an error");
 }
 
 #[test]
-fn unprofilable_types_report_row_counts_only() {
+fn unprofilable_types_report_null_counts_only() {
     let path = Fixture::column(
         "OPTIONAL INT64 amount (DECIMAL(9,2))",
         Values::Int64(vec![Some(150), None, Some(275)]),
@@ -452,7 +453,6 @@ fn unprofilable_types_report_row_counts_only() {
     let profile = one(&path);
 
     assert_eq!(profile.kind, ValueKind::Unsupported("decimal"));
-    assert_eq!(profile.row_count, 3);
     assert_eq!(profile.null_count, 1, "taken from the footer");
     assert_eq!(profile.min, None);
     assert!(profile.value_counts.is_empty());
@@ -465,7 +465,6 @@ fn a_column_inside_a_group_is_not_profiled() {
 
     assert_eq!(profile.name, "g");
     assert_eq!(profile.kind, ValueKind::Unsupported("nested"));
-    assert_eq!(profile.row_count, 2);
 }
 
 /// Only reading the values can prove a byte array is text, so the column is
@@ -481,10 +480,11 @@ fn a_byte_array_that_is_not_text_is_abandoned() {
         // would miss this one entirely.
         .group(vec![Values::Bytes(vec![None, None]), Values::int64([3, 4])])
         .write();
-    let profiles = profile(&path, None).unwrap();
+    let profile = profile(&path, None).unwrap();
+    assert_eq!(profile.row_count, 4);
+    let profiles = profile.columns;
 
     assert_eq!(profiles[0].kind, ValueKind::Unsupported("non-UTF-8"));
-    assert_eq!(profiles[0].row_count, 4);
     assert_eq!(profiles[0].null_count, 2, "taken from the footer");
     assert!(profiles[0].value_counts.is_empty());
     assert_eq!(profiles[1].kind, ValueKind::Int);
