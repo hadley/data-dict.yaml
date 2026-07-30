@@ -11,4 +11,4 @@ error[S17]: A `version` `number` must have three dot-separated numeric component
    |
 LL | version:
 LL |   number: "1.2.0.0"
-   |           ^^^^^^^ `1.2.0.0` is not a valid version number
+   |           ^^^^^^^^^ `1.2.0.0` is not a valid version number

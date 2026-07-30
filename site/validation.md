@@ -41,7 +41,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S09 | Missing `$learn_more` | W | The document omits the recommended `$learn_more` key. |
 | S10 | Duplicate name | E | Two column descriptors within the same table share a `name`, or two table descriptors within the dictionary share a `name`. |
 | S11 | Empty name | E | A table name or a column `name` is empty. |
-| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. |
+| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings, so a value that reads as a number or a boolean counts only if quoted; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. |
 | S13 | Descending range | E | A `range`'s minimum is greater than its maximum. An open bound counts as ordered only in its own place — `-.inf` as the minimum and `.inf` as the maximum; `.inf` as a minimum or `-.inf` as a maximum runs backwards. |
 | S14 | Time zone without datetime | E | A column has `time_zone` but its type is not `datetime`. |
 | S15 | Malformed time zone | E | A `time_zone` is not `naive`, `UTC`, or an IANA `Area/Location` name with a known area. The shape is checked, not the full tz database, so the accepted set doesn't go stale as zones are added or renamed. |
@@ -53,20 +53,11 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, or a malformed `SIMILAR TO` / `COLUMNS('...')` regex. |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
 | S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only, with no declared `type`, somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
-| S24 | Invalid enum values | E | An `enum`'s `values` are not a non-empty set of strings: they are empty (`[]` or `{}`), so nothing is permitted, or a value is null or a nested list/map. Values must be strings, but a quoted `'1'` is indistinguishable from `1` once parsed (see [below](#quote-style)), so a number or boolean is accepted here. Both forms are checked: the list items, and the keys of the map form. |
+| S24 | Invalid enum values | E | An `enum`'s `values` are not a non-empty set of strings: they are empty (`[]` or `{}`), so nothing is permitted, or a value is not a string — a number, a boolean, null, or a nested list/map. A category that reads as a number or a boolean has to be quoted to be a string (`'1'`, `'-9'`, `'true'`). Both forms are checked: the list items, and the keys of the map form. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
-(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers what the schema can't reach, including the keys of the map form. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest.)
-
-### Quote style is not preserved {#quote-style}
-
-The YAML parser reports a scalar's value but not how it was written, so a quoted `'1'` reaches validation as the number `1`, and a quoted `'null'` as null. Two checks are looser than the spec as a result:
-
-* S24 accepts a number or boolean among an `enum`'s `values`, even though values must be strings, because the value may have been quoted in the file.
-* S12 accepts any scalar in a `string` column's `examples`, for the same reason.
-
-Both would tighten if the parser preserved quote style. In the meantime, a dictionary that writes its categories unquoted still validates.
+(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers what the schema can't reach, including the keys of the map form. The schema deliberately keeps admitting a number or boolean among the list items so that S24 reports an unquoted category itself, rather than the reader meeting a structural "expected array, got object" from a failed branch match. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest.)
 
 ## Metadata-validation checks
 

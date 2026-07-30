@@ -657,6 +657,44 @@ fn s12_wrong_value_type() {
     assert_snapshot!(diagnostic);
 }
 
+// S12: a `string` column's examples are strings, so a zip code written bare is
+// a number, with the same quoting hint S24 gives a category.
+#[test]
+fn s12_unquoted_string_example() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples: ['02134', 94110]
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'94110'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// The same finding with the examples written one per line, where the offending
+// value sits several lines below the key that introduces it.
+#[test]
+fn s12_unquoted_string_example_block_form() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples:
+                  - '02134'
+                  - '94110'
+                  - 60614
+                  - '98101'
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'60614'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn s12_date_not_iso() {
     let diagnostic = failing_dict(indoc! {r#"
@@ -749,9 +787,7 @@ fn s13_infinite_bound_wrong_end() {
 
 // --- enum values (S24) ---------------------------------------------------
 
-// S24: a value that can't be a category whichever way it was written. A number
-// or boolean is accepted instead, because the parser discards quote style, so
-// `1` here may be `'1'` in the file (the limitation S12 works around too).
+// S24: a value no quoting rescues, so it carries no hint.
 #[test]
 fn s24_null_enum_value() {
     let diagnostic = failing_dict(indoc! {"
@@ -767,8 +803,7 @@ fn s24_null_enum_value() {
     assert_snapshot!(diagnostic);
 }
 
-// A category coded as a number reaches us as a number even when quoted, so it
-// has to be accepted.
+// A category coded as a number is a string once quoted.
 #[test]
 fn s24_numeric_codes_ok() {
     assert_valid_dict(indoc! {r#"
@@ -778,6 +813,55 @@ fn s24_numeric_codes_ok() {
               - name: grade
                 type: enum
                 values: ["1", "2", "3"]
+    "#});
+}
+
+// S24: written unquoted, the same codes are numbers, and the hint says so.
+#[test]
+fn s24_unquoted_numeric_codes() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: correction
+                type: enum
+                values:
+                  1: No correction
+                  0.974: Curvilinear correction
+    "});
+    diagnostic.assert_contains(&["S24", "is a number", "`'0.974'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_unquoted_boolean_value() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: consent
+                    type: enum
+                    values: [true, false, unknown]
+        "},
+        &["S24", "is a boolean", "`'true'`"],
+    );
+}
+
+// Numeric-looking keys must not make the map form read as a list.
+#[test]
+fn s24_mixed_key_types_map_form_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: thermocline
+                type: enum
+                values:
+                  '-9': Not known
+                  N: 'No'
+                  Y: 'Yes'
     "#});
 }
 
@@ -1193,7 +1277,7 @@ fn constraints_enum_is_a_string() {
                   - assert: LENGTH(sex) = 1
               - name: grade
                 type: enum
-                values: [1, 2, 3]
+                values: ['1', '2', '3']
                 constraints:
                   - assert: grade LIKE '_'
     "});

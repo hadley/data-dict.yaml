@@ -128,18 +128,21 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
             "values" => {
                 values = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_enum_values(&entry.value),
                 });
             }
             "range" => {
                 range = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
                 });
             }
             "examples" => {
                 examples = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
                 });
             }

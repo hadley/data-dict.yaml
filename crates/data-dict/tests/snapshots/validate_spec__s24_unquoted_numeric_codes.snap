@@ -1,0 +1,39 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: table
+    columns:
+      - name: correction
+        type: enum
+        values:
+          1: No correction
+          0.974: Curvilinear correction
+────────────────────────────────────────
+error[S24]: An `enum`'s values must be strings.
+  --> dict.yaml:9:11
+   |
+LL |   - name: table
+LL |     columns:
+LL |       - name: correction
+LL |         type: enum
+LL |         values:
+LL |           1: No correction
+   |           ^ is a number
+   |
+   = help: Quote it to make it a string: `'1'`.
+error[S24]: An `enum`'s values must be strings.
+  --> dict.yaml:10:11
+   |
+LL |   - name: table
+LL |     columns:
+LL |       - name: correction
+LL |         type: enum
+LL |         values:
+LL |           1: No correction
+LL |           0.974: Curvilinear correction
+   |           ^^^^^ is a number
+   |
+   = help: Quote it to make it a string: `'0.974'`.
