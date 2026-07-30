@@ -395,7 +395,7 @@ fn numeric_enum_values_are_checked() {
         indoc! {"
             - name: grade
               type: enum
-              values: [1, 2]
+              values: ['1', '2']
         "},
     );
 
@@ -413,9 +413,9 @@ fn numeric_enum_values_are_checked() {
     );
 }
 
-/// Integer enum values past f64's exact range (2^53) must compare exactly: the
-/// declared value and the identical data value must not be routed through f64,
-/// which would collapse them to different strings and flag conforming data.
+/// A category past f64's exact range (2^53) must compare exactly: the declared
+/// value and the identical data value must not be routed through f64, which
+/// would collapse them to different strings and flag conforming data.
 #[test]
 fn large_integer_enum_values_compare_exactly() {
     // 2^53 + 1, not representable as f64.
@@ -431,7 +431,7 @@ fn large_integer_enum_values_compare_exactly() {
         &formatdoc! {"
             - name: id
               type: enum
-              values: [{big}, 42]
+              values: ['{big}', '42']
         "},
     );
 
@@ -467,7 +467,7 @@ fn float_enum_values_compare_at_column_width() {
         indoc! {"
             - name: ratio
               type: enum
-              values: [8.31446261815324, 2.5]
+              values: ['8.31446261815324', '2.5']
         "},
     );
 

@@ -18,4 +18,4 @@ LL |     columns:
 LL |       - name: seen_on
 LL |         type: date
 LL |         range: ["2020-01-01", "20-01-2021"]
-   |                               ^^^^^^^^^^ is a string
+   |                               ^^^^^^^^^^^^ is a string

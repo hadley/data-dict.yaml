@@ -11,4 +11,4 @@ error[S17]: A `version` `date` must be an ISO 8601 date (YYYY-MM-DD).
    |
 LL | version:
 LL |   date: "31/01/2024"
-   |         ^^^^^^^^^^ `31/01/2024` is not an ISO 8601 date
+   |         ^^^^^^^^^^^^ `31/01/2024` is not an ISO 8601 date

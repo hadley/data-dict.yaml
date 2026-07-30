@@ -14,4 +14,4 @@ error[S11]: A table must have a non-empty name.
   --> dict.yaml:4:11
    |
 LL |   - name: ""
-   |           ^ table name is empty
+   |           ^^ table name is empty

@@ -22,7 +22,9 @@ use quarto_yaml_validation::{Schema, SchemaRegistry, ValidationDiagnostic, Valid
 
 use crate::assert_expr::{self, CheckEnv, ColumnKind};
 use crate::join_expr::{JoinExpr, QCol};
-use crate::model::{Assertion, Cardinality, Column, DataDict, Scalar, Spanned, Table};
+use crate::model::{
+    Assertion, Cardinality, Column, DataDict, Representation, Scalar, Spanned, Table,
+};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Suggestion, subspan};
 use crate::{SourceContext, lower};
 
@@ -898,12 +900,12 @@ fn validate_s11_column_name(table: &Table, col: &Column, out: &mut ProblemSet) -
 /// `boolean`, and any unrecognized type). Mirrors S07: each type owns exactly
 /// one representation key, and we only check the one it owns so that a
 /// misplaced key reports as S07 rather than cascading into S12.
-fn typed_representation(col: &Column) -> Option<(&'static str, &[Spanned<Scalar>])> {
+fn typed_representation(col: &Column) -> Option<(&'static str, &Representation)> {
     match col.col_type.as_ref()?.value.as_str() {
         "number(ordinal)" | "number(quantity)" | "date" | "datetime" => {
-            Some(("range", &col.range.as_ref()?.items))
+            Some(("range", col.range.as_ref()?))
         }
-        "string" | "number" | "number(id)" => Some(("examples", &col.examples.as_ref()?.items)),
+        "string" | "number" | "number(id)" => Some(("examples", col.examples.as_ref()?)),
         _ => None,
     }
 }
@@ -911,15 +913,16 @@ fn typed_representation(col: &Column) -> Option<(&'static str, &[Spanned<Scalar>
 /// Returns whether every value in the column's typed representation matches its
 /// type — i.e. whether the bounds are sound enough to compare for order (S13).
 fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -> bool {
-    let Some(type_name) = col.col_type.as_ref().map(|t| t.value.as_str()) else {
+    let Some(col_type) = col.col_type.as_ref() else {
         return true;
     };
-    let Some((key, values)) = typed_representation(col) else {
+    let type_name = col_type.value.as_str();
+    let Some((key, rep)) = typed_representation(col) else {
         return true;
     };
     let tz_present = col.time_zone.is_some();
     let mut ok = true;
-    for v in values {
+    for v in &rep.items {
         if value_matches_type(type_name, &v.value, tz_present) {
             continue;
         }
@@ -936,9 +939,16 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
             [
                 table.name.span.clone(),
                 col.name.span.clone(),
+                col_type.span.clone(),
+                rep.key_span.clone(),
                 v.span.clone(),
             ],
         );
+        if type_name == "string"
+            && let Some(hint) = quoting_hint(&v.value)
+        {
+            out.hint_last(hint);
+        }
     }
     ok
 }
@@ -952,10 +962,7 @@ fn value_matches_type(type_name: &str, value: &Scalar, tz_present: bool) -> bool
         "number" | "number(id)" | "number(ordinal)" | "number(quantity)" => {
             matches!(value, Scalar::Int(_) | Scalar::Float(_))
         }
-        // The YAML parser discards quote style, so a quoted `'1'` arrives as a
-        // number and a quoted `'null'` as null; we can't tell those from a real
-        // string. So `string` accepts any scalar and only rejects a list/map.
-        "string" => !matches!(value, Scalar::Compound),
+        "string" => matches!(value, Scalar::String(_)),
         // An infinite bound leaves that end of a temporal range open (spec:
         // Representative values), so accept it alongside a real ISO 8601 value.
         "date" => {
@@ -1008,12 +1015,22 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
 /// each must be a string. Both forms reach here the same way: the map form's
 /// keys are lowered as its values.
 fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
-    if col.col_type.as_ref().map(|t| t.value.as_str()) != Some("enum") {
+    let Some(col_type) = col.col_type.as_ref().filter(|t| t.value == "enum") else {
         return;
-    }
+    };
     // A missing `values` is S07's to report.
     let Some(values) = &col.values else { return };
-    let at = |span: &SourceInfo| [table.name.span.clone(), col.name.span.clone(), span.clone()];
+    // The `type` and `values` lines come along so the finding reads as being
+    // about this column's categories, not a bare scalar somewhere in the file.
+    let at = |span: &SourceInfo| {
+        [
+            table.name.span.clone(),
+            col.name.span.clone(),
+            col_type.span.clone(),
+            values.key_span.clone(),
+            span.clone(),
+        ]
+    };
 
     if values.items.is_empty() {
         out.push_spec_error(
@@ -1024,20 +1041,32 @@ fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
         );
         return;
     }
-    // The spec requires strings, but the YAML parser discards quote style — a
-    // quoted `'1'` arrives as a number, exactly as it does for S12 — so a
-    // number or boolean here may well be a string in the file. Only a value
-    // that can't be a category either way is rejected.
     for item in &values.items {
-        if matches!(item.value, Scalar::Null | Scalar::Compound) {
+        if !matches!(item.value, Scalar::String(_)) {
             out.push_spec_error(
                 "S24",
                 "An `enum`'s values must be strings.",
                 format!("is {}", item.value.noun()),
                 at(&item.span),
             );
+            if let Some(hint) = quoting_hint(&item.value) {
+                out.hint_last(hint);
+            }
         }
     }
+}
+
+/// A category or `string` value written unquoted is resolved by its text, so a
+/// numeric or boolean spelling arrives as the wrong kind; the fix is to quote
+/// it. `None` for a value no quoting rescues (null, or a nested list/map).
+fn quoting_hint(value: &Scalar) -> Option<String> {
+    let literal = match value {
+        Scalar::Int(n) => n.to_string(),
+        Scalar::Float(n) => n.to_string(),
+        Scalar::Bool(b) => b.to_string(),
+        _ => return None,
+    };
+    Some(format!("Quote it to make it a string: `'{literal}'`."))
 }
 
 // --- S13 --------------------------------------------------------------

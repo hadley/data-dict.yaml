@@ -126,15 +126,18 @@ pub struct Column {
 
 #[derive(Debug, Clone)]
 pub struct Representation {
+    /// The value node — the list, map, or whatever stands in for one.
     pub span: SourceInfo,
+    /// The `values` / `range` / `examples` key itself, for showing the line a
+    /// finding sits under.
+    pub key_span: SourceInfo,
     pub items: Vec<Spanned<Scalar>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scalar {
-    /// An integer, kept distinct from `Float` so its exact value survives for
-    /// value-equality (D04); routing every number through `f64` would lose
-    /// precision past 2^53.
+    /// An integer, kept distinct from `Float` so an exact value survives;
+    /// routing every number through `f64` would lose precision past 2^53.
     Int(i64),
     Float(f64),
     String(String), // includes date/times
@@ -167,29 +170,20 @@ impl Scalar {
     }
 
     /// The canonical string forms this value can take in data, for value-equality
-    /// comparison (D04). Empty for kinds that can't appear as a data value
-    /// (`null`, compound). Must agree with the data side's canonicalization in
-    /// `data-dict-parquet`.
+    /// comparison (D04). Must agree with the data side's canonicalization in
+    /// `data-dict-parquet`. Empty for anything but a string, since an `enum`'s
+    /// values are strings (S24).
     ///
-    /// A float yields two forms — its own (`f64`, matching a `DOUBLE` column) and
-    /// its narrowing to `f32` (matching a `FLOAT` column) — because a value like
-    /// `3.14159265358979` prints differently at each width, and the data side
-    /// formats at the column's physical width.
+    /// A numerically-spelled category yields a second form, its narrowing to
+    /// `f32`, because the data side formats at the column's physical width and
+    /// a value like `8.31446261815324` prints as `8.314463` in a `FLOAT` column.
     pub fn value_keys(&self) -> Vec<String> {
-        match self {
-            Scalar::Int(n) => vec![n.to_string()],
-            Scalar::Float(n) => {
-                let wide = n.to_string();
-                let narrow = (*n as f32).to_string();
-                if narrow == wide {
-                    vec![wide]
-                } else {
-                    vec![wide, narrow]
-                }
-            }
-            Scalar::String(s) => vec![s.clone()],
-            Scalar::Bool(b) => vec![b.to_string()],
-            Scalar::Null | Scalar::Compound => vec![],
+        let Scalar::String(s) = self else {
+            return vec![];
+        };
+        match s.parse::<f64>().map(|n| (n as f32).to_string()) {
+            Ok(narrow) if narrow != *s => vec![s.clone(), narrow],
+            _ => vec![s.clone()],
         }
     }
 }
