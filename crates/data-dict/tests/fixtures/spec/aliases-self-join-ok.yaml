@@ -1,0 +1,28 @@
+# expected: valid
+# The self-join the spec asks for: an alias per side. `pup_number` is a
+# `foreign_key`, so this also exercises S01 resolving a foreign key through an
+# alias back to `otters.otter_no`.
+
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+description: Sea otters and their dependent pups.
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        constraints: [foreign_key]
+        examples: [1, 2]
+
+relationships:
+  - join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otters
+    cardinality: one-to-many
+    description: Links a female otter to her dependent pup's own record.

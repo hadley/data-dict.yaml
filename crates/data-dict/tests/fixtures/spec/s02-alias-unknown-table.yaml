@@ -1,0 +1,23 @@
+# expected: S02
+# The alias `pup` points at `otter`, but the table is `otters`. The report
+# lands on the alias, not on the join that uses it.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otter
+    cardinality: one-to-many

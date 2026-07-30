@@ -3,8 +3,8 @@ source: crates/data-dict/tests/validate_spec.rs
 ---
 # expected: S06
 # Recreated from the bundled `otters` example. A `one-to-many` self-join
-# `otters.pup_number = otters.otter_no` makes `pup_number` the "one" side, so
-# it must be `primary_key` or `unique`; it is neither, so S06 fires.
+# `pup.pup_number = mother.otter_no` makes `pup_number` the "one" side, so it
+# must be `primary_key` or `unique`; it is neither, so S06 fires.
 
 $version: "0.1.0"
 
@@ -23,12 +23,16 @@ tables:
         examples: ["found in river", "tagged"]
 
 relationships:
-  - join: otters.pup_number = otters.otter_no
+  - join: pup.pup_number = mother.otter_no
+    aliases:
+      pup: otters
+      mother: otters
     cardinality: one-to-many
 ────────────────────────────────────────
 error[S06]: A `one-to-many` join must have a `primary_key` or `unique` column on its left ("one") side.
-  --> spec/s06-self-join-one-to-many.yaml:24:18
+  --> spec/s06-self-join-one-to-many.yaml:27:18
    |
-LL |   - join: otters.pup_number = otters.otter_no
+LL |   - join: pup.pup_number = mother.otter_no
+...
 LL |     cardinality: one-to-many
-   |                  ^^^^^^^^^^^ the left-side join column on `otters` is not marked `primary_key` or `unique`
+   |                  ^^^^^^^^^^^ the left-side join column on `pup` is not marked `primary_key` or `unique`

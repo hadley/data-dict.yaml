@@ -1,0 +1,21 @@
+# expected: S25
+# The self-join names `otters` on both sides, so nothing says the two sides are
+# different rows. `many-to-one` puts the "one" side on the `primary_key`, so
+# S06 stays quiet and only S25 fires.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: otters.pup_number = otters.otter_no
+    cardinality: many-to-one

@@ -31,9 +31,9 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
 | S01 | Unresolved foreign key | E | A `foreign_key` column has no `relationships` entry pointing it at a `primary_key` column. |
-| S02 | Unknown table | E | A relationship references a table that is not defined in `tables`. |
+| S02 | Unknown table | E | A relationship references a table that is not defined in `tables`, either directly in its `join` or as the target of an `aliases` entry. |
 | S03 | Unknown column | E | A relationship references a column that does not exist on its table. |
-| S04 | Invalid join | E | A `join` expression fails to parse, or references neither one (self-join) nor two tables. |
+| S04 | Invalid join | E | A `join` expression fails to parse, or references more than two tables. |
 | S05 | Unresolved conflict column | E | A name in `conflicts` is not a column on both sides of the join. |
 | S06 | Inconsistent cardinality | E | The declared cardinality is inconsistent with the constraints on the joined columns (e.g. `one-to-many` whose "one" side is not `primary_key` or `unique`). |
 | S07 | Wrong representation key | E | A column's data representation key is absent or wrong for its type (`enum` → `values`; `number(ordinal)`, `number(quantity)`, `date`, `datetime` → `range`; otherwise → `examples`). A `boolean` column must carry none of `values`, `range`, or `examples`. |
@@ -54,6 +54,9 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
 | S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only, with no declared `type`, somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
 | S24 | Invalid enum values | E | An `enum`'s `values` are not a non-empty set of strings: they are empty (`[]` or `{}`), so nothing is permitted, or a value is not a string — a number, a boolean, null, or a nested list/map. A category that reads as a number or a boolean has to be quoted to be a string (`'1'`, `'-9'`, `'true'`). Both forms are checked: the list items, and the keys of the map form. |
+| S25 | Unaliased self-join | E | Both sides of a `join` denote the same rows: the same name appears on both sides, or both sides resolve to the same table without each being a distinct alias. A self-join must name each side with its own `aliases` entry. |
+| S26 | Alias shadows table | E | An `aliases` key has the same name as a table in `tables`, so a name in the `join` could be read either way. |
+| S27 | Unused alias | W | An `aliases` entry is declared but never referenced by the relationship's `join`. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
