@@ -48,10 +48,11 @@ impl DataDict {
             let Some(join) = &rel.join else { continue };
             for conj in &join.conjuncts {
                 for (fk_side, pk_side) in [(&conj.lhs, &conj.rhs), (&conj.rhs, &conj.lhs)] {
-                    if fk_side.table != table_name || fk_side.column != col.name.value {
+                    if rel.resolve(&fk_side.table) != table_name || fk_side.column != col.name.value
+                    {
                         continue;
                     }
-                    let Some(other_tbl) = self.table(&pk_side.table) else {
+                    let Some(other_tbl) = self.table(rel.resolve(&pk_side.table)) else {
                         continue;
                     };
                     let Some(other_col) = other_tbl.column(&pk_side.column) else {
@@ -242,6 +243,27 @@ pub struct Relationship {
     /// S06) skip the relationship.
     pub join: Option<JoinExpr>,
     pub conflicts: Vec<Spanned<String>>,
+    /// Alias declarations, in source order. Scoped to this relationship.
+    pub aliases: Vec<Alias>,
+}
+
+impl Relationship {
+    /// The table a name in the `join` refers to: the target of the alias of
+    /// that name, or `name` itself when no alias declares it.
+    pub fn resolve<'a>(&'a self, name: &'a str) -> &'a str {
+        self.alias(name).map_or(name, |a| a.table.value.as_str())
+    }
+
+    pub fn alias(&self, name: &str) -> Option<&Alias> {
+        self.aliases.iter().find(|a| a.name.value == name)
+    }
+}
+
+/// One `aliases` entry: the alias itself and the table it stands for.
+#[derive(Debug, Clone)]
+pub struct Alias {
+    pub name: Spanned<String>,
+    pub table: Spanned<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

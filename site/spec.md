@@ -278,9 +278,10 @@ constraints:
 `relationships` is a list of join descriptors. Each entry describes how two tables are related.
 
 * `join` (required): a join expression of the form `table1.column = table2.column`, or `table1.date >= table2.start AND table1.date <= table2.end`.
-* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
+* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left side to the right side of the join expression.
 * `description`: human-readable description of the relationship. Only needed if it's not clear from the context.
-* `conflicts`: a list of column names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `conflicts`: a list of column names that appear on both sides of the join with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `aliases`: a map from alias to table name, naming the role each side of the join plays. See [aliases](#aliases).
 
 For example:
 
@@ -289,6 +290,36 @@ relationships:
   - join: food.food_category_id = food_category.id
     cardinality: many-to-one
     conflicts: [description]
+```
+
+### Aliases
+
+A join brings together two sets of rows. Usually they come from two different tables, so the table names are enough to tell the sides apart. When they don't, `aliases` gives each side its own name:
+
+```yaml
+relationships:
+  - join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otters
+    cardinality: one-to-many
+    description: Links a female otter to her dependent pup's own record.
+```
+
+Within a `join`, a name before the `.` resolves first as an alias declared by that relationship, then as a table name. An alias is scoped to the relationship that declares it, and it must not have the same name as a table in the dictionary. Every alias must name a table that exists, and every alias declared should be used by the join. Self-joins must use aliases.
+
+Prefer aliases that name the role a side plays (`mother`/`pup`, `manager`/`report`) over positional names like `left`/`right`; they make the join expression readable on its own.
+
+Aliases are also allowed, but not required, when two tables are joined more than once and each join means something different. Naming the roles says which is which:
+
+```yaml
+relationships:
+  - join: flights.origin = origin_airport.faa
+    aliases: {origin_airport: airports}
+    cardinality: many-to-one
+  - join: flights.dest = dest_airport.faa
+    aliases: {dest_airport: airports}
+    cardinality: many-to-one
 ```
 
 ## Glossary
