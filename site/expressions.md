@@ -18,7 +18,7 @@ tables:
 
 An expression is always written against the columns of one table: bare names are that table's column names, and an expression on a column sees every other column too. So the two constraints above differ in where they're written, not in what they can say — a column constraint sits next to the column it's mostly about, and a table constraint is the natural home for a rule that spans columns.
 
-This page is the reference for the language. It covers [how an expression is evaluated](#evaluation), [truth and null](#truth-and-null), the [types](#types) values carry, the [literals](#literals), [operators](#operators), and [functions](#functions) available, [`COLUMNS(...)`](#selecting-multiple-columns) for applying one predicate to many columns, the [type rules](#type-checking) a validator enforces, and the [grammar](#grammar).
+This page is the reference for the language. It covers [how an expression is evaluated](#evaluation), [truth and null](#truth-and-null), the [types](#types) values carry, how [columns are referred to](#column-references), the [literals](#literals), [operators](#operators), and [functions](#functions) available, [`COLUMNS(...)`](#selecting-multiple-columns) for applying one predicate to many columns, the [type rules](#type-checking) a validator enforces, and the [grammar](#grammar).
 
 ## Evaluation
 
@@ -60,6 +60,26 @@ An unknown type is only a problem where a type is actually needed. `IS NULL` and
 `NULL` is the one genuinely typeless thing in the language, and stays compatible with every type.
 
 The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares.
+
+## Column references
+
+A name in an expression refers to a column of the table. Written bare, it must be a plain identifier: a letter or `_`, followed by letters, digits, or `_`.
+
+A name of any other shape — one containing a space or punctuation, one starting with a digit, or one that collides with a [reserved word](#grammar) — is written between backticks:
+
+```yaml
+constraints:
+  - assert: '`creation date` <= NOW()'
+  - assert: LENGTH(`postal code`) <= 10
+```
+
+The first expression is quoted in YAML and the second isn't, because a backtick is reserved as the first character of a plain YAML scalar. Only that position is affected: an expression that merely contains a backtick needs no YAML quotes.
+
+A backtick-quoted name may contain any character; double a backtick to include one, so ``` `a``b` ``` refers to the column named ``a`b``. An empty or unterminated quoted name is a syntax error.
+
+Quoting changes how a name is *read*, never how it is *matched*: `` `postcode` `` and `postcode` are the same column, and both are matched exactly against the column names in the data, [case included](#evaluation). Quote whenever you like — a name that doesn't need backticks is free to have them.
+
+The same rules apply to a qualified name in a relationship's [`join`](spec.md#relationships), where each side of the `.` is quoted on its own — `` `other studies`.`creation date` ``, `` food.`category id` ``. A `.` between backticks is part of the name rather than a separator.
 
 ## Literals
 
@@ -285,6 +305,8 @@ To apply the same predicate to a group of columns without repeating it, use a `C
 
 : {tbl-colwidths="[30,70]"}
 
+Names in the list are [written like any other column reference](#column-references), backticks included where they're needed: ``COLUMNS([`creation date`, updated_at])``. The regex form matches against the plain name, without them.
+
 The regex is an [RE2](https://github.com/google/re2/wiki/Syntax) expression matched **unanchored** (a partial match, as in DuckDB), so `COLUMNS('q')` selects every column whose name contains a `q`; anchor it with `^`/`$` to match the whole name. This is the one place a regex is unanchored — `SIMILAR TO` anchors.
 
 A `COLUMNS(...)` node stands in for a column reference, and the expression around it is evaluated once per selected column. The result is true only when it is true for **every** selected column — the per-column results are combined with `AND`.
@@ -355,9 +377,13 @@ primary        := literal | column | funcall | columns | case | "(" expr ")"
 cmp            := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 literal        := number | string | "TRUE" | "FALSE" | "NULL"
 funcall        := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
-columns        := "COLUMNS" "(" ("*" | string | "[" IDENT ("," IDENT)* "]") ")"
+columns        := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
 case           := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
+column         := IDENT | QUOTED
 IDENT          := [A-Za-z_][A-Za-z0-9_]*
+QUOTED         := "`" ( [^`] | "``" )+ "`"
 ```
 
-The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`.
+A function name is always an `IDENT`; only columns can be quoted.
+
+The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`. A column named after one of them is still reachable [in backticks](#column-references).
