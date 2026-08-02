@@ -93,10 +93,14 @@ The uniqueness check (D02) compares values directly, so it only runs on types wh
 
 For **Parquet**:
 
-* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values treat `-0.0` and `+0.0` as equal and all NaNs as a single value.
+* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values — including 16-bit floats — treat `-0.0` and `+0.0` as equal and all NaNs as a single value. Legacy `INT96` timestamps are compared as datetimes, by the instant they denote.
 
 * JSON and BSON, whose byte representation does not determine equality (two documents can differ only in whitespace or key order and still be equal), are **not** compared. Neither is any Parquet logical type the validator does not recognize — including future types such as `VARIANT` or `GEOMETRY`.
 
 For a non-comparable column, running the check anyway could silently miss duplicates and pass a dataset that should fail, so the check is skipped with a D03 warning instead. A composite primary key is skipped whole if any of its columns is non-comparable.
 
-The foreign-key check (D05) is governed by the same comparability rule: the foreign-key column and the primary-key column it references are compared by the same normalized value form, so both must be comparable. If either uses a non-comparable type, the reference could silently mismatch, so the check is skipped with a D06 warning instead.
+The foreign-key check (D05) is governed by the same comparability rule: the foreign-key column and the primary-key column it references are compared by the same normalized value form, so both must be comparable. The two columns need not share a physical representation: values are compared as values, so a key stored as `INT64` can be referenced by an `INT32` column, and a byte-encoded decimal by an int-encoded one. When the two columns have no common comparable form at all (say, a string referencing a number), no value can match, and every non-null child value is reported. If either column uses a non-comparable type, the reference could silently mismatch, so the check is skipped with a D06 warning instead.
+
+### Enum membership {#enum-membership}
+
+An `enum` column's underlying data must be string-like: a Parquet string column, or a true Parquet enum. Any other underlying type is a type mismatch (M01). Its declared `values` are strings, and membership (D04) is plain string equality.

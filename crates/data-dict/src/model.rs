@@ -170,21 +170,13 @@ impl Scalar {
         }
     }
 
-    /// The canonical string forms this value can take in data, for value-equality
-    /// comparison (D04). Must agree with the data side's canonicalization in
-    /// `data-dict-parquet`. Empty for anything but a string, since an `enum`'s
-    /// values are strings (S24).
-    ///
-    /// A numerically-spelled category yields a second form, its narrowing to
-    /// `f32`, because the data side formats at the column's physical width and
-    /// a value like `8.31446261815324` prints as `8.314463` in a `FLOAT` column.
-    pub fn value_keys(&self) -> Vec<String> {
-        let Scalar::String(s) = self else {
-            return vec![];
-        };
-        match s.parse::<f64>().map(|n| (n as f32).to_string()) {
-            Ok(narrow) if narrow != *s => vec![s.clone(), narrow],
-            _ => vec![s.clone()],
+    /// The string form this value takes in data, for enum membership (D04).
+    /// `None` for anything but a string, since an `enum`'s values are strings
+    /// (S24) and its underlying column is string-like.
+    pub fn as_enum_value(&self) -> Option<&str> {
+        match self {
+            Scalar::String(s) => Some(s),
+            _ => None,
         }
     }
 }

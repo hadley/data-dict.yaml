@@ -14,7 +14,10 @@ use std::sync::Arc;
 
 use data_dict::{Problem, ProblemKind, ProblemSet, Status, validate_data, validate_meta};
 use indoc::{formatdoc, indoc};
-use parquet::data_type::{ByteArray, ByteArrayType, DoubleType, FloatType, Int32Type, Int64Type};
+use parquet::data_type::{
+    ByteArray, ByteArrayType, DoubleType, FixedLenByteArray, FixedLenByteArrayType, Int32Type,
+    Int64Type,
+};
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use parquet::file::writer::{SerializedColumnWriter, SerializedFileWriter};
 use parquet::schema::parser::parse_message_type;
@@ -384,7 +387,9 @@ fn nulls_in_optional_enum_are_not_outside_values() {
 }
 
 #[test]
-fn numeric_enum_values_are_checked() {
+fn enum_over_numeric_column_is_type_mismatch() {
+    // An enum's underlying column must be string-like; a numeric backing is an
+    // M01, and its values are not scanned for membership (no D04 alongside).
     let result = check_column(
         "REQUIRED INT32 grade",
         |col| {
@@ -404,82 +409,10 @@ fn numeric_enum_values_are_checked() {
         matches!(
             result.items.as_slice(),
             [Problem {
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                code: Some("M01"),
+                kind: ProblemKind::TypeMismatch { .. },
                 ..
-            }] if rows == &[3] && values == &["3"]
-        ),
-        "got {:?}",
-        result.items
-    );
-}
-
-/// A category past f64's exact range (2^53) must compare exactly: the declared
-/// value and the identical data value must not be routed through f64, which
-/// would collapse them to different strings and flag conforming data.
-#[test]
-fn large_integer_enum_values_compare_exactly() {
-    // 2^53 + 1, not representable as f64.
-    let big = 9007199254740993_i64;
-    let other = 9007199254740995_i64;
-    let result = check_column(
-        "REQUIRED INT64 id",
-        move |col| {
-            col.typed::<Int64Type>()
-                .write_batch(&[big, other, big], None, None)
-                .unwrap();
-        },
-        &formatdoc! {"
-            - name: id
-              type: enum
-              values: ['{big}', '42']
-        "},
-    );
-
-    assert_eq!(result.status(), Status::Error);
-    assert!(
-        matches!(
-            result.items.as_slice(),
-            [Problem {
-                code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
-                ..
-            }] if rows == &[2] && values == &[other.to_string()]
-        ),
-        "got {:?}",
-        result.items
-    );
-}
-
-/// A `FLOAT` column stores values at f32 width, so a declared value that prints
-/// differently as f32 than as f64 (`8.31446261815324` → `8.314463`) must still
-/// be recognized as in-set. Only the genuinely-absent value is reported.
-#[test]
-fn float_enum_values_compare_at_column_width() {
-    // The declared value, narrowed to the column's f32 width as the writer would.
-    let precise = 8.31446261815324_f64 as f32;
-    let result = check_column(
-        "REQUIRED FLOAT ratio",
-        move |col| {
-            col.typed::<FloatType>()
-                .write_batch(&[precise, 2.5, 9.5], None, None)
-                .unwrap();
-        },
-        indoc! {"
-            - name: ratio
-              type: enum
-              values: ['8.31446261815324', '2.5']
-        "},
-    );
-
-    assert_eq!(result.status(), Status::Error);
-    assert!(
-        matches!(
-            result.items.as_slice(),
-            [Problem {
-                code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
-                ..
-            }] if rows == &[3] && values == &["9.5"]
+            }]
         ),
         "got {:?}",
         result.items
@@ -1030,6 +963,76 @@ fn differently_encoded_decimals_are_duplicates() {
 }
 
 #[test]
+fn signed_zeros_are_duplicates() {
+    // `-0.0` and `+0.0` collapse to one value, so the second is a duplicate.
+    let yaml = scanned_column(
+        "REQUIRED DOUBLE score",
+        |col| {
+            col.typed::<DoubleType>()
+                .write_batch(&[0.0, -0.0, 3.0], None, None)
+                .unwrap();
+        },
+        indoc! {"
+            - name: score
+              type: number(id)
+              constraints: [unique]
+              examples: [1, 2]
+        "},
+    );
+
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                ..
+            }] if columns == &["score"] && rows == &[2]
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+#[test]
+fn float16_unique_column_is_checked() {
+    // 16-bit floats are comparable (with the same signed-zero collapsing), so
+    // uniqueness is verified rather than skipped with a D03.
+    let zero = FixedLenByteArray::from(vec![0x00_u8, 0x00]); // +0.0
+    let negative_zero = FixedLenByteArray::from(vec![0x00_u8, 0x80]); // -0.0
+    let one_and_a_half = FixedLenByteArray::from(vec![0x00_u8, 0x3E]); // 1.5
+    let yaml = scanned_column(
+        "REQUIRED FIXED_LEN_BYTE_ARRAY(2) reading (FLOAT16)",
+        |col| {
+            col.typed::<FixedLenByteArrayType>()
+                .write_batch(&[zero, negative_zero, one_and_a_half], None, None)
+                .unwrap();
+        },
+        indoc! {"
+            - name: reading
+              type: number(id)
+              constraints: [unique]
+              examples: [1.5]
+        "},
+    );
+
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                ..
+            }] if columns == &["reading"] && rows == &[2]
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+#[test]
 fn distinct_nan_bit_patterns_are_duplicates() {
     // Two different NaN encodings collapse to one value, so the second is a
     // duplicate of the first.
@@ -1278,8 +1281,8 @@ fn foreign_key_string_orphan_reported() {
 
 #[test]
 fn foreign_key_across_int_widths_ok() {
-    // An INT32 child against an INT64 parent: both normalize to i64, so equal
-    // ids match despite the differing physical width.
+    // An INT32 child against an INT64 parent: both cast to a common i64, so
+    // equal ids match despite the differing physical width.
     let yaml = build_fk(
         "REQUIRED INT32 category_id",
         |col| {
@@ -1298,6 +1301,177 @@ fn foreign_key_across_int_widths_ok() {
     );
     let result = validate_data(&yaml, None);
     assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
+}
+
+#[test]
+fn foreign_key_across_decimal_encodings() {
+    // An int-backed DECIMAL(9,2) child against a byte-backed DECIMAL(18,2)
+    // parent: values are compared numerically, so unscaled 100 matches the
+    // parent's `0x64` and only the genuinely-absent 9.99 is an orphan —
+    // rendered at the column's scale.
+    let yaml = build_fk(
+        "REQUIRED INT32 category_id (DECIMAL(9,2))",
+        |col| {
+            col.typed::<Int32Type>()
+                .write_batch(&[100, 999], None, None)
+                .unwrap();
+        },
+        "REQUIRED BYTE_ARRAY id (DECIMAL(18,2))",
+        |col| {
+            col.typed::<ByteArrayType>()
+                .write_batch(
+                    &[
+                        ByteArray::from(vec![0x64_u8]),
+                        ByteArray::from(vec![0x00_u8, 0xFA]),
+                    ],
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+        "number(id)",
+        "[1, 2]",
+    );
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D05"),
+                kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
+                ..
+            }] if rows == &[2] && values == &["9.99"]
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+#[test]
+fn foreign_key_without_common_form_reports_all() {
+    // A string child referencing a numeric parent has no common comparable
+    // form: nothing can match, so every non-null child value is an orphan
+    // (the null at row 2 stays exempt).
+    let dir = temp_dir();
+    write_single_column(
+        &dir.join("item.parquet"),
+        "OPTIONAL BYTE_ARRAY category_id (STRING)",
+        |col| {
+            col.typed::<ByteArrayType>()
+                .write_batch(
+                    &[ByteArray::from("a"), ByteArray::from("b")],
+                    Some(&[1, 0, 1]),
+                    None,
+                )
+                .unwrap();
+        },
+    );
+    write_single_column(&dir.join("category.parquet"), "REQUIRED INT64 id", |col| {
+        col.typed::<Int64Type>()
+            .write_batch(&[1, 2], None, None)
+            .unwrap();
+    });
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: item
+                source:
+                  parquet: item.parquet
+                columns:
+                  - name: category_id
+                    type: string
+                    constraints: [foreign_key]
+                    examples: [a, b]
+              - name: category
+                source:
+                  parquet: category.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [1, 2]
+            relationships:
+              - join: item.category_id = category.id
+                cardinality: many-to-one
+        "},
+    );
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D05"),
+                kind: ProblemKind::ForeignKeyNotFound { count: 2, rows, values, .. },
+                ..
+            }] if rows == &[1, 3] && values == &["a", "b"]
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+#[test]
+fn foreign_key_date_orphan_renders_as_date() {
+    // Orphan samples are rendered at the column's logical type: a DATE value
+    // reads as `2024-01-02`, not its raw day count.
+    let dir = temp_dir();
+    write_single_column(
+        &dir.join("item.parquet"),
+        "REQUIRED INT32 seen_on (DATE)",
+        |col| {
+            col.typed::<Int32Type>()
+                .write_batch(&[19723, 19724], None, None)
+                .unwrap();
+        },
+    );
+    write_single_column(
+        &dir.join("category.parquet"),
+        "REQUIRED INT32 held_on (DATE)",
+        |col| {
+            col.typed::<Int32Type>()
+                .write_batch(&[19723], None, None)
+                .unwrap();
+        },
+    );
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: item
+                source:
+                  parquet: item.parquet
+                columns:
+                  - name: seen_on
+                    type: date
+                    constraints: [foreign_key]
+                    range: [2024-01-01, 2024-01-02]
+              - name: category
+                source:
+                  parquet: category.parquet
+                columns:
+                  - name: held_on
+                    type: date
+                    constraints: [primary_key]
+                    range: [2024-01-01, 2024-01-01]
+            relationships:
+              - join: item.seen_on = category.held_on
+                cardinality: many-to-one
+        "},
+    );
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D05"),
+                kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
+                ..
+            }] if rows == &[2] && values == &["2024-01-02"]
+        ),
+        "got {:?}",
+        result.items
+    );
 }
 
 #[test]

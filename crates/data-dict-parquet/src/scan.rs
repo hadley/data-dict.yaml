@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
 use std::path::Path;
 
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use parquet::record::Field;
-use parquet::schema::types::Type;
+use arrow_array::Array;
+use arrow_array::cast::AsArray;
+use parquet::file::reader::SerializedFileReader;
 
 use crate::ParquetError;
+use crate::reader::FileContext;
 
 /// What a column's data must be inspected for.
 #[derive(Default, Clone)]
@@ -14,8 +14,8 @@ pub struct ColumnNeeds {
     /// Count nulls and sample the row numbers where they occur.
     pub nulls: bool,
     /// The set of allowed values (D04). When present, non-null values not in
-    /// the set are counted and sampled. Values are the canonical string form
-    /// produced by [`field_key`]; the caller must canonicalize its set to match.
+    /// the set are counted and sampled. Membership is string equality: the
+    /// metadata level guarantees an enum column is string-like (M01).
     pub allowed: Option<HashSet<String>>,
 }
 
@@ -53,21 +53,12 @@ pub fn column_stats(
     needs: &HashMap<String, ColumnNeeds>,
     limit: usize,
 ) -> Result<HashMap<String, ColumnStats>, ParquetError> {
-    let file =
-        File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
-    let reader = SerializedFileReader::new(file)?;
-    let schema = reader.metadata().file_metadata().schema();
+    let ctx = FileContext::open(path)?;
 
     let requested: Vec<(String, usize, &ColumnNeeds)> = needs
         .iter()
         .filter(|(_, need)| need.any())
-        .filter_map(|(name, need)| {
-            schema
-                .get_fields()
-                .iter()
-                .position(|field| field.name() == name)
-                .map(|index| (name.clone(), index, need))
-        })
+        .filter_map(|(name, need)| ctx.leaf(name).map(|leaf| (name.clone(), leaf, need)))
         .collect();
 
     let mut stats: HashMap<String, ColumnStats> = requested
@@ -78,92 +69,80 @@ pub fn column_stats(
     // Fast path: settle the enum-membership need (D04) from dictionary pages
     // where the data conforms, sparing those columns the value scan. A column
     // still scanned for its nulls skips the redundant dictionary read.
-    let proven: HashSet<&str> = requested
+    let candidates: Vec<&(String, usize, &ColumnNeeds)> = requested
         .iter()
         .filter(|(_, _, need)| need.allowed.is_some() && !need.nulls)
-        .filter_map(|(name, index, need)| {
-            let allowed = need.allowed.as_ref()?;
-            crate::dictionary::dictionary_conforms(&reader, *index, allowed)
-                .ok()
-                .filter(|&conforms| conforms)
-                .map(|_| name.as_str())
-        })
         .collect();
-
-    let to_scan: Vec<usize> = requested
-        .iter()
-        .filter(|(name, _, need)| {
-            need.nulls || (need.allowed.is_some() && !proven.contains(name.as_str()))
-        })
-        .map(|(_, index, _)| *index)
-        .collect();
-
-    if to_scan.is_empty() {
-        return Ok(stats);
-    }
-
-    let projection = Type::group_type_builder("schema")
-        .with_fields(
-            to_scan
-                .iter()
-                .map(|&index| schema.get_fields()[index].clone())
-                .collect(),
-        )
-        .build()?;
-
-    for (index, row) in reader.get_row_iter(Some(projection))?.enumerate() {
-        let row = row?;
-        for (name, field) in row.get_column_iter() {
-            let (Some(stat), Some(need)) = (stats.get_mut(name), needs.get(name)) else {
-                continue;
-            };
-            if matches!(field, Field::Null) {
-                if need.nulls {
-                    stat.null_count += 1;
-                    if stat.null_rows.len() < limit {
-                        stat.null_rows.push(index + 1);
-                    }
-                }
-                continue;
-            }
-            if let Some(allowed) = &need.allowed
-                && !proven.contains(name.as_str())
-                && let Some(key) = field_key(field)
-                && !allowed.contains(&key)
+    let mut proven: HashSet<&str> = HashSet::new();
+    if !candidates.is_empty() {
+        let page_reader = SerializedFileReader::new(ctx.file()?)?;
+        for (name, leaf, need) in candidates {
+            let allowed = need.allowed.as_ref().expect("filtered on allowed");
+            if crate::dictionary::dictionary_conforms(&page_reader, *leaf, allowed)
+                .is_ok_and(|conforms| conforms)
             {
-                stat.outside_count += 1;
-                if stat.outside_rows.len() < limit {
-                    stat.outside_rows.push(index + 1);
-                }
-                if stat.outside_values.len() < limit && !stat.outside_values.contains(&key) {
-                    stat.outside_values.push(key);
-                }
+                proven.insert(name.as_str());
             }
         }
     }
 
-    Ok(stats)
-}
+    let scanned: Vec<&(String, usize, &ColumnNeeds)> = requested
+        .iter()
+        .filter(|(name, _, need)| {
+            need.nulls || (need.allowed.is_some() && !proven.contains(name.as_str()))
+        })
+        .collect();
+    if scanned.is_empty() {
+        return Ok(stats);
+    }
 
-/// The canonical string form of a scalar field value, for set membership (D04).
-/// `None` for kinds that can't be an `enum` value (a matching `enum` column
-/// would already be an `M01` type mismatch). Each form follows the physical
-/// width's `Display`; `Scalar::value_keys` on the spec side offers both float
-/// widths so a `FLOAT` and a `DOUBLE` column each find a match.
-fn field_key(field: &Field) -> Option<String> {
-    Some(match field {
-        Field::Bool(v) => v.to_string(),
-        Field::Byte(v) => v.to_string(),
-        Field::Short(v) => v.to_string(),
-        Field::Int(v) => v.to_string(),
-        Field::Long(v) => v.to_string(),
-        Field::UByte(v) => v.to_string(),
-        Field::UShort(v) => v.to_string(),
-        Field::UInt(v) => v.to_string(),
-        Field::ULong(v) => v.to_string(),
-        Field::Float(v) => v.to_string(),
-        Field::Double(v) => v.to_string(),
-        Field::Str(v) => v.clone(),
-        _ => return None,
-    })
+    let reader = ctx.reader(scanned.iter().map(|(_, leaf, _)| *leaf))?;
+    let mut row_offset = 0usize;
+    for batch in reader {
+        let batch = batch?;
+        for (name, _, need) in &scanned {
+            let Some(array) = batch.column_by_name(name) else {
+                continue;
+            };
+            let stat = stats.get_mut(name).expect("stats entry per request");
+            if need.nulls
+                && array.null_count() > 0
+                && let Some(validity) = array.nulls()
+            {
+                for row in 0..array.len() {
+                    if !validity.is_valid(row) {
+                        stat.null_count += 1;
+                        if stat.null_rows.len() < limit {
+                            stat.null_rows.push(row_offset + row + 1);
+                        }
+                    }
+                }
+            }
+            if let Some(allowed) = &need.allowed
+                && !proven.contains(name.as_str())
+                && let Some(strings) = array.as_string_opt::<i32>()
+            {
+                for row in 0..strings.len() {
+                    if strings.is_null(row) {
+                        continue;
+                    }
+                    let value = strings.value(row);
+                    if !allowed.contains(value) {
+                        stat.outside_count += 1;
+                        if stat.outside_rows.len() < limit {
+                            stat.outside_rows.push(row_offset + row + 1);
+                        }
+                        if stat.outside_values.len() < limit
+                            && !stat.outside_values.iter().any(|v| v == value)
+                        {
+                            stat.outside_values.push(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        row_offset += batch.num_rows();
+    }
+
+    Ok(stats)
 }

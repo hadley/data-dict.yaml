@@ -156,7 +156,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
+* `enum`: a string column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
 
 #### Measures
 
