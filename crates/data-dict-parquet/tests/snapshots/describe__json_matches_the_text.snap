@@ -1,0 +1,304 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&json, &path)"
+---
+{
+  "path": "<file>.parquet",
+  "rows": 9,
+  "columns": [
+    {
+      "name": "species",
+      "type": "string",
+      "parquet_type": "BYTE_ARRAY",
+      "distinct": {
+        "exact": 3
+      },
+      "missing": 0,
+      "value_counts": [
+        {
+          "value": "Adelie",
+          "count": 4
+        },
+        {
+          "value": "Gentoo",
+          "count": 3
+        },
+        {
+          "value": "Chinstrap",
+          "count": 2
+        }
+      ],
+      "examples": [
+        "Adelie",
+        "Chinstrap",
+        "Gentoo"
+      ]
+    },
+    {
+      "name": "bill_length_mm",
+      "type": "number",
+      "parquet_type": "DOUBLE",
+      "missing": 2,
+      "min": 36.7,
+      "max": 59.6,
+      "histogram": {
+        "bins": [
+          {
+            "lower": 36.7,
+            "upper": 37.845000000000006,
+            "count": 1
+          },
+          {
+            "lower": 37.845000000000006,
+            "upper": 38.99,
+            "count": 0
+          },
+          {
+            "lower": 38.99,
+            "upper": 40.135000000000005,
+            "count": 2
+          },
+          {
+            "lower": 40.135000000000005,
+            "upper": 41.28,
+            "count": 0
+          },
+          {
+            "lower": 41.28,
+            "upper": 42.425000000000004,
+            "count": 0
+          },
+          {
+            "lower": 42.425000000000004,
+            "upper": 43.57,
+            "count": 0
+          },
+          {
+            "lower": 43.57,
+            "upper": 44.715,
+            "count": 0
+          },
+          {
+            "lower": 44.715,
+            "upper": 45.86,
+            "count": 0
+          },
+          {
+            "lower": 45.86,
+            "upper": 47.005,
+            "count": 1
+          },
+          {
+            "lower": 47.005,
+            "upper": 48.150000000000006,
+            "count": 0
+          },
+          {
+            "lower": 48.150000000000006,
+            "upper": 49.295,
+            "count": 1
+          },
+          {
+            "lower": 49.295,
+            "upper": 50.440000000000005,
+            "count": 1
+          },
+          {
+            "lower": 50.440000000000005,
+            "upper": 51.585,
+            "count": 0
+          },
+          {
+            "lower": 51.585,
+            "upper": 52.730000000000004,
+            "count": 0
+          },
+          {
+            "lower": 52.730000000000004,
+            "upper": 53.875,
+            "count": 0
+          },
+          {
+            "lower": 53.875,
+            "upper": 55.02,
+            "count": 0
+          },
+          {
+            "lower": 55.02,
+            "upper": 56.165000000000006,
+            "count": 0
+          },
+          {
+            "lower": 56.165000000000006,
+            "upper": 57.31,
+            "count": 0
+          },
+          {
+            "lower": 57.31,
+            "upper": 58.455,
+            "count": 0
+          },
+          {
+            "lower": 58.455,
+            "upper": 59.6,
+            "count": 1
+          }
+        ],
+        "nan_count": 0
+      },
+      "examples": [
+        36.7,
+        39.5,
+        46.5,
+        50.0,
+        59.6
+      ]
+    },
+    {
+      "name": "body_mass_g",
+      "type": "number",
+      "parquet_type": "INT64",
+      "distinct": {
+        "exact": 9
+      },
+      "missing": 0,
+      "min": 3250,
+      "max": 6300,
+      "histogram": {
+        "bins": [
+          {
+            "lower": 3250.0,
+            "upper": 3402.5,
+            "count": 1
+          },
+          {
+            "lower": 3402.5,
+            "upper": 3555.0,
+            "count": 1
+          },
+          {
+            "lower": 3555.0,
+            "upper": 3707.5,
+            "count": 2
+          },
+          {
+            "lower": 3707.5,
+            "upper": 3860.0,
+            "count": 2
+          },
+          {
+            "lower": 3860.0,
+            "upper": 4012.5,
+            "count": 0
+          },
+          {
+            "lower": 4012.5,
+            "upper": 4165.0,
+            "count": 0
+          },
+          {
+            "lower": 4165.0,
+            "upper": 4317.5,
+            "count": 0
+          },
+          {
+            "lower": 4317.5,
+            "upper": 4470.0,
+            "count": 0
+          },
+          {
+            "lower": 4470.0,
+            "upper": 4622.5,
+            "count": 0
+          },
+          {
+            "lower": 4622.5,
+            "upper": 4775.0,
+            "count": 1
+          },
+          {
+            "lower": 4775.0,
+            "upper": 4927.5,
+            "count": 1
+          },
+          {
+            "lower": 4927.5,
+            "upper": 5080.0,
+            "count": 0
+          },
+          {
+            "lower": 5080.0,
+            "upper": 5232.5,
+            "count": 0
+          },
+          {
+            "lower": 5232.5,
+            "upper": 5385.0,
+            "count": 0
+          },
+          {
+            "lower": 5385.0,
+            "upper": 5537.5,
+            "count": 0
+          },
+          {
+            "lower": 5537.5,
+            "upper": 5690.0,
+            "count": 0
+          },
+          {
+            "lower": 5690.0,
+            "upper": 5842.5,
+            "count": 0
+          },
+          {
+            "lower": 5842.5,
+            "upper": 5995.0,
+            "count": 0
+          },
+          {
+            "lower": 5995.0,
+            "upper": 6147.5,
+            "count": 0
+          },
+          {
+            "lower": 6147.5,
+            "upper": 6300.0,
+            "count": 1
+          }
+        ],
+        "nan_count": 0
+      },
+      "examples": [
+        3250,
+        3625,
+        3750,
+        4675,
+        6300
+      ]
+    },
+    {
+      "name": "alive",
+      "type": "boolean",
+      "parquet_type": "BOOLEAN",
+      "distinct": {
+        "exact": 2
+      },
+      "missing": 0,
+      "value_counts": [
+        {
+          "value": true,
+          "count": 7
+        },
+        {
+          "value": false,
+          "count": 2
+        }
+      ],
+      "examples": [
+        false,
+        true
+      ]
+    }
+  ]
+}

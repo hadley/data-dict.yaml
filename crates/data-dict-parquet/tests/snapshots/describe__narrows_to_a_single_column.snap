@@ -1,0 +1,12 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&description.to_string(), &path)"
+---
+<file>.parquet: 9 rows × 1 column
+
+species — string (BYTE_ARRAY)
+  distinct   3
+  missing    0
+  Adelie     ▇▇▇▇▇▇▇▇▇▇▇▇  4
+  Gentoo     ▇▇▇▇▇▇▇▇▇     3
+  Chinstrap  ▇▇▇▇▇▇        2

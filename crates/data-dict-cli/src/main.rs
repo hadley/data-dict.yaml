@@ -14,6 +14,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Summarise the columns of a parquet file
+    ///
+    /// Profiles the file in one pass and prints a per-column summary: type,
+    /// distinct and missing counts, then a histogram (numeric and temporal
+    /// columns) or the most common values (string and boolean columns).
+    Describe {
+        path: PathBuf,
+        /// Summarise only this column, instead of every column in the file
+        column: Option<String>,
+        /// Emit results as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate a data-dict.yaml file or directory against the spec [default: .]
     ValidateSpec { path: Option<PathBuf> },
     /// Validate a dataset's column names and types against a data dictionary
@@ -74,6 +87,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     };
     match command {
+        Command::Describe { path, column, json } => run_describe(&path, column.as_deref(), json),
         Command::ValidateSpec { path } => {
             let path = match resolve_dict_path(path) {
                 Ok(path) => path,
@@ -174,6 +188,35 @@ fn collect_subcommands(cmd: &clap::Command, prefix: &str, rows: &mut Vec<(String
         } else {
             let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
             rows.push((path, about));
+        }
+    }
+}
+
+/// Summarise a parquet file's columns, as text or `--json`. Dispatches on the
+/// file extension so a future format can pick its own reader; today anything
+/// but `.parquet` is a clear error.
+fn run_describe(path: &Path, column: Option<&str>, json: bool) -> ExitCode {
+    if path.extension().and_then(|e| e.to_str()) != Some("parquet") {
+        eprintln!(
+            "{}: don't know how to describe this file (only .parquet is supported)",
+            path.display()
+        );
+        return ExitCode::FAILURE;
+    }
+    match data_dict_parquet::describe(path, column) {
+        Ok(description) => {
+            if json {
+                let value =
+                    serde_json::to_string_pretty(&description).expect("descriptions serialize");
+                println!("{value}");
+            } else {
+                print!("{description}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            ExitCode::FAILURE
         }
     }
 }
