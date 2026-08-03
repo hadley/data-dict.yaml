@@ -151,6 +151,7 @@ pub fn diagnostic(path: &Path, rendered: &str) -> Diagnostic {
 /// together. The source lives in the snapshot body rather than metadata, so it
 /// is readable and self-maintaining: editing the YAML shows up as an ordinary
 /// snapshot diff. The redundant `expression:` header is omitted.
+#[allow(unused_macros)]
 macro_rules! assert_snapshot {
     ($diagnostic:expr) => {{
         let body = $diagnostic.body();
@@ -160,4 +161,5 @@ macro_rules! assert_snapshot {
         insta::assert_snapshot!(body);
     }};
 }
+#[allow(unused_imports)]
 pub(crate) use assert_snapshot;

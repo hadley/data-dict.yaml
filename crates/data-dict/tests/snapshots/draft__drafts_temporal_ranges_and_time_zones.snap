@@ -1,0 +1,38 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: "draft_new(&dir, &[path])"
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+description: >
+  TODO: describe the dataset as a whole.
+
+tables:
+  - name: sightings
+    source:
+      parquet: sightings.parquet
+    columns:
+      - name: event_date
+        type: date
+        # TODO: no missing values observed — uncomment or delete:
+        # constraints: [required]
+        description: >
+          TODO: what does this column mean?
+        range: [2020-01-01, 2024-01-01]
+      - name: seen_utc
+        type: datetime
+        # TODO: no missing values observed — uncomment or delete:
+        # constraints: [required]
+        time_zone: UTC
+        description: >
+          TODO: what does this column mean?
+        range: [2020-01-01T00:00:00, 2023-12-31T23:59:59]
+      - name: seen_local
+        type: datetime
+        # TODO: no missing values observed — uncomment or delete:
+        # constraints: [required]
+        time_zone: naive
+        description: >
+          TODO: what does this column mean?
+        range: [2020-01-01T08:00:00.123, 2024-01-01T08:00:00]

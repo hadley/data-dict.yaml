@@ -81,6 +81,9 @@ pub struct Assertion {
 
 #[derive(Debug, Clone)]
 pub struct Table {
+    /// The whole table entry node, so a consumer can find where one table ends
+    /// in the source (e.g. `draft` appending after the last entry).
+    pub span: SourceInfo,
     pub name: Spanned<String>,
     pub columns: Vec<Column>,
     /// Table-level assertions (span multiple columns).

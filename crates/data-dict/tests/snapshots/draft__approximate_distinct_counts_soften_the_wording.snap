@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: content
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+description: >
+  TODO: describe the dataset as a whole.
+
+tables:
+  - name: visits
+    source:
+      parquet: visits.parquet
+    columns:
+      - name: visit_code
+        type: string
+        # TODO: values look distinct (approximate count), none missing —
+        # uncomment one or delete:
+        # constraints: [required, unique]
+        # constraints: [primary_key]
+        description: >
+          TODO: what does this column mean?
+        examples: [visit-0002, visit-0324, visit-0660, visit-0905, visit-1197]

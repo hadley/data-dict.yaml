@@ -1,0 +1,35 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: "draft_new(&dir, &[bools, nested])"
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+description: >
+  TODO: describe the dataset as a whole.
+
+tables:
+  - name: flags
+    source:
+      parquet: flags.parquet
+    description: >
+      TODO: what's the grain? what's the population? how was the data collected?
+    columns:
+      - name: alive
+        type: boolean
+        # TODO: no missing values observed — uncomment or delete:
+        # constraints: [required]
+        description: >
+          TODO: what does this column mean?
+
+  - name: telemetry
+    source:
+      parquet: telemetry.parquet
+    description: >
+      TODO: what's the grain? what's the population? how was the data collected?
+    columns:
+      - name: readings
+        description: >
+          TODO: what does this column mean?
+        # TODO: this column could not be profiled (nested); describe it and add
+        # a type.

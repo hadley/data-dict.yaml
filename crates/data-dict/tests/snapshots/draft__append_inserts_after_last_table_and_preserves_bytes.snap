@@ -1,0 +1,33 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: outcome.content
+---
+# My hand-written dictionary.
+$version: 0.1.0
+$learn_more: http://data-dict.tidyverse.org/
+
+tables:
+  - name: otters   # the flagship table
+    source:
+      parquet: data/otters.parquet
+    columns:
+      - name: otter_id
+        type: number(id)
+        examples: [1, 2, 3]
+
+  - name: pups
+    source:
+      parquet: pups.parquet
+    description: >
+      TODO: what's the grain? what's the population? how was the data collected?
+    columns:
+      - name: pup_count
+        type: number
+        # TODO: no missing values observed — uncomment or delete:
+        # constraints: [required]
+        description: >
+          TODO: what does this column mean?
+        examples: [0, 1, 2]
+
+glossary:
+  pup: An otter younger than one year.

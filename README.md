@@ -67,6 +67,7 @@ Usage: data-dict <COMMAND>
 
 Commands:
   describe       Summarise the columns of a parquet file
+  draft          Generate a starting data-dict.yaml from parquet files
   validate-spec  Validate a data-dict.yaml file or directory against the spec [default: .]
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary

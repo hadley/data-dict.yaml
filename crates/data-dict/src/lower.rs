@@ -88,6 +88,7 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
             .map(|e| e.key_span.clone())
     };
     Some(Table {
+        span: node.source_info.clone(),
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         columns,
         constraints,

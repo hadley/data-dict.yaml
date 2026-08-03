@@ -27,12 +27,20 @@ a plausible-sounding description for a column whose meaning you had to guess.
 
 ## Steps
 
-1.  **Discover the data.** Identify every table (parquet file, database table,
-    or data-frame) in scope. For each table, read the schema to get column
-    names and physical types. For parquet files, run
-    `data-dict describe <file>` to see each column's data-dict type along
-    with its distinct and missing counts and a sketch of its values -- start
-    from that rather than guessing.
+1.  **Discover the data and draft the skeleton.** Identify every table
+    (parquet file, database table, or data-frame) in scope. For parquet files,
+    run `data-dict draft <files>` to generate the starting dictionary: it
+    profiles the data and writes one table per file with inferred types,
+    observed ranges and examples, and a `# TODO:` comment for everything it
+    can't decide -- descriptions, enum candidates, constraints, the primary
+    key. Those TODOs are your work list for the steps below; delete each
+    comment as you resolve it. Re-running `draft` appends tables for any new
+    files without touching what you've written. To dig into a single file
+    while you work, `data-dict describe <file> [column]` prints a per-column
+    summary: type, distinct and missing counts, and a sketch of the values.
+    For non-parquet sources, read the schema to get column names and physical
+    types and write the skeleton by hand: a `data-dict.yaml` with the three
+    top-level keys `tables`, `relationships`, and `glossary`.
 
 2.  **Interview the user.** Once you know the shape of the data, work out what
     you genuinely cannot determine from it alone, and ask. This is the step most
@@ -59,10 +67,7 @@ a plausible-sounding description for a column whose meaning you had to guess.
     into the relevant `description`, `details`, or `glossary` entry. If the user
     genuinely doesn't know, say so in `details` rather than papering over it.
 
-3.  **Create the skeleton.** Start a `data-dict.yaml` with the three
-    top-level keys: `tables`, `relationships`, and `glossary`.
-
-4.  **Fill in each table.** For every table:
+3.  **Fill in each table.** For every table:
 
     a.  Write a `description`: a few sentences explaining what each row
         represents and where the data comes from.
@@ -92,19 +97,19 @@ a plausible-sounding description for a column whose meaning you had to guess.
         caveats, edge cases, or methodology notes that don't fit in the
         description.
 
-5.  **Define relationships.** For every foreign key, add a relationship entry
+4.  **Define relationships.** For every foreign key, add a relationship entry
     with `description`, `cardinality` (`one-to-many` or `many-to-one`),
     `join`, and any `conflicts` (column names that appear in both tables with
     different meanings). A self-join needs an `aliases` entry per side, naming
     the role each plays (`join: mother.otter_no = pup.pup_number` with
     `aliases: {mother: otters, pup: otters}`).
 
-6.  **Build the glossary.** Add definitions for domain-specific terms used in
+5.  **Build the glossary.** Add definitions for domain-specific terms used in
     descriptions. If a word would be unfamiliar to a new team member or an AI
     agent, define it. If you don't know what a term refers to, ask the user
     for clarification (see step 2).
 
-7.  **Verify against the data, and against the schema.** A data dictionary
+6.  **Verify against the data, and against the schema.** A data dictionary
     that disagrees with the data is actively harmful, so check it:
 
     -   Run `data-dict validate-spec data-dict.yaml` to confirm it is
