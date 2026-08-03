@@ -23,7 +23,6 @@ use parquet::basic::{LogicalType, Repetition, TimeUnit, Type as PhysicalType};
 use parquet::schema::types::Type;
 
 use crate::ParquetError;
-use crate::page::for_each_plain_byte_array;
 
 /// One column value, canonicalized so logically-equal values compare equal.
 ///
@@ -157,22 +156,17 @@ impl ValueKind {
     }
 }
 
-/// How a column's raw dictionary-page values become [`Value`]s. Kept apart
-/// from [`ValueKind`] because it answers a decoding question, not a meaning
-/// one. The arrow value scan doesn't need it — decoded arrays carry their own
-/// types (see [`ValueColumn`]) — but raw dictionary pages hold bare physical
-/// values, so their decoding is steered here.
+/// Whether a column's values can be scanned, decided from the parquet schema
+/// before anything is decoded. Decoded arrays otherwise carry their own types
+/// (see [`ValueColumn`]), so no per-type decoding hint is needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Repr {
-    Bool,
-    Int,
-    /// An unsigned integer narrower than 64 bits, which a raw page stores in a
-    /// signed physical type and so must be masked back to `bits` when read
-    /// from a dictionary page. (Arrow-decoded arrays arrive unsigned already.)
-    Uint(u32),
-    Float32,
-    Float64,
-    Text,
+    /// Scanned and summarized as decoded.
+    Plain,
+    /// Scanned, but the footer's min/max statistics can't be trusted: they
+    /// order the unsigned reading of bits the footer stores signed.
+    Uint,
+    /// Never read; profiled down to row and null counts.
     Unsupported,
 }
 
@@ -201,9 +195,9 @@ pub(crate) fn classify(field: &Type) -> (ValueKind, Repr) {
     }
     if let Some(logical) = field.get_basic_info().logical_type() {
         return match logical {
-            LogicalType::String | LogicalType::Enum => (ValueKind::Text, Repr::Text),
-            LogicalType::Date => (ValueKind::Date, Repr::Int),
-            LogicalType::Time { unit, .. } => (ValueKind::Time { grain: grain(unit) }, Repr::Int),
+            LogicalType::String | LogicalType::Enum => (ValueKind::Text, Repr::Plain),
+            LogicalType::Date => (ValueKind::Date, Repr::Plain),
+            LogicalType::Time { unit, .. } => (ValueKind::Time { grain: grain(unit) }, Repr::Plain),
             LogicalType::Timestamp {
                 unit,
                 is_adjusted_to_u_t_c,
@@ -212,7 +206,7 @@ pub(crate) fn classify(field: &Type) -> (ValueKind, Repr) {
                     grain: grain(unit),
                     utc_adjusted: is_adjusted_to_u_t_c,
                 },
-                Repr::Int,
+                Repr::Plain,
             ),
             LogicalType::Integer {
                 bit_width,
@@ -234,11 +228,11 @@ pub(crate) fn classify(field: &Type) -> (ValueKind, Repr) {
         };
     }
     match field.get_physical_type() {
-        PhysicalType::BOOLEAN => (ValueKind::Bool, Repr::Bool),
-        PhysicalType::INT32 | PhysicalType::INT64 => (ValueKind::Int, Repr::Int),
-        PhysicalType::FLOAT => (ValueKind::Float, Repr::Float32),
-        PhysicalType::DOUBLE => (ValueKind::Float, Repr::Float64),
-        PhysicalType::BYTE_ARRAY => (ValueKind::Text, Repr::Text),
+        PhysicalType::BOOLEAN => (ValueKind::Bool, Repr::Plain),
+        PhysicalType::INT32 | PhysicalType::INT64 => (ValueKind::Int, Repr::Plain),
+        PhysicalType::FLOAT => (ValueKind::Float, Repr::Plain),
+        PhysicalType::DOUBLE => (ValueKind::Float, Repr::Plain),
+        PhysicalType::BYTE_ARRAY => (ValueKind::Text, Repr::Plain),
         PhysicalType::FIXED_LEN_BYTE_ARRAY => unsupported("binary"),
         PhysicalType::INT96 => unsupported("int96"),
     }
@@ -246,13 +240,13 @@ pub(crate) fn classify(field: &Type) -> (ValueKind, Repr) {
 
 fn integer(bit_width: i8, is_signed: bool) -> (ValueKind, Repr) {
     if is_signed {
-        return (ValueKind::Int, Repr::Int);
+        return (ValueKind::Int, Repr::Plain);
     }
     match bit_width {
         // `u64` values above `i64::MAX` have no home in `Value::Int`, and
         // silently wrapping them would put the minimum above the maximum.
         64 => unsupported("uint64"),
-        bits => (ValueKind::Int, Repr::Uint(bits as u32)),
+        _ => (ValueKind::Int, Repr::Uint),
     }
 }
 
@@ -349,69 +343,6 @@ impl<'a> ValueColumn<'a> {
     }
 }
 
-/// Decode a PLAIN-encoded dictionary page into its values, in index order.
-/// `None` for a malformed buffer or a physical type that is never dictionary
-/// encoded, leaving the caller to fall back to the value scan.
-pub(crate) fn decode_dictionary(
-    buf: &[u8],
-    count: usize,
-    physical: PhysicalType,
-    repr: Repr,
-) -> Option<Vec<Decoded>> {
-    match physical {
-        PhysicalType::BYTE_ARRAY => decode_byte_arrays(buf, count),
-        PhysicalType::INT32 => decode_fixed::<4>(buf, count, |b| {
-            integer_value(i32::from_le_bytes(b) as i64, repr)
-        }),
-        PhysicalType::INT64 => {
-            decode_fixed::<8>(buf, count, |b| integer_value(i64::from_le_bytes(b), repr))
-        }
-        PhysicalType::FLOAT => {
-            decode_fixed::<4>(buf, count, |b| float(f32::from_le_bytes(b) as f64))
-        }
-        PhysicalType::DOUBLE => decode_fixed::<8>(buf, count, |b| float(f64::from_le_bytes(b))),
-        _ => None,
-    }
-}
-
-/// Decode `count` PLAIN byte arrays. Every one is kept, valid UTF-8 or not —
-/// which of the two it is decides the whole column's fate, not this value's.
-fn decode_byte_arrays(buf: &[u8], count: usize) -> Option<Vec<Decoded>> {
-    let mut values = Vec::with_capacity(count);
-    let complete = for_each_plain_byte_array(buf, count, |value| {
-        values.push(text(value));
-        true
-    });
-    complete.then_some(values)
-}
-
-fn decode_fixed<const N: usize>(
-    buf: &[u8],
-    count: usize,
-    decode: impl Fn([u8; N]) -> Decoded,
-) -> Option<Vec<Decoded>> {
-    if buf.len() < count * N {
-        return None;
-    }
-    Some(
-        buf.chunks_exact(N)
-            .take(count)
-            .map(|chunk| decode(chunk.try_into().unwrap()))
-            .collect(),
-    )
-}
-
-fn integer_value(raw: i64, repr: Repr) -> Decoded {
-    match repr {
-        Repr::Uint(bits) => Decoded::Value(Value::Int(unsign(raw, bits))),
-        _ => Decoded::Value(Value::Int(raw)),
-    }
-}
-
-fn unsign(raw: i64, bits: u32) -> i64 {
-    raw & ((1i64 << bits) - 1)
-}
-
 fn float(value: f64) -> Decoded {
     match F64::new(value) {
         Some(finite) => Decoded::Value(Value::Float(finite)),
@@ -441,21 +372,21 @@ mod tests {
     fn scalar_types_are_classified() {
         assert_eq!(
             kind_of("REQUIRED BYTE_ARRAY s (STRING)"),
-            (ValueKind::Text, Repr::Text)
+            (ValueKind::Text, Repr::Plain)
         );
-        assert_eq!(kind_of("REQUIRED BOOLEAN b"), (ValueKind::Bool, Repr::Bool));
-        assert_eq!(kind_of("REQUIRED INT64 i"), (ValueKind::Int, Repr::Int));
         assert_eq!(
-            kind_of("REQUIRED FLOAT f"),
-            (ValueKind::Float, Repr::Float32)
+            kind_of("REQUIRED BOOLEAN b"),
+            (ValueKind::Bool, Repr::Plain)
         );
+        assert_eq!(kind_of("REQUIRED INT64 i"), (ValueKind::Int, Repr::Plain));
+        assert_eq!(kind_of("REQUIRED FLOAT f"), (ValueKind::Float, Repr::Plain));
         assert_eq!(
             kind_of("REQUIRED DOUBLE d"),
-            (ValueKind::Float, Repr::Float64)
+            (ValueKind::Float, Repr::Plain)
         );
         assert_eq!(
             kind_of("REQUIRED INT32 d (DATE)"),
-            (ValueKind::Date, Repr::Int)
+            (ValueKind::Date, Repr::Plain)
         );
     }
 
@@ -487,7 +418,7 @@ mod tests {
     fn narrow_unsigned_integers_are_masked_but_u64_is_not_profiled() {
         assert_eq!(
             kind_of("REQUIRED INT32 u (INTEGER(32,false))"),
-            (ValueKind::Int, Repr::Uint(32))
+            (ValueKind::Int, Repr::Uint)
         );
         assert_eq!(
             kind_of("REQUIRED INT64 u (INTEGER(64,false))").0,
@@ -495,7 +426,7 @@ mod tests {
         );
         assert_eq!(
             kind_of("REQUIRED INT64 i (INTEGER(64,true))"),
-            (ValueKind::Int, Repr::Int)
+            (ValueKind::Int, Repr::Plain)
         );
     }
 

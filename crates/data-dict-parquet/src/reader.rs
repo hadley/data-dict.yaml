@@ -91,6 +91,47 @@ impl FileContext {
         self.builder(leaves)?.with_row_groups(vec![group]).build()
     }
 
+    /// Like [`FileContext::group_reader`] for a single leaf, but requesting it
+    /// as a `Dictionary(Int32, _)` array: a dictionary-encoded chunk decodes
+    /// its distinct values once and its rows as indices into them.
+    pub(crate) fn dictionary_group_reader(
+        &self,
+        leaf: usize,
+        group: usize,
+    ) -> Result<ParquetRecordBatchReader, ParquetError> {
+        let name = self.leaf_descr(leaf).name().to_string();
+        let schema = self.meta.schema();
+        let fields: Vec<arrow_schema::FieldRef> = schema
+            .fields()
+            .iter()
+            .map(|field| {
+                if field.name() == &name {
+                    let wrapped = arrow_schema::DataType::Dictionary(
+                        Box::new(arrow_schema::DataType::Int32),
+                        Box::new(field.data_type().clone()),
+                    );
+                    std::sync::Arc::new(field.as_ref().clone().with_data_type(wrapped))
+                } else {
+                    field.clone()
+                }
+            })
+            .collect();
+        let schema = std::sync::Arc::new(arrow_schema::Schema::new_with_metadata(
+            fields,
+            schema.metadata().clone(),
+        ));
+        let options = ArrowReaderOptions::new()
+            .with_skip_arrow_metadata(true)
+            .with_schema(schema);
+        let meta = ArrowReaderMetadata::try_new(self.meta.metadata().clone(), options)?;
+        let mask = ProjectionMask::leaves(self.parquet().file_metadata().schema_descr(), [leaf]);
+        ParquetRecordBatchReaderBuilder::new_with_metadata(self.file()?, meta)
+            .with_projection(mask)
+            .with_row_groups(vec![group])
+            .with_batch_size(BATCH_ROWS)
+            .build()
+    }
+
     fn builder(
         &self,
         leaves: impl IntoIterator<Item = usize>,

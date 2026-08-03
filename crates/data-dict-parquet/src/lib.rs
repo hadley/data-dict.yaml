@@ -8,7 +8,6 @@ mod metadata;
 mod page;
 mod profile;
 mod reader;
-mod rle;
 mod scan;
 mod sketch;
 mod uniqueness;

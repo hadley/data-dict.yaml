@@ -11,14 +11,14 @@
 //! bound is reached the affected numbers are marked approximate rather than
 //! silently wrong.
 
-use std::fs::File;
 use std::path::Path;
 
-use arrow_array::Array;
-use parquet::basic::{Encoding, PageType};
-use parquet::column::page::Page;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Int32Type;
+use arrow_array::{Array, ArrayRef};
+use arrow_schema::DataType;
+use parquet::basic::PageType;
 use parquet::file::metadata::{ColumnChunkMetaData, ParquetMetaData};
-use parquet::file::reader::{FileReader, RowGroupReader, SerializedFileReader};
 use parquet::file::statistics::Statistics;
 use parquet::schema::types::{SchemaDescriptor, Type};
 use rayon::prelude::*;
@@ -26,9 +26,8 @@ use rayon::prelude::*;
 use crate::ParquetError;
 use crate::page::is_dictionary;
 use crate::reader::FileContext;
-use crate::rle::HybridDecoder;
 use crate::sketch::{BottomK, HyperLogLog, SpaceSaving, ValueCount, hash_value};
-use crate::value::{Decoded, Repr, Value, ValueColumn, ValueKind, classify, decode_dictionary};
+use crate::value::{Decoded, Repr, Value, ValueColumn, ValueKind, classify};
 
 /// Distinct values counted exactly per column before counts turn approximate.
 const TRACKED_VALUES: usize = 1_000;
@@ -150,11 +149,9 @@ pub struct Bin {
 /// Profile every column of a Parquet file, or just `columns` when given, in the
 /// order requested. Unknown column names are an error.
 pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, ParquetError> {
-    let file =
-        File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
-    let reader = SerializedFileReader::new(file)?;
-    let meta = reader.metadata();
-    let row_count = meta.file_metadata().num_rows().max(0) as usize;
+    let ctx = FileContext::open(path)?;
+    let meta = ctx.parquet();
+    let row_count = ctx.rows();
     let targets = select(meta, columns)?;
 
     // Columns are independent, and each holds only its own bounded summary
@@ -266,7 +263,7 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
         .then(|| footer_range(ctx.parquet(), leaf, target.repr))
         .flatten();
     let mut accumulator = Accumulator::new(target, range);
-    scan(&ctx, leaf, target.repr, &mut accumulator)?;
+    scan(&ctx, leaf, &mut accumulator)?;
 
     if accumulator.unprofilable {
         let target = Target {
@@ -292,7 +289,7 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
         && let Some(bins) = BinCounts::spanning(&accumulator.min, &accumulator.max)
     {
         let mut binner = BinOnly { bins };
-        scan(&ctx, leaf, target.repr, &mut binner)?;
+        scan(&ctx, leaf, &mut binner)?;
         accumulator.bins = Some(binner.bins);
     }
     Ok(accumulator.finish(target))
@@ -303,7 +300,7 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
 fn footer_range(meta: &ParquetMetaData, leaf: usize, repr: Repr) -> Option<(f64, f64)> {
     // An unsigned column's footer extremes are ordered by the unsigned reading
     // of bits a raw page stores signed, so they can't be compared as read.
-    if matches!(repr, Repr::Uint(_)) {
+    if matches!(repr, Repr::Uint) {
         return None;
     }
     let mut range: Option<(f64, f64)> = None;
@@ -532,25 +529,19 @@ impl BinCounts {
 
 /// Stream one column through `observer`, one row group at a time.
 ///
-/// The dictionary fast path reads raw pages (the arrow reader doesn't expose
-/// them), so a page-level reader is opened alongside the arrow context.
-fn scan(
-    ctx: &FileContext,
-    leaf: usize,
-    repr: Repr,
-    observer: &mut impl Observe,
-) -> Result<(), ParquetError> {
-    let pages = SerializedFileReader::new(ctx.file()?)?;
-    let max_def = ctx.leaf_descr(leaf).max_def_level();
+/// A chunk whose footer says it is dictionary-encoded is read as a
+/// `Dictionary(Int32, _)` array: its distinct values decode once and its rows
+/// arrive as indices, so a million rows over ten values cost ten observations
+/// per batch rather than a million. Any other chunk decodes plainly. The
+/// choice is only a performance heuristic — both readings are correct, and a
+/// mixed-encoding chunk read as a dictionary is hydrated by arrow.
+fn scan(ctx: &FileContext, leaf: usize, observer: &mut impl Observe) -> Result<(), ParquetError> {
     for group in 0..ctx.parquet().num_row_groups() {
         let chunk = ctx.parquet().row_group(group).column(leaf);
         if chunk.num_values() == 0 {
             continue;
         }
-        let row_group = pages.get_row_group(group)?;
-        if !count_dictionary(&*row_group, chunk, leaf, max_def, repr, observer)? {
-            scan_values(ctx, leaf, group, observer)?;
-        }
+        scan_group(ctx, leaf, group, prefer_dictionary(chunk), observer)?;
         if observer.abandoned() {
             return Ok(());
         }
@@ -558,25 +549,25 @@ fn scan(
     Ok(())
 }
 
-/// Decode every value of a column chunk. Always correct, and the fallback
-/// whenever the dictionary can't answer.
-fn scan_values(
+/// Decode one row group's values into `observer`.
+fn scan_group(
     ctx: &FileContext,
     leaf: usize,
     group: usize,
+    dictionary: bool,
     observer: &mut impl Observe,
 ) -> Result<(), ParquetError> {
-    for batch in ctx.group_reader([leaf], group)? {
+    let reader = if dictionary {
+        ctx.dictionary_group_reader(leaf, group)?
+    } else {
+        ctx.group_reader([leaf], group)?
+    };
+    for batch in reader {
         let batch = batch?;
         let array = batch.column(0);
-        let values = ValueColumn::new(array)?;
-        let validity = array.nulls();
-        for row in 0..array.len() {
-            if validity.is_some_and(|v| v.is_null(row)) {
-                observer.observe_null(1);
-            } else {
-                observer.observe(values.get(row), 1);
-            }
+        match array.data_type() {
+            DataType::Dictionary(_, _) => observe_dictionary(array, observer)?,
+            _ => observe_plain(array, observer)?,
         }
         if observer.abandoned() {
             return Ok(());
@@ -585,56 +576,46 @@ fn scan_values(
     Ok(())
 }
 
-/// Summarize a dictionary-encoded column chunk from its dictionary page and the
-/// indices pointing into it, without decoding a single value.
-///
-/// A chunk's distinct values are exactly its dictionary, and counting how often
-/// each index is referenced is a matter of adding up run lengths — so a chunk
-/// of a million rows over ten distinct values costs ten observations. Returns
-/// `false` when the chunk isn't laid out this way, leaving the caller to scan
-/// its values; nothing is reported to `observer` in that case, so the fallback
-/// can't double count.
-fn count_dictionary(
-    row_group: &dyn RowGroupReader,
-    chunk: &ColumnChunkMetaData,
-    leaf: usize,
-    max_def: i16,
-    repr: Repr,
-    observer: &mut impl Observe,
-) -> Result<bool, ParquetError> {
-    if chunk.dictionary_page_offset().is_none() || !encoding_stats_all_dictionary(chunk) {
-        return Ok(false);
-    }
-    let mut pages = row_group.get_column_page_reader(leaf)?;
-    let Some(Page::DictionaryPage {
-        buf, num_values, ..
-    }) = pages.get_next_page()?
-    else {
-        return Ok(false);
-    };
-    let Some(values) = decode_dictionary(&buf, num_values as usize, chunk.column_type(), repr)
-    else {
-        return Ok(false);
-    };
-
-    let mut counts = vec![0usize; values.len()];
-    let mut nulls = 0usize;
-    while let Some(page) = pages.get_next_page()? {
-        if !count_page(&page, max_def, &mut counts, &mut nulls) {
-            return Ok(false);
+/// Observe every row of a plainly-decoded batch, one value at a time.
+fn observe_plain(array: &ArrayRef, observer: &mut impl Observe) -> Result<(), ParquetError> {
+    let values = ValueColumn::new(array)?;
+    let validity = array.nulls();
+    for row in 0..array.len() {
+        if validity.is_some_and(|v| v.is_null(row)) {
+            observer.observe_null(1);
+        } else {
+            observer.observe(values.get(row), 1);
         }
     }
+    Ok(())
+}
 
+/// Observe a dictionary-decoded batch by tallying its indices, so each distinct
+/// value in the batch is observed once with its total count.
+fn observe_dictionary(array: &ArrayRef, observer: &mut impl Observe) -> Result<(), ParquetError> {
+    let dictionary = array.as_dictionary::<Int32Type>();
+    let values = ValueColumn::new(dictionary.values())?;
+    let keys = dictionary.keys();
+    let mut counts = vec![0usize; dictionary.values().len()];
+    let mut nulls = 0usize;
+    let validity = keys.nulls();
+    for row in 0..keys.len() {
+        if validity.is_some_and(|v| v.is_null(row)) {
+            nulls += 1;
+        } else {
+            counts[keys.value(row) as usize] += 1;
+        }
+    }
     observer.observe_null(nulls);
-    for (value, count) in values.into_iter().zip(counts) {
+    for (index, count) in counts.into_iter().enumerate() {
         if count > 0 {
-            observer.observe(value, count);
+            observer.observe(values.get(index), count);
             if observer.abandoned() {
                 break;
             }
         }
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Whether the footer rules out a non-dictionary data page. Absent stats aren't
@@ -649,115 +630,32 @@ fn encoding_stats_all_dictionary(chunk: &ColumnChunkMetaData) -> bool {
         .all(|stat| is_dictionary(stat.encoding))
 }
 
-/// Add one data page's dictionary references to `counts`, and its nulls to
-/// `nulls`. `false` means the page isn't dictionary-encoded or doesn't parse,
-/// and the chunk must be scanned instead.
-///
-/// Both page versions store the indices as a bit width followed by RLE /
-/// bit-packed runs; they differ in how the nulls before them are described.
-fn count_page(page: &Page, max_def: i16, counts: &mut [usize], nulls: &mut usize) -> bool {
-    match page {
-        Page::DataPage {
-            buf,
-            num_values,
-            encoding,
-            def_level_encoding,
-            ..
-        } => {
-            if !is_dictionary(*encoding) {
-                return false;
-            }
-            let values = *num_values as usize;
-            let mut indices = buf.as_ref();
-            let mut page_nulls = 0usize;
-            if max_def > 0 {
-                if *def_level_encoding != Encoding::RLE {
-                    return false;
-                }
-                // Version 1 pages prefix the levels with their byte length.
-                let Some(length) = indices.get(..4) else {
-                    return false;
-                };
-                let length = u32::from_le_bytes(length.try_into().unwrap()) as usize;
-                let Some(levels) = indices.get(4..4 + length) else {
-                    return false;
-                };
-                let mut decoder = HybridDecoder::new(levels, level_bits(max_def));
-                let counted = decoder.for_each_run(values, |level, run| {
-                    if level != max_def as u32 {
-                        page_nulls += run;
-                    }
-                });
-                if counted.is_err() {
-                    return false;
-                }
-                indices = &indices[4 + length..];
-            }
-            if !count_indices(indices, values.saturating_sub(page_nulls), counts) {
-                return false;
-            }
-            *nulls += page_nulls;
-            true
-        }
-        Page::DataPageV2 {
-            buf,
-            num_values,
-            num_nulls,
-            encoding,
-            def_levels_byte_len,
-            rep_levels_byte_len,
-            ..
-        } => {
-            if !is_dictionary(*encoding) {
-                return false;
-            }
-            // Version 2 pages state their null count and the size of the level
-            // sections in the header, so the indices can be found directly.
-            let start = (*rep_levels_byte_len + *def_levels_byte_len) as usize;
-            let Some(indices) = buf.get(start..) else {
-                return false;
-            };
-            let values = (*num_values as usize).saturating_sub(*num_nulls as usize);
-            if !count_indices(indices, values, counts) {
-                return false;
-            }
-            *nulls += *num_nulls as usize;
-            true
-        }
-        Page::DictionaryPage { .. } => false,
-    }
-}
+/// A writer abandons dictionary encoding mid-chunk once the dictionary page
+/// hits its size limit (1 MB by default), and the footer doesn't always say so
+/// (`page_encoding_stats` are optional). A dictionary page near that limit is
+/// the fallback's fingerprint, so such a chunk is read plainly rather than
+/// paying arrow to hydrate its plain pages into per-batch dictionaries.
+const LIKELY_FALLBACK_DICTIONARY_BYTES: i64 = 512 * 1024;
 
-/// Tally `values` dictionary indices, prefixed by their bit width.
-fn count_indices(buf: &[u8], values: usize, counts: &mut [usize]) -> bool {
-    if values == 0 {
-        return true;
-    }
-    let Some((&bit_width, runs)) = buf.split_first() else {
+/// Whether to read a chunk as a dictionary array: its distinct values decode
+/// once and its rows arrive as indices. Wrong guesses stay correct — arrow
+/// hydrates or unwraps as needed — they just cost time.
+fn prefer_dictionary(chunk: &ColumnChunkMetaData) -> bool {
+    let Some(dictionary_offset) = chunk.dictionary_page_offset() else {
         return false;
     };
-    let mut within_dictionary = true;
-    let counted =
-        HybridDecoder::new(runs, bit_width as u32).for_each_run(values, |index, run| match counts
-            .get_mut(index as usize)
-        {
-            Some(count) => *count += run,
-            None => within_dictionary = false,
-        });
-    counted.is_ok() && within_dictionary
-}
-
-/// Bits needed to hold a definition level up to `max_def`.
-fn level_bits(max_def: i16) -> u32 {
-    u32::BITS - (max_def as u32).leading_zeros()
+    if !encoding_stats_all_dictionary(chunk) {
+        return false;
+    }
+    chunk.data_page_offset() - dictionary_offset < LIKELY_FALLBACK_DICTIONARY_BYTES
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BINS, BinCounts, NotFinite, count_dictionary, find_leaf, level_bits};
-    use crate::value::{Repr, Value, classify};
+    use super::{BINS, BinCounts, NotFinite, find_leaf, scan_group};
+    use crate::reader::FileContext;
+    use crate::value::Value;
     use parquet::file::properties::{WriterProperties, WriterVersion};
-    use parquet::file::reader::{FileReader, SerializedFileReader};
     use parquet::file::writer::SerializedFileWriter;
     use parquet::schema::parser::parse_message_type;
     use std::fs::File;
@@ -824,37 +722,36 @@ mod tests {
         path
     }
 
-    /// The fallback is always correct, so an agreement test alone could pass
-    /// with the dictionary path never running. This pins that it does run — for
-    /// both page layouts, which describe their nulls differently.
+    /// A plain scan is always correct, so an agreement test alone could pass
+    /// with the dictionary reading never aggregating anything. This pins that a
+    /// dictionary-encoded chunk is observed per distinct value with a count,
+    /// not once per row — for both page layouts.
     #[test]
-    fn the_dictionary_path_counts_a_chunk_without_reading_values() {
+    fn a_dictionary_chunk_is_observed_per_distinct_value() {
         for version in [WriterVersion::PARQUET_1_0, WriterVersion::PARQUET_2_0] {
             let values: Vec<i64> = (0..1_000).map(|row| row % 4).collect();
             let path = write_dictionary_file(&values, 5, version);
-            let reader = SerializedFileReader::new(File::open(&path).unwrap()).unwrap();
-            let descr = reader.metadata().file_metadata().schema_descr();
-            let leaf = find_leaf(descr, "v").unwrap();
-            let max_def = descr.column(leaf).max_def_level();
-            let (_, repr) = classify(&reader.metadata().file_metadata().schema().get_fields()[0]);
-            assert_eq!(repr, Repr::Int);
+            let ctx = FileContext::open(&path).unwrap();
+            let leaf = find_leaf(ctx.parquet().file_metadata().schema_descr(), "v").unwrap();
 
             let mut recorder = Recorder::default();
-            let chunk = reader.metadata().row_group(0).column(leaf);
-            let row_group = reader.get_row_group(0).unwrap();
-            let handled =
-                count_dictionary(&*row_group, chunk, leaf, max_def, repr, &mut recorder).unwrap();
+            scan_group(&ctx, leaf, 0, true, &mut recorder).unwrap();
             std::fs::remove_file(&path).ok();
 
-            assert!(
-                handled,
-                "{version:?}: a dictionary chunk must take the fast path"
-            );
             assert_eq!(recorder.nulls, 200, "{version:?}");
-            // Four distinct values, each reported once with its total.
             let total: usize = recorder.values.iter().map(|(_, count)| count).sum();
-            assert_eq!(recorder.values.len(), 4, "{version:?}");
             assert_eq!(total, 800, "{version:?}");
+            // Far fewer observations than rows proves the indices were tallied
+            // rather than each row decoded: at most one per distinct per batch.
+            assert!(
+                recorder.values.len() <= 4,
+                "{version:?}: expected aggregated observations, got {}",
+                recorder.values.len()
+            );
+            assert!(
+                recorder.values.iter().all(|(_, count)| *count > 1),
+                "{version:?}: counts must aggregate runs"
+            );
         }
     }
 
@@ -887,14 +784,5 @@ mod tests {
             (histogram.bins[0].lower, histogram.bins[0].upper),
             (7.0, 7.0)
         );
-    }
-
-    #[test]
-    fn definition_levels_take_as_many_bits_as_the_maximum_needs() {
-        assert_eq!(level_bits(0), 0);
-        assert_eq!(level_bits(1), 1);
-        assert_eq!(level_bits(2), 2);
-        assert_eq!(level_bits(3), 2);
-        assert_eq!(level_bits(4), 3);
     }
 }
