@@ -119,17 +119,31 @@ fn unknown_column_lists_the_available_ones() {
 #[test]
 fn wide_string_columns_report_the_hidden_tail() {
     // 30 distinct values: the 20 most frequent are shown, 10 are the tail.
-    let values: Vec<String> = (0..30)
-        .flat_map(|i| std::iter::repeat_n(format!("site-{i:02}"), 1 + (30 - i) % 5))
+    // Nulls too, so the snapshot pins the full ordering of the body's end:
+    // value rows, the tail note, then the missing row last.
+    let mut values: Vec<Option<String>> = (0..30)
+        .flat_map(|i| std::iter::repeat_n(Some(format!("site-{i:02}")), 1 + (30 - i) % 5))
         .collect();
-    let path = Fixture::column(
-        "REQUIRED BYTE_ARRAY site (UTF8)",
-        Values::Text(values.into_iter().map(Some).collect()),
-    )
-    .write();
+    values.push(None);
+    values.push(None);
+    let path = Fixture::column("OPTIONAL BYTE_ARRAY site (UTF8)", Values::Text(values)).write();
     let description = describe(&path, None).unwrap();
     let text = description.to_string();
     assert!(text.contains("(10 other values)"), "{text}");
+    insta::assert_snapshot!(sanitize(&text, &path));
+}
+
+/// A column with no summarisable values has no bars to attach the missing
+/// count to, so it stands alone as a plain line — still last.
+#[test]
+fn all_null_columns_report_missing_alone() {
+    let path = Fixture::column(
+        "OPTIONAL INT64 reading",
+        Values::Int64(vec![None, None, None]),
+    )
+    .write();
+    let description = describe(&path, None).unwrap();
+    insta::assert_snapshot!(sanitize(&description.to_string(), &path));
 }
 
 #[test]

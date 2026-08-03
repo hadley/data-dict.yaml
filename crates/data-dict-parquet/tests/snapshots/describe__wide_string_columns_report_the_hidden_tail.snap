@@ -1,0 +1,30 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&text, &path)"
+---
+<file>.parquet: 92 rows × 1 column
+
+site — string (BYTE_ARRAY)
+  distinct   30
+  site-01  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-06  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-11  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-16  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-21  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-26  ▇▇▇▇▇▇▇▇▇▇▇▇  5
+  site-02  ▇▇▇▇▇▇▇▇▇▇    4
+  site-07  ▇▇▇▇▇▇▇▇▇▇    4
+  site-12  ▇▇▇▇▇▇▇▇▇▇    4
+  site-17  ▇▇▇▇▇▇▇▇▇▇    4
+  site-22  ▇▇▇▇▇▇▇▇▇▇    4
+  site-27  ▇▇▇▇▇▇▇▇▇▇    4
+  site-03  ▇▇▇▇▇▇▇       3
+  site-08  ▇▇▇▇▇▇▇       3
+  site-13  ▇▇▇▇▇▇▇       3
+  site-18  ▇▇▇▇▇▇▇       3
+  site-23  ▇▇▇▇▇▇▇       3
+  site-28  ▇▇▇▇▇▇▇       3
+  site-04  ▇▇▇▇▇         2
+  site-09  ▇▇▇▇▇         2
+  (10 other values)
+  missing  ▇▇▇▇▇         2 (2.2%)

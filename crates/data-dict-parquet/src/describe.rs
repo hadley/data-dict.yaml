@@ -436,7 +436,7 @@ fn render_rows(
         .map(|row| row.count.to_string().len())
         .max()
         .unwrap_or(1);
-    let mut write_row = |f: &mut fmt::Formatter<'_>, row: &Row| {
+    let write_row = |f: &mut fmt::Formatter<'_>, row: &Row| {
         let padding = label_width - row.label.chars().count();
         writeln!(
             f,
