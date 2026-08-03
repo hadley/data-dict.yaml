@@ -49,11 +49,16 @@ pub struct ColumnProfile {
     /// never read, this is the footer's count and falls back to 0 when the file
     /// carries no statistics.
     pub null_count: usize,
-    pub distinct: Distinct,
+    /// How many distinct values the column holds. `None` for a column whose
+    /// values were never counted: one that was never read, or a continuous
+    /// kind, where floating-point noise makes per-value equality misleading
+    /// (see [`ValueKind::is_continuous`]) — its shape is the histogram.
+    pub distinct: Option<Distinct>,
     /// The extremes, for ordered kinds with at least one value.
     pub min: Option<Value>,
     pub max: Option<Value>,
-    /// The [`TOP_VALUES`] most frequent values, most frequent first.
+    /// The [`TOP_VALUES`] most frequent values, most frequent first. Empty for
+    /// continuous kinds, which aren't counted per value.
     pub value_counts: Vec<ValueCount>,
     /// The distribution across [`BINS`] equal-width bins, for kinds on a
     /// numeric scale that hold at least one value.
@@ -224,7 +229,7 @@ fn stub(target: &Target, null_count: usize) -> ColumnProfile {
         name: target.name.clone(),
         kind: target.kind.clone(),
         null_count,
-        distinct: Distinct::Exact(0),
+        distinct: None,
         min: None,
         max: None,
         value_counts: Vec::new(),
@@ -351,6 +356,9 @@ trait Observe {
 struct Accumulator {
     /// Whether the values are ordered, so tracking extremes is meaningful.
     ordered: bool,
+    /// Whether the values are a continuous measure, whose per-value equality
+    /// is not meaningful — no distinct count or frequent values.
+    continuous: bool,
     nulls: usize,
     not_finite: NotFinite,
     min: Option<Value>,
@@ -366,6 +374,7 @@ impl Accumulator {
     fn new(target: &Target, range: Option<(f64, f64)>) -> Self {
         Accumulator {
             ordered: target.kind.is_ordered(),
+            continuous: target.kind.is_continuous(),
             nulls: 0,
             not_finite: NotFinite::default(),
             min: None,
@@ -379,10 +388,12 @@ impl Accumulator {
     }
 
     fn finish(self, target: &Target) -> ColumnProfile {
-        let distinct = if self.counts.is_saturated() {
-            Distinct::Approx(self.distinct.estimate())
+        let distinct = if self.continuous {
+            None
+        } else if self.counts.is_saturated() {
+            Some(Distinct::Approx(self.distinct.estimate()))
         } else {
-            Distinct::Exact(self.counts.len())
+            Some(Distinct::Exact(self.counts.len()))
         };
         let histogram = match self.bins {
             Some(bins) => Some(bins.finish(self.not_finite)),
@@ -421,10 +432,15 @@ impl Observe for Accumulator {
                 return;
             }
         };
+        // A sample of unique values is kept for every kind — for a continuous
+        // column the bitwise dedup is only there to spread the sample, so the
+        // split it makes (of, say, the signed zeros) is harmless.
         let hash = hash_value(&value);
-        self.distinct.insert(hash);
         self.sample.insert(hash, &value);
-        self.counts.add(&value, count);
+        if !self.continuous {
+            self.distinct.insert(hash);
+            self.counts.add(&value, count);
+        }
         if let (Some(bins), Some(number)) = (self.bins.as_mut(), value.as_f64()) {
             bins.add(number, count);
         }

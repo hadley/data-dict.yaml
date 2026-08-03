@@ -32,7 +32,7 @@ fn numbers_are_profiled() {
     assert_eq!(profile.name, "v");
     assert_eq!(profile.kind, ValueKind::Int);
     assert_eq!(profile.null_count, 0);
-    assert_eq!(profile.distinct, Distinct::Exact(3));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(3)));
     assert_eq!(profile.min, Some(Value::Int(1)));
     assert_eq!(profile.max, Some(Value::Int(3)));
     assert_eq!(
@@ -66,7 +66,7 @@ fn strings_are_profiled_but_not_binned() {
     let profile = one(&path);
 
     assert_eq!(profile.kind, ValueKind::Text);
-    assert_eq!(profile.distinct, Distinct::Exact(2));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(2)));
     assert_eq!(profile.min, Some(Value::Text("otter".into())));
     assert_eq!(profile.max, Some(Value::Text("seal".into())));
     assert_eq!(counts(&profile)[0], (Value::Text("otter".into()), 2));
@@ -83,7 +83,7 @@ fn booleans_have_counts_but_no_order() {
     let profile = one(&path);
 
     assert_eq!(profile.kind, ValueKind::Bool);
-    assert_eq!(profile.distinct, Distinct::Exact(2));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(2)));
     assert_eq!(profile.min, None);
     assert_eq!(profile.max, None);
     assert_eq!(profile.histogram, None);
@@ -120,7 +120,7 @@ fn nulls_are_counted_and_never_binned() {
     let profile = one(&path);
 
     assert_eq!(profile.null_count, 3);
-    assert_eq!(profile.distinct, Distinct::Exact(2));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(2)));
     let histogram = profile.histogram.unwrap();
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
 }
@@ -178,7 +178,7 @@ fn row_groups_are_combined() {
     let profile = one(&path);
 
     assert_eq!(profile.null_count, 1);
-    assert_eq!(profile.distinct, Distinct::Exact(3));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(3)));
     assert_eq!(profile.min, Some(Value::Int(1)));
     assert_eq!(profile.max, Some(Value::Int(30)));
     assert_eq!(counts(&profile)[0], (Value::Int(2), 2));
@@ -194,7 +194,7 @@ fn a_chunk_that_abandons_its_dictionary_is_still_exact() {
         .write();
     let profile = one(&path);
 
-    assert_eq!(profile.distinct, Distinct::Exact(200));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(200)));
     assert_eq!(profile.min, Some(Value::Int(0)));
     assert_eq!(profile.max, Some(Value::Int(199)));
     assert_eq!(counts(&profile)[0].1, 3);
@@ -231,7 +231,7 @@ fn a_late_heavy_hitter_survives_saturation() {
     let path = Fixture::column("REQUIRED INT64 v", Values::int64(values)).write();
     let profile = one(&path);
 
-    let Distinct::Approx(estimate) = profile.distinct else {
+    let Some(Distinct::Approx(estimate)) = profile.distinct else {
         panic!("5,002 distinct values must exceed the tracking cap");
     };
     let error = (estimate as f64 - 5_002.0).abs() / 5_002.0;
@@ -289,7 +289,7 @@ fn nans_are_counted_apart_from_nulls_and_values() {
     let profile = one(&path);
 
     assert_eq!(profile.null_count, 1);
-    assert_eq!(profile.distinct, Distinct::Exact(2), "NaN is not a value");
+    assert_eq!(profile.distinct, None, "floats are not counted per value");
     assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(1.0));
     assert_eq!(profile.max.and_then(|v| v.as_f64()), Some(3.0));
     let histogram = profile.histogram.unwrap();
@@ -312,9 +312,13 @@ fn infinities_are_counted_apart_and_leave_the_bins_finite() {
     let path = Fixture::column("REQUIRED DOUBLE v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.distinct, Distinct::Exact(2));
+    assert_eq!(profile.distinct, None);
     assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(0.0));
     assert_eq!(profile.max.and_then(|v| v.as_f64()), Some(10.0));
+    assert!(
+        !profile.examples.is_empty(),
+        "a continuous column still has example values"
+    );
     assert!(
         !profile
             .examples
@@ -355,7 +359,7 @@ fn a_column_with_no_finite_values_has_no_range() {
 
     assert_eq!(profile.min, None);
     assert_eq!(profile.max, None);
-    assert_eq!(profile.distinct, Distinct::Exact(0));
+    assert_eq!(profile.distinct, None);
     let histogram = profile
         .histogram
         .expect("still worth reporting what is there");
@@ -366,12 +370,15 @@ fn a_column_with_no_finite_values_has_no_range() {
 }
 
 #[test]
-fn signed_zeros_are_one_value() {
+fn signed_zeros_share_a_bin() {
+    // The zeros differ in `total_cmp` order but not on the number line, so the
+    // range they span has no width and every row lands in the one bin.
     let path = Fixture::column("REQUIRED DOUBLE v", Values::double([0.0, -0.0, 0.0])).write();
     let profile = one(&path);
 
-    assert_eq!(profile.distinct, Distinct::Exact(1));
-    assert_eq!(counts(&profile)[0].1, 3);
+    assert_eq!(profile.distinct, None);
+    assert!(profile.value_counts.is_empty());
+    assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(0.0));
     let histogram = profile.histogram.unwrap();
     assert_eq!(histogram.bins.len(), 1, "no range to divide");
     assert_eq!(histogram.bins[0].count, 3);
@@ -398,7 +405,7 @@ fn an_all_null_column_reports_only_nulls() {
     let profile = one(&path);
 
     assert_eq!(profile.null_count, 3);
-    assert_eq!(profile.distinct, Distinct::Exact(0));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(0)));
     assert_eq!(profile.min, None);
     assert_eq!(profile.histogram, None);
     assert!(profile.value_counts.is_empty());
@@ -413,7 +420,7 @@ fn an_empty_file_profiles_to_nothing() {
     let profile = file.columns.remove(0);
 
     assert_eq!(profile.null_count, 0);
-    assert_eq!(profile.distinct, Distinct::Exact(0));
+    assert_eq!(profile.distinct, Some(Distinct::Exact(0)));
     assert_eq!(profile.min, None);
     assert_eq!(profile.histogram, None);
 }
@@ -488,5 +495,5 @@ fn a_byte_array_that_is_not_text_is_abandoned() {
     assert_eq!(profiles[0].null_count, 2, "taken from the footer");
     assert!(profiles[0].value_counts.is_empty());
     assert_eq!(profiles[1].kind, ValueKind::Int);
-    assert_eq!(profiles[1].distinct, Distinct::Exact(4));
+    assert_eq!(profiles[1].distinct, Some(Distinct::Exact(4)));
 }

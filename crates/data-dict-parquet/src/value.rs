@@ -49,10 +49,11 @@ impl Value {
     }
 }
 
-/// A finite `f64` with a total order, so floats can key a hash map and sort.
-/// `-0.0` is canonicalized to `0.0` on construction, matching how the value
-/// scanners hash floats (see the "comparable types" section of
-/// `site/validation.md`).
+/// A finite `f64` with a total order, so float extremes can be compared and
+/// carried in [`Value`]. Equality follows `total_cmp` (so `Eq`, `Ord` and the
+/// bitwise `Hash` agree), which splits the signed zeros — harmless, because a
+/// profile never counts floats per value (see [`ValueKind::is_continuous`]);
+/// float equality only spreads the example sample.
 #[derive(Debug, Clone, Copy)]
 pub struct F64(f64);
 
@@ -67,9 +68,7 @@ impl F64 {
     ///
     /// [`Histogram`]: crate::Histogram
     pub fn new(value: f64) -> Option<F64> {
-        value
-            .is_finite()
-            .then_some(F64(if value == 0.0 { 0.0 } else { value }))
+        value.is_finite().then_some(F64(value))
     }
 
     pub fn get(self) -> f64 {
@@ -79,7 +78,7 @@ impl F64 {
 
 impl PartialEq for F64 {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -140,6 +139,14 @@ impl ValueKind {
     /// examples spread along the sorted values all mean something.
     pub fn is_ordered(&self) -> bool {
         !matches!(self, ValueKind::Bool | ValueKind::Unsupported(_))
+    }
+
+    /// Whether the values are a continuous measure, where floating-point noise
+    /// makes counting per value — distinct counts, frequent values —
+    /// misleading. A continuous column's shape is its range and histogram; it
+    /// still gets a sample of example values.
+    pub fn is_continuous(&self) -> bool {
+        matches!(self, ValueKind::Float)
     }
 
     /// Whether the values sit on a numeric scale that splits into equal-width
@@ -455,8 +462,11 @@ mod tests {
     }
 
     #[test]
-    fn signed_zeros_collapse_and_only_finite_floats_are_values() {
-        assert_eq!(F64::new(-0.0), F64::new(0.0));
+    fn float_order_is_total_and_only_finite_floats_are_values() {
+        assert!(
+            F64::new(-0.0) < F64::new(0.0),
+            "total order splits the zeros"
+        );
         assert!(F64::new(-1.0) < F64::new(1.0));
         assert_eq!(Value::Int(7).as_f64(), Some(7.0));
         assert_eq!(Value::Text("x".into()).as_f64(), None);
