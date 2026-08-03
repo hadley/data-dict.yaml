@@ -25,8 +25,8 @@ tables:
       - name: recap
         type: enum
         values:
-          0: Captured only once
-          1: Recaptured at least one time
+          '0': Captured only once
+          '1': Recaptured at least one time
         description: >
           Whether the measured otter was captured only once or recaptured at
           least one time.
@@ -154,8 +154,8 @@ tables:
       - name: curvilinear_correction
         type: enum
         values:
-          1: No correction (standard length)
-          0.974: Correction for curvilinear length
+          '1': No correction (standard length)
+          '0.974': Correction for curvilinear length
         description: >
           Correction factor for lengths measured as curvilinear instead of
           standard length.
@@ -342,10 +342,10 @@ tables:
       - name: age_category
         type: enum
         values:
-          0: Less than 1 year
-          1.5: 1-2 years
-          7: 3-10 years
-          13: Greater than 10 years
+          '0': Less than 1 year
+          '1.5': 1-2 years
+          '7': 3-10 years
+          '13': Greater than 10 years
         description: >
           Age category of otter.
 
@@ -364,10 +364,10 @@ tables:
       - name: cause_of_death_capture_method
         type: enum
         values:
-          0: Typical live capture
-          1: Collected via harvest
-          4: Measured after some time in captivity
-          5: Captured off a beach
+          '0': Typical live capture
+          '1': Collected via harvest
+          '4': Measured after some time in captivity
+          '5': Captured off a beach
         description: >
           Cause of death or capture method.
 
@@ -376,7 +376,10 @@ relationships:
       Links a female otter to her dependent pup's own record. Not all pups
       have their own row (221 of 389 pup_number values match an otter_no).
     cardinality: one-to-many
-    join: otters.otter_no = otters.pup_number
+    join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otters
 
 glossary:
   curvilinear length: >

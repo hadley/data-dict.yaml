@@ -152,24 +152,14 @@ fn format_time_unit(unit: TimeUnit) -> &'static str {
     }
 }
 
-/// How a comparable column's physical values must be normalized before hashing
-/// so that logically-equal values compare equal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Normalization {
-    /// Hash the physical value as-is.
-    None,
-    /// Byte-encoded decimal: trim redundant leading two's-complement sign bytes.
-    DecimalBytes,
-    /// Float/double: canonicalize signed zero and NaN (applied in the reader).
-    Float,
-}
-
-/// Whether a column's values can be compared for the uniqueness checks (D02) by
-/// hashing their physical representation — see the "comparable types" section of
-/// `site/validation.md`. `Incomparable` carries a short slug naming the barrier,
-/// used to build the D03 warning.
+/// Whether a column's values can be compared for the uniqueness checks (D02) —
+/// see the "comparable types" section of `site/validation.md`. Arrow decoding
+/// settles most representation questions (decimals arrive as numeric values,
+/// 16-bit floats as floats, INT96 as timestamps); floats are additionally
+/// canonicalized before hashing. `Incomparable` carries a short slug naming the
+/// barrier, used to build the D03 warning.
 pub(crate) enum Comparability {
-    Comparable(Normalization),
+    Comparable,
     Incomparable(&'static str),
 }
 
@@ -186,30 +176,24 @@ pub(crate) fn uniqueness_comparability(field: &Type) -> Comparability {
             | LogicalType::Time { .. }
             | LogicalType::Timestamp { .. }
             | LogicalType::Integer { .. }
-            | LogicalType::Uuid => Comparable(Normalization::None),
-            // Int-backed decimals are already canonical; byte-backed ones can pad
-            // the same value to different lengths, so they need normalizing.
-            LogicalType::Decimal { .. } => match field.get_physical_type() {
-                PhysicalType::INT32 | PhysicalType::INT64 => Comparable(Normalization::None),
-                _ => Comparable(Normalization::DecimalBytes),
-            },
+            | LogicalType::Decimal { .. }
+            | LogicalType::Float16
+            | LogicalType::Uuid => Comparable,
             LogicalType::Json => Incomparable("json"),
             LogicalType::Bson => Incomparable("bson"),
-            // Half-floats are read as raw bytes, so signed zero and NaN would
-            // escape the float canonicalization the f32/f64 paths apply.
-            LogicalType::Float16 => Incomparable("float16"),
             LogicalType::Map | LogicalType::List => Incomparable("nested"),
             LogicalType::Unknown => Incomparable("unknown"),
         };
     }
     match field.get_physical_type() {
-        PhysicalType::BOOLEAN | PhysicalType::INT32 | PhysicalType::INT64 | PhysicalType::INT96 => {
-            Comparable(Normalization::None)
-        }
-        PhysicalType::FLOAT | PhysicalType::DOUBLE => Comparable(Normalization::Float),
-        PhysicalType::BYTE_ARRAY | PhysicalType::FIXED_LEN_BYTE_ARRAY => {
-            Comparable(Normalization::None)
-        }
+        PhysicalType::BOOLEAN
+        | PhysicalType::INT32
+        | PhysicalType::INT64
+        | PhysicalType::INT96
+        | PhysicalType::FLOAT
+        | PhysicalType::DOUBLE
+        | PhysicalType::BYTE_ARRAY
+        | PhysicalType::FIXED_LEN_BYTE_ARRAY => Comparable,
     }
 }
 
@@ -225,7 +209,7 @@ pub fn uniqueness_barriers(path: &Path) -> Result<HashMap<String, &'static str>,
         .iter()
         .filter_map(|field| match uniqueness_comparability(field) {
             Comparability::Incomparable(reason) => Some((field.name().to_string(), reason)),
-            Comparability::Comparable(_) => None,
+            Comparability::Comparable => None,
         })
         .collect())
 }
@@ -257,7 +241,7 @@ fn parquet_type_to_dict_type(field: &Type) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Comparability, Normalization, uniqueness_comparability};
+    use super::{Comparability, uniqueness_comparability};
     use parquet::schema::parser::parse_message_type;
 
     fn classify(field_line: &str) -> Comparability {
@@ -276,31 +260,16 @@ mod tests {
             "REQUIRED BOOLEAN b",
             "REQUIRED FIXED_LEN_BYTE_ARRAY(16) uu (UUID)",
             "REQUIRED INT64 dec (DECIMAL(9,2))",
+            "REQUIRED BYTE_ARRAY dec2 (DECIMAL(9,2))",
+            "REQUIRED DOUBLE f",
+            "REQUIRED FLOAT g",
+            "REQUIRED FIXED_LEN_BYTE_ARRAY(2) h (FLOAT16)",
         ] {
             assert!(
-                matches!(
-                    classify(line),
-                    Comparability::Comparable(Normalization::None)
-                ),
-                "expected plain-comparable: {line}"
+                matches!(classify(line), Comparability::Comparable),
+                "expected comparable: {line}"
             );
         }
-    }
-
-    #[test]
-    fn floats_and_byte_decimals_need_normalization() {
-        assert!(matches!(
-            classify("REQUIRED DOUBLE f"),
-            Comparability::Comparable(Normalization::Float)
-        ));
-        assert!(matches!(
-            classify("REQUIRED FLOAT f"),
-            Comparability::Comparable(Normalization::Float)
-        ));
-        assert!(matches!(
-            classify("REQUIRED BYTE_ARRAY dec (DECIMAL(9,2))"),
-            Comparability::Comparable(Normalization::DecimalBytes)
-        ));
     }
 
     #[test]

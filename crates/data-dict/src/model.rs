@@ -48,10 +48,11 @@ impl DataDict {
             let Some(join) = &rel.join else { continue };
             for conj in &join.conjuncts {
                 for (fk_side, pk_side) in [(&conj.lhs, &conj.rhs), (&conj.rhs, &conj.lhs)] {
-                    if fk_side.table != table_name || fk_side.column != col.name.value {
+                    if rel.resolve(&fk_side.table) != table_name || fk_side.column != col.name.value
+                    {
                         continue;
                     }
-                    let Some(other_tbl) = self.table(&pk_side.table) else {
+                    let Some(other_tbl) = self.table(rel.resolve(&pk_side.table)) else {
                         continue;
                     };
                     let Some(other_col) = other_tbl.column(&pk_side.column) else {
@@ -126,15 +127,18 @@ pub struct Column {
 
 #[derive(Debug, Clone)]
 pub struct Representation {
+    /// The value node — the list, map, or whatever stands in for one.
     pub span: SourceInfo,
+    /// The `values` / `range` / `examples` key itself, for showing the line a
+    /// finding sits under.
+    pub key_span: SourceInfo,
     pub items: Vec<Spanned<Scalar>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scalar {
-    /// An integer, kept distinct from `Float` so its exact value survives for
-    /// value-equality (D04); routing every number through `f64` would lose
-    /// precision past 2^53.
+    /// An integer, kept distinct from `Float` so an exact value survives;
+    /// routing every number through `f64` would lose precision past 2^53.
     Int(i64),
     Float(f64),
     String(String), // includes date/times
@@ -166,30 +170,13 @@ impl Scalar {
         }
     }
 
-    /// The canonical string forms this value can take in data, for value-equality
-    /// comparison (D04). Empty for kinds that can't appear as a data value
-    /// (`null`, compound). Must agree with the data side's canonicalization in
-    /// `data-dict-parquet`.
-    ///
-    /// A float yields two forms — its own (`f64`, matching a `DOUBLE` column) and
-    /// its narrowing to `f32` (matching a `FLOAT` column) — because a value like
-    /// `3.14159265358979` prints differently at each width, and the data side
-    /// formats at the column's physical width.
-    pub fn value_keys(&self) -> Vec<String> {
+    /// The string form this value takes in data, for enum membership (D04).
+    /// `None` for anything but a string, since an `enum`'s values are strings
+    /// (S24) and its underlying column is string-like.
+    pub fn as_enum_value(&self) -> Option<&str> {
         match self {
-            Scalar::Int(n) => vec![n.to_string()],
-            Scalar::Float(n) => {
-                let wide = n.to_string();
-                let narrow = (*n as f32).to_string();
-                if narrow == wide {
-                    vec![wide]
-                } else {
-                    vec![wide, narrow]
-                }
-            }
-            Scalar::String(s) => vec![s.clone()],
-            Scalar::Bool(b) => vec![b.to_string()],
-            Scalar::Null | Scalar::Compound => vec![],
+            Scalar::String(s) => Some(s),
+            _ => None,
         }
     }
 }
@@ -248,6 +235,27 @@ pub struct Relationship {
     /// S06) skip the relationship.
     pub join: Option<JoinExpr>,
     pub conflicts: Vec<Spanned<String>>,
+    /// Alias declarations, in source order. Scoped to this relationship.
+    pub aliases: Vec<Alias>,
+}
+
+impl Relationship {
+    /// The table a name in the `join` refers to: the target of the alias of
+    /// that name, or `name` itself when no alias declares it.
+    pub fn resolve<'a>(&'a self, name: &'a str) -> &'a str {
+        self.alias(name).map_or(name, |a| a.table.value.as_str())
+    }
+
+    pub fn alias(&self, name: &str) -> Option<&Alias> {
+        self.aliases.iter().find(|a| a.name.value == name)
+    }
+}
+
+/// One `aliases` entry: the alias itself and the table it stands for.
+#[derive(Debug, Clone)]
+pub struct Alias {
+    pub name: Spanned<String>,
+    pub table: Spanned<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

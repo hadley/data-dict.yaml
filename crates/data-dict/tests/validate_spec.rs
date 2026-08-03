@@ -50,7 +50,10 @@ fn assert_valid_dict(body: &str) {
 /// Assert `body` validates with neither errors nor warnings — entirely clean.
 /// Stronger than [`assert_valid_dict`], which only checks for errors.
 fn assert_clean_dict(body: &str) {
-    let path = dict(body);
+    assert_clean(dict(body));
+}
+
+fn assert_clean(path: PathBuf) {
     let errors = diagnostics(&path, Severity::Error);
     assert!(
         errors.is_empty(),
@@ -173,6 +176,20 @@ fn failing_diagnostic(rel: &str) -> Diagnostic {
     Diagnostic {
         source: std::fs::read_to_string(&path).unwrap(),
         rendered: common::sanitize(&errors.join("\n"), &fixtures_root()),
+    }
+}
+
+/// [`failing_diagnostic`]'s counterpart for a fixture that validates but warns.
+fn warning_diagnostic(rel: &str) -> Diagnostic {
+    let path = fixture(rel);
+    assert_valid(path.clone());
+    let warnings = diagnostics(&path, Severity::Warning);
+    if warnings.is_empty() {
+        panic!("expected {rel} to warn, but it was clean");
+    }
+    Diagnostic {
+        source: std::fs::read_to_string(&path).unwrap(),
+        rendered: common::sanitize(&warnings.join("\n"), &fixtures_root()),
     }
 }
 
@@ -402,6 +419,11 @@ fn s02_missing_table() {
 }
 
 #[test]
+fn s02_alias_unknown_table() {
+    assert_snapshot!(failing_diagnostic("spec/s02-alias-unknown-table.yaml"));
+}
+
+#[test]
 fn s03_missing_column() {
     assert_snapshot!(failing_diagnostic("spec/s03-missing-column.yaml"));
 }
@@ -436,6 +458,74 @@ fn s06_cardinality_mismatch() {
 #[test]
 fn s06_self_join_one_to_many() {
     assert_snapshot!(failing_diagnostic("spec/s06-self-join-one-to-many.yaml"));
+}
+
+// --- aliases (S25/S26/S27) -----------------------------------------------
+
+#[test]
+fn s25_unaliased_self_join() {
+    assert_snapshot!(failing_diagnostic("spec/s25-unaliased-self-join.yaml"));
+}
+
+// One alias and one bare table name still leaves both sides standing for the
+// same rows, so aliasing half the join isn't enough.
+#[test]
+fn s25_half_aliased_self_join() {
+    assert_snapshot!(failing_diagnostic("spec/s25-half-aliased-self-join.yaml"));
+}
+
+// Two aliases of one table are two sides, so this is the self-join spelling the
+// spec asks for. Also covers S01 resolving a foreign key through an alias.
+#[test]
+fn aliases_self_join_ok() {
+    assert_clean(fixture("spec/aliases-self-join-ok.yaml"));
+}
+
+// Aliases are allowed where they aren't required: two tables joined twice, with
+// the alias naming each role.
+#[test]
+fn aliases_role_playing_ok() {
+    assert_clean(fixture("spec/aliases-role-playing-ok.yaml"));
+}
+
+#[test]
+fn s26_alias_shadows_table() {
+    assert_snapshot!(failing_diagnostic("spec/s26-alias-shadows-table.yaml"));
+}
+
+#[test]
+fn s27_unused_alias() {
+    assert_snapshot!(warning_diagnostic("spec/s27-unused-alias.yaml"));
+}
+
+// An alias resolves only within the relationship that declares it, so a second
+// relationship naming it gets S02 rather than the first one's table.
+#[test]
+fn alias_does_not_leak_between_relationships() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: a
+                columns:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [1, 2]
+              - name: b
+                columns:
+                  - name: a_id
+                    type: number(id)
+                    examples: [1, 2]
+
+            relationships:
+              - join: b.a_id = parent.id
+                aliases: {parent: a}
+                cardinality: many-to-one
+              - join: b.a_id = parent.id
+                cardinality: many-to-one
+        "},
+        &["S02"],
+    );
 }
 
 // --- data representation (S07) -------------------------------------------
@@ -657,6 +747,44 @@ fn s12_wrong_value_type() {
     assert_snapshot!(diagnostic);
 }
 
+// S12: a `string` column's examples are strings, so a zip code written bare is
+// a number, with the same quoting hint S24 gives a category.
+#[test]
+fn s12_unquoted_string_example() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples: ['02134', 94110]
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'94110'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// The same finding with the examples written one per line, where the offending
+// value sits several lines below the key that introduces it.
+#[test]
+fn s12_unquoted_string_example_block_form() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples:
+                  - '02134'
+                  - '94110'
+                  - 60614
+                  - '98101'
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'60614'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn s12_date_not_iso() {
     let diagnostic = failing_dict(indoc! {r#"
@@ -749,9 +877,7 @@ fn s13_infinite_bound_wrong_end() {
 
 // --- enum values (S24) ---------------------------------------------------
 
-// S24: a value that can't be a category whichever way it was written. A number
-// or boolean is accepted instead, because the parser discards quote style, so
-// `1` here may be `'1'` in the file (the limitation S12 works around too).
+// S24: a value no quoting rescues, so it carries no hint.
 #[test]
 fn s24_null_enum_value() {
     let diagnostic = failing_dict(indoc! {"
@@ -767,8 +893,7 @@ fn s24_null_enum_value() {
     assert_snapshot!(diagnostic);
 }
 
-// A category coded as a number reaches us as a number even when quoted, so it
-// has to be accepted.
+// A category coded as a number is a string once quoted.
 #[test]
 fn s24_numeric_codes_ok() {
     assert_valid_dict(indoc! {r#"
@@ -778,6 +903,55 @@ fn s24_numeric_codes_ok() {
               - name: grade
                 type: enum
                 values: ["1", "2", "3"]
+    "#});
+}
+
+// S24: written unquoted, the same codes are numbers, and the hint says so.
+#[test]
+fn s24_unquoted_numeric_codes() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: correction
+                type: enum
+                values:
+                  1: No correction
+                  0.974: Curvilinear correction
+    "});
+    diagnostic.assert_contains(&["S24", "is a number", "`'0.974'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_unquoted_boolean_value() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: consent
+                    type: enum
+                    values: [true, false, unknown]
+        "},
+        &["S24", "is a boolean", "`'true'`"],
+    );
+}
+
+// Numeric-looking keys must not make the map form read as a list.
+#[test]
+fn s24_mixed_key_types_map_form_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: thermocline
+                type: enum
+                values:
+                  '-9': Not known
+                  N: 'No'
+                  Y: 'Yes'
     "#});
 }
 
@@ -1193,7 +1367,7 @@ fn constraints_enum_is_a_string() {
                   - assert: LENGTH(sex) = 1
               - name: grade
                 type: enum
-                values: [1, 2, 3]
+                values: ['1', '2', '3']
                 constraints:
                   - assert: grade LIKE '_'
     "});

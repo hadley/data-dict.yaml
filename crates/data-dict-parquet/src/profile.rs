@@ -14,20 +14,21 @@
 use std::fs::File;
 use std::path::Path;
 
+use arrow_array::Array;
 use parquet::basic::{Encoding, PageType};
 use parquet::column::page::Page;
 use parquet::file::metadata::{ColumnChunkMetaData, ParquetMetaData};
 use parquet::file::reader::{FileReader, RowGroupReader, SerializedFileReader};
 use parquet::file::statistics::Statistics;
-use parquet::schema::types::Type;
+use parquet::schema::types::{SchemaDescriptor, Type};
 use rayon::prelude::*;
 
 use crate::ParquetError;
-use crate::column_scan::{PlannedColumn, plan_column, read_batch};
 use crate::page::is_dictionary;
+use crate::reader::FileContext;
 use crate::rle::HybridDecoder;
 use crate::sketch::{BottomK, HyperLogLog, SpaceSaving, ValueCount, hash_value};
-use crate::value::{Decoded, Repr, Value, ValueKind, batch_value, classify, decode_dictionary};
+use crate::value::{Decoded, Repr, Value, ValueColumn, ValueKind, classify, decode_dictionary};
 
 /// Distinct values counted exactly per column before counts turn approximate.
 const TRACKED_VALUES: usize = 1_000;
@@ -190,14 +191,14 @@ impl Target {
 
 fn select(meta: &ParquetMetaData, columns: Option<&[&str]>) -> Result<Vec<Target>, ParquetError> {
     let fields = meta.file_metadata().schema().get_fields();
-    let descr = meta.file_metadata().schema_descr_ptr();
+    let descr = meta.file_metadata().schema_descr();
     let target = |field: &Type| {
         let (kind, repr) = classify(field);
         Target {
             name: field.name().to_string(),
             kind,
             repr,
-            leaf: plan_column(&descr, field.name()).ok().map(|c| c.leaf),
+            leaf: find_leaf(descr, field.name()),
         }
     };
     let Some(names) = columns else {
@@ -213,6 +214,11 @@ fn select(meta: &ParquetMetaData, columns: Option<&[&str]>) -> Result<Vec<Target
                 .ok_or_else(|| ParquetError::General(format!("Column not found: {name}")))
         })
         .collect()
+}
+
+/// The leaf index of the column named `name`, if it is a readable primitive.
+fn find_leaf(descr: &SchemaDescriptor, name: &str) -> Option<usize> {
+    (0..descr.num_columns()).find(|&i| descr.column(i).name() == name)
 }
 
 /// The profile of a column whose values are never read.
@@ -247,21 +253,20 @@ fn footer_nulls(meta: &ParquetMetaData, leaf: Option<usize>) -> usize {
 }
 
 fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, ParquetError> {
-    let file =
-        File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
-    let reader = SerializedFileReader::new(file)?;
-    let descr = reader.metadata().file_metadata().schema_descr_ptr();
-    let planned = plan_column(&descr, &target.name)?;
+    let ctx = FileContext::open(path)?;
+    let leaf = ctx
+        .leaf(&target.name)
+        .ok_or_else(|| ParquetError::General(format!("Column not found: {}", target.name)))?;
 
     // Taking the range from the footer keeps the bin edges known before the
     // pass, so values can be binned as they stream by.
     let range = target
         .kind
         .is_binnable()
-        .then(|| footer_range(reader.metadata(), &planned, target.repr))
+        .then(|| footer_range(ctx.parquet(), leaf, target.repr))
         .flatten();
     let mut accumulator = Accumulator::new(target, range);
-    scan(&reader, &planned, target.repr, &mut accumulator)?;
+    scan(&ctx, leaf, target.repr, &mut accumulator)?;
 
     if accumulator.unprofilable {
         let target = Target {
@@ -272,7 +277,7 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
         };
         // The scan stopped where the bad value was, so its running null count
         // covers only part of the column; the footer's covers all of it.
-        let nulls = footer_nulls(reader.metadata(), target.leaf);
+        let nulls = footer_nulls(ctx.parquet(), target.leaf);
         return Ok(stub(&target, nulls));
     }
 
@@ -287,7 +292,7 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
         && let Some(bins) = BinCounts::spanning(&accumulator.min, &accumulator.max)
     {
         let mut binner = BinOnly { bins };
-        scan(&reader, &planned, target.repr, &mut binner)?;
+        scan(&ctx, leaf, target.repr, &mut binner)?;
         accumulator.bins = Some(binner.bins);
     }
     Ok(accumulator.finish(target))
@@ -295,15 +300,15 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
 
 /// The `[min, max]` range every row group's footer agrees on, or `None` if any
 /// of them can't supply an exact one.
-fn footer_range(meta: &ParquetMetaData, planned: &PlannedColumn, repr: Repr) -> Option<(f64, f64)> {
+fn footer_range(meta: &ParquetMetaData, leaf: usize, repr: Repr) -> Option<(f64, f64)> {
     // An unsigned column's footer extremes are ordered by the unsigned reading
-    // of bits this crate stores signed, so they can't be compared as read.
+    // of bits a raw page stores signed, so they can't be compared as read.
     if matches!(repr, Repr::Uint(_)) {
         return None;
     }
     let mut range: Option<(f64, f64)> = None;
     for group in meta.row_groups() {
-        let column = group.column(planned.leaf);
+        let column = group.column(leaf);
         if column.num_values() == 0 {
             continue;
         }
@@ -526,20 +531,25 @@ impl BinCounts {
 }
 
 /// Stream one column through `observer`, one row group at a time.
+///
+/// The dictionary fast path reads raw pages (the arrow reader doesn't expose
+/// them), so a page-level reader is opened alongside the arrow context.
 fn scan(
-    reader: &SerializedFileReader<File>,
-    planned: &PlannedColumn,
+    ctx: &FileContext,
+    leaf: usize,
     repr: Repr,
     observer: &mut impl Observe,
 ) -> Result<(), ParquetError> {
-    for group in 0..reader.num_row_groups() {
-        let chunk = reader.metadata().row_group(group).column(planned.leaf);
+    let pages = SerializedFileReader::new(ctx.file()?)?;
+    let max_def = ctx.leaf_descr(leaf).max_def_level();
+    for group in 0..ctx.parquet().num_row_groups() {
+        let chunk = ctx.parquet().row_group(group).column(leaf);
         if chunk.num_values() == 0 {
             continue;
         }
-        let row_group = reader.get_row_group(group)?;
-        if !count_dictionary(&*row_group, chunk, planned, repr, observer)? {
-            scan_values(&*row_group, planned, repr, observer)?;
+        let row_group = pages.get_row_group(group)?;
+        if !count_dictionary(&*row_group, chunk, leaf, max_def, repr, observer)? {
+            scan_values(ctx, leaf, group, observer)?;
         }
         if observer.abandoned() {
             return Ok(());
@@ -551,28 +561,28 @@ fn scan(
 /// Decode every value of a column chunk. Always correct, and the fallback
 /// whenever the dictionary can't answer.
 fn scan_values(
-    row_group: &dyn RowGroupReader,
-    planned: &PlannedColumn,
-    repr: Repr,
+    ctx: &FileContext,
+    leaf: usize,
+    group: usize,
     observer: &mut impl Observe,
 ) -> Result<(), ParquetError> {
-    let mut reader = row_group.get_column_reader(planned.leaf)?;
-    loop {
-        let batch = read_batch(&mut reader, planned)?;
-        if batch.len() == 0 {
-            return Ok(());
-        }
-        for row in 0..batch.len() {
-            if batch.is_null(row) {
+    for batch in ctx.group_reader([leaf], group)? {
+        let batch = batch?;
+        let array = batch.column(0);
+        let values = ValueColumn::new(array)?;
+        let validity = array.nulls();
+        for row in 0..array.len() {
+            if validity.is_some_and(|v| v.is_null(row)) {
                 observer.observe_null(1);
             } else {
-                observer.observe(batch_value(&batch, row, repr), 1);
+                observer.observe(values.get(row), 1);
             }
         }
         if observer.abandoned() {
             return Ok(());
         }
     }
+    Ok(())
 }
 
 /// Summarize a dictionary-encoded column chunk from its dictionary page and the
@@ -587,28 +597,30 @@ fn scan_values(
 fn count_dictionary(
     row_group: &dyn RowGroupReader,
     chunk: &ColumnChunkMetaData,
-    planned: &PlannedColumn,
+    leaf: usize,
+    max_def: i16,
     repr: Repr,
     observer: &mut impl Observe,
 ) -> Result<bool, ParquetError> {
     if chunk.dictionary_page_offset().is_none() || !encoding_stats_all_dictionary(chunk) {
         return Ok(false);
     }
-    let mut pages = row_group.get_column_page_reader(planned.leaf)?;
+    let mut pages = row_group.get_column_page_reader(leaf)?;
     let Some(Page::DictionaryPage {
         buf, num_values, ..
     }) = pages.get_next_page()?
     else {
         return Ok(false);
     };
-    let Some(values) = decode_dictionary(&buf, num_values as usize, planned.physical, repr) else {
+    let Some(values) = decode_dictionary(&buf, num_values as usize, chunk.column_type(), repr)
+    else {
         return Ok(false);
     };
 
     let mut counts = vec![0usize; values.len()];
     let mut nulls = 0usize;
     while let Some(page) = pages.get_next_page()? {
-        if !count_page(&page, planned.max_def, &mut counts, &mut nulls) {
+        if !count_page(&page, max_def, &mut counts, &mut nulls) {
             return Ok(false);
         }
     }
@@ -742,8 +754,7 @@ fn level_bits(max_def: i16) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINS, BinCounts, NotFinite, count_dictionary, level_bits};
-    use crate::column_scan::plan_column;
+    use super::{BINS, BinCounts, NotFinite, count_dictionary, find_leaf, level_bits};
     use crate::value::{Repr, Value, classify};
     use parquet::file::properties::{WriterProperties, WriterVersion};
     use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -822,16 +833,17 @@ mod tests {
             let values: Vec<i64> = (0..1_000).map(|row| row % 4).collect();
             let path = write_dictionary_file(&values, 5, version);
             let reader = SerializedFileReader::new(File::open(&path).unwrap()).unwrap();
-            let descr = reader.metadata().file_metadata().schema_descr_ptr();
-            let planned = plan_column(&descr, "v").unwrap();
+            let descr = reader.metadata().file_metadata().schema_descr();
+            let leaf = find_leaf(descr, "v").unwrap();
+            let max_def = descr.column(leaf).max_def_level();
             let (_, repr) = classify(&reader.metadata().file_metadata().schema().get_fields()[0]);
             assert_eq!(repr, Repr::Int);
 
             let mut recorder = Recorder::default();
-            let chunk = reader.metadata().row_group(0).column(planned.leaf);
+            let chunk = reader.metadata().row_group(0).column(leaf);
             let row_group = reader.get_row_group(0).unwrap();
             let handled =
-                count_dictionary(&*row_group, chunk, &planned, repr, &mut recorder).unwrap();
+                count_dictionary(&*row_group, chunk, leaf, max_def, repr, &mut recorder).unwrap();
             std::fs::remove_file(&path).ok();
 
             assert!(

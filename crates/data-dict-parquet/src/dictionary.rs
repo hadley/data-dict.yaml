@@ -25,8 +25,8 @@ use crate::page::{for_each_plain_byte_array, is_dictionary};
 /// determined from the row groups' dictionary pages alone. `false` means "not
 /// proven" (scan to be sure), never "definitely violates".
 ///
-/// `allowed` holds the canonical string forms produced by `scan::field_key`;
-/// dictionary values are canonicalized the same way here.
+/// Membership is string equality: `allowed` holds the enum's declared string
+/// values, and dictionary entries are compared as UTF-8 strings.
 pub(crate) fn dictionary_conforms(
     reader: &dyn FileReader,
     leaf: usize,
@@ -90,7 +90,8 @@ fn data_pages_all_dictionary(
 }
 
 /// Whether every value in a PLAIN-encoded dictionary page is in `allowed`.
-/// `false` for physical types an enum can't sensibly use, or a malformed buffer.
+/// An enum column is string-like (`BYTE_ARRAY`); any other physical type
+/// defers to the scan.
 fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<String>) -> bool {
     let Page::DictionaryPage {
         buf, num_values, ..
@@ -101,41 +102,13 @@ fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<Stri
     let count = *num_values as usize;
     match physical {
         PhysicalType::BYTE_ARRAY => byte_arrays_in_set(buf, count, allowed),
-        PhysicalType::INT32 => {
-            fixed_in_set::<4>(buf, count, allowed, |b| i32::from_le_bytes(b).to_string())
-        }
-        PhysicalType::INT64 => {
-            fixed_in_set::<8>(buf, count, allowed, |b| i64::from_le_bytes(b).to_string())
-        }
-        PhysicalType::FLOAT => {
-            fixed_in_set::<4>(buf, count, allowed, |b| f32::from_le_bytes(b).to_string())
-        }
-        PhysicalType::DOUBLE => {
-            fixed_in_set::<8>(buf, count, allowed, |b| f64::from_le_bytes(b).to_string())
-        }
         _ => false,
     }
 }
 
-/// Whether every PLAIN byte-array value is UTF-8 (matching `field_key`, which
-/// only keys `Field::Str`) and present in `allowed`.
+/// Whether every PLAIN byte-array value is UTF-8 and present in `allowed`.
 fn byte_arrays_in_set(buf: &[u8], count: usize, allowed: &HashSet<String>) -> bool {
     for_each_plain_byte_array(buf, count, |value| {
         std::str::from_utf8(value).is_ok_and(|text| allowed.contains(text))
     })
-}
-
-/// Decode `count` fixed-width PLAIN values, canonicalizing each with `key`.
-fn fixed_in_set<const N: usize>(
-    buf: &[u8],
-    count: usize,
-    allowed: &HashSet<String>,
-    key: impl Fn([u8; N]) -> String,
-) -> bool {
-    if buf.len() < count * N {
-        return false;
-    }
-    buf.chunks_exact(N)
-        .take(count)
-        .all(|chunk| allowed.contains(&key(chunk.try_into().unwrap())))
 }

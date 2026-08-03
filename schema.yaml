@@ -145,6 +145,10 @@ object:
             join: string
             conflicts:
               arrayOf: string
+            # alias -> table name. S25/S26/S27 cover the semantic rules.
+            aliases:
+              object:
+                additionalProperties: string
 
     glossary:
       object:

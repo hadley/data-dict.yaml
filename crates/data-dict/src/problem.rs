@@ -550,6 +550,14 @@ impl ProblemSet {
         }
     }
 
+    /// Attach a fix hint to the most recently pushed problem; see
+    /// [`suggest_last`](Self::suggest_last) for the ordering it relies on.
+    pub(crate) fn hint_last(&mut self, hint: impl Into<String>) {
+        if let Some(problem) = self.items.last_mut() {
+            problem.hint = Some(hint.into());
+        }
+    }
+
     /// Push a spec problem (`S##`) at error severity; see
     /// [`push_located_problem`](Self::push_located_problem) for the `spans`
     /// convention. A spec check with no rule statement (a bare parse failure)

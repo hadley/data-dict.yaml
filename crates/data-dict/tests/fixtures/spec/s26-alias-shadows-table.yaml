@@ -1,0 +1,23 @@
+# expected: S26
+# The alias `otters` is also a table, so `otters.otter_no` in the join could be
+# read either way.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: otters.pup_number = mother.otter_no
+    aliases:
+      otters: otters
+      mother: otters
+    cardinality: many-to-one

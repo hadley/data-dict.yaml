@@ -156,7 +156,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
+* `enum`: a string column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
 
 #### Measures
 
@@ -185,7 +185,7 @@ Every type has some way of representing the data it contains: an exhaustive set 
 * `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Used for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`.
-* `examples`: a list of ~5 representative values from the column. Used for all other types: `string`, `number`, and `number(id)`. Each example must match the column's type. A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
+* `examples`: a list of ~5 representative values from the column. Used for all other types: `string`, `number`, and `number(id)`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
 
 `boolean` columns are the exception to this rule because they can only contain `true`, `false`, and (if not required) `null`.
 
@@ -278,9 +278,10 @@ constraints:
 `relationships` is a list of join descriptors. Each entry describes how two tables are related.
 
 * `join` (required): a join expression of the form `table1.column = table2.column`, or `table1.date >= table2.start AND table1.date <= table2.end`.
-* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
+* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left side to the right side of the join expression.
 * `description`: human-readable description of the relationship. Only needed if it's not clear from the context.
-* `conflicts`: a list of column names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `conflicts`: a list of column names that appear on both sides of the join with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `aliases`: a map from alias to table name, naming the role each side of the join plays. See [aliases](#aliases).
 
 For example:
 
@@ -289,6 +290,36 @@ relationships:
   - join: food.food_category_id = food_category.id
     cardinality: many-to-one
     conflicts: [description]
+```
+
+### Aliases
+
+A join brings together two sets of rows. Usually they come from two different tables, so the table names are enough to tell the sides apart. When they don't, `aliases` gives each side its own name:
+
+```yaml
+relationships:
+  - join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otters
+    cardinality: one-to-many
+    description: Links a female otter to her dependent pup's own record.
+```
+
+Within a `join`, a name before the `.` resolves first as an alias declared by that relationship, then as a table name. An alias is scoped to the relationship that declares it, and it must not have the same name as a table in the dictionary. Every alias must name a table that exists, and every alias declared should be used by the join. Self-joins must use aliases.
+
+Prefer aliases that name the role a side plays (`mother`/`pup`, `manager`/`report`) over positional names like `left`/`right`; they make the join expression readable on its own.
+
+Aliases are also allowed, but not required, when two tables are joined more than once and each join means something different. Naming the roles says which is which:
+
+```yaml
+relationships:
+  - join: flights.origin = origin_airport.faa
+    aliases: {origin_airport: airports}
+    cardinality: many-to-one
+  - join: flights.dest = dest_airport.faa
+    aliases: {dest_airport: airports}
+    cardinality: many-to-one
 ```
 
 ## Glossary

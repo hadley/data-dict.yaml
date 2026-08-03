@@ -95,7 +95,9 @@ a plausible-sounding description for a column whose meaning you had to guess.
 5.  **Define relationships.** For every foreign key, add a relationship entry
     with `description`, `cardinality` (`one-to-many` or `many-to-one`),
     `join`, and any `conflicts` (column names that appear in both tables with
-    different meanings).
+    different meanings). A self-join needs an `aliases` entry per side, naming
+    the role each plays (`join: mother.otter_no = pup.pup_number` with
+    `aliases: {mother: otters, pup: otters}`).
 
 6.  **Build the glossary.** Add definitions for domain-specific terms used in
     descriptions. If a word would be unfamiliar to a new team member or an AI

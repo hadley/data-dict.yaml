@@ -1,0 +1,32 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+# expected: S25
+# The self-join names `otters` on both sides, so nothing says the two sides are
+# different rows. `many-to-one` puts the "one" side on the `primary_key`, so
+# S06 stays quiet and only S25 fires.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: otters.pup_number = otters.otter_no
+    cardinality: many-to-one
+────────────────────────────────────────
+error[S25]: A self-join must give each side its own alias.
+  --> spec/s25-unaliased-self-join.yaml:20:11
+   |
+LL |   - join: otters.pup_number = otters.otter_no
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `otters` is on both sides of the join
+   |
+   = help: Name the role each side plays, e.g. `aliases: {parent: otters, child: otters}`, and use those names in the `join`.

@@ -1,0 +1,34 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+# expected: S26
+# The alias `otters` is also a table, so `otters.otter_no` in the join could be
+# read either way.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: otters.pup_number = mother.otter_no
+    aliases:
+      otters: otters
+      mother: otters
+    cardinality: many-to-one
+────────────────────────────────────────
+error[S26]: An alias must not have the same name as a table.
+  --> spec/s26-alias-shadows-table.yaml:21:7
+   |
+LL |   - join: otters.pup_number = mother.otter_no
+LL |     aliases:
+LL |       otters: otters
+   |       ^^^^^^ `otters` is already a table in this dictionary

@@ -4,13 +4,25 @@
 //! types that support all three. Every other Parquet type classifies as
 //! [`ValueKind::Unsupported`] and is profiled down to row and null counts.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
+use arrow_array::cast::AsArray;
+use arrow_array::types::{
+    Date32Type, Int8Type, Int16Type, Int32Type, Int64Type, Time32MillisecondType,
+    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
+    UInt32Type,
+};
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, StringArray,
+};
+use arrow_schema::DataType;
 use parquet::basic::{LogicalType, Repetition, TimeUnit, Type as PhysicalType};
 use parquet::schema::types::Type;
 
-use crate::column_scan::ColumnBatch;
+use crate::ParquetError;
 use crate::page::for_each_plain_byte_array;
 
 /// One column value, canonicalized so logically-equal values compare equal.
@@ -145,15 +157,18 @@ impl ValueKind {
     }
 }
 
-/// How a column's raw scanned values become [`Value`]s. Kept apart from
-/// [`ValueKind`] because it answers a decoding question, not a meaning one:
-/// which `ColumnBatch` accessor to call and how to reinterpret the bits.
+/// How a column's raw dictionary-page values become [`Value`]s. Kept apart
+/// from [`ValueKind`] because it answers a decoding question, not a meaning
+/// one. The arrow value scan doesn't need it — decoded arrays carry their own
+/// types (see [`ValueColumn`]) — but raw dictionary pages hold bare physical
+/// values, so their decoding is steered here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Repr {
     Bool,
     Int,
-    /// An unsigned integer narrower than 64 bits, which arrives sign-extended
-    /// from a signed physical type and so must be masked back to `bits`.
+    /// An unsigned integer narrower than 64 bits, which a raw page stores in a
+    /// signed physical type and so must be masked back to `bits` when read
+    /// from a dictionary page. (Arrow-decoded arrays arrive unsigned already.)
     Uint(u32),
     Float32,
     Float64,
@@ -169,7 +184,9 @@ pub(crate) enum Decoded {
     /// is all the caller needs to tell the three cases apart.
     NotFinite(f64),
     /// A byte array that isn't UTF-8, which downgrades its whole column to
-    /// [`ValueKind::Unsupported`].
+    /// [`ValueKind::Unsupported`]. Arises only for unannotated `BYTE_ARRAY`
+    /// columns (and dictionary pages): a column *declared* `STRING` that holds
+    /// invalid UTF-8 fails arrow's decode validation as a read error instead.
     NotUtf8,
 }
 
@@ -205,8 +222,8 @@ pub(crate) fn classify(field: &Type) -> (ValueKind, Repr) {
             // or losing exactness, and neither is worth it for a summary.
             LogicalType::Decimal { .. } => unsupported("decimal"),
             LogicalType::Uuid => unsupported("uuid"),
-            // Half-floats are read as raw bytes, so signed zero and NaN would
-            // escape the canonicalization the f32/f64 paths apply.
+            // Could now be profiled (arrow decodes half-floats as floats), but
+            // stays out of the summary until someone wants it.
             LogicalType::Float16 => unsupported("float16"),
             // Equal documents can differ byte for byte, so counting distinct
             // encodings would be misleading.
@@ -251,18 +268,84 @@ fn grain(unit: TimeUnit) -> TimeGrain {
     }
 }
 
-/// Turn one decoded row of a batch into a [`Value`]. The row must not be null.
-pub(crate) fn batch_value(batch: &ColumnBatch, row: usize, repr: Repr) -> Decoded {
-    match repr {
-        Repr::Bool => Decoded::Value(Value::Bool(batch.scalar(row) != 0)),
-        Repr::Int => Decoded::Value(Value::Int(batch.scalar(row))),
-        Repr::Uint(bits) => Decoded::Value(Value::Int(unsign(batch.scalar(row), bits))),
-        // Floats arrive already canonicalized by the reader, so every NaN bit
-        // pattern reaches this point as the one canonical NaN.
-        Repr::Float32 => float(f32::from_bits(batch.scalar(row) as u32) as f64),
-        Repr::Float64 => float(f64::from_bits(batch.scalar(row) as u64)),
-        Repr::Text => text(batch.bytes(row)),
-        Repr::Unsupported => unreachable!("scan of an unsupported column"),
+/// One decoded arrow batch column, viewed as profile values.
+///
+/// Integer-meaning kinds (including dates, times and timestamps, whose raw
+/// numbers are what [`Value`] carries) collapse to one `i64` slice — borrowed
+/// straight from the decoded buffer when the native type is already 8 bytes.
+/// Narrow unsigned integers arrive from arrow as unsigned arrays, so no
+/// sign-extension masking is needed here (unlike the raw dictionary path).
+pub(crate) enum ValueColumn<'a> {
+    Bool(&'a BooleanArray),
+    Int(Cow<'a, [i64]>),
+    Float32(&'a Float32Array),
+    Float64(&'a Float64Array),
+    Str(&'a StringArray),
+    Bin(&'a BinaryArray),
+}
+
+impl<'a> ValueColumn<'a> {
+    /// View a decoded array as profile values. Errors on a type `classify`
+    /// should have barred from being scanned.
+    pub(crate) fn new(array: &'a ArrayRef) -> Result<ValueColumn<'a>, ParquetError> {
+        use arrow_schema::TimeUnit::*;
+        macro_rules! borrowed {
+            ($t:ty) => {
+                ValueColumn::Int(Cow::Borrowed(array.as_primitive::<$t>().values()))
+            };
+        }
+        macro_rules! widened {
+            ($t:ty) => {
+                ValueColumn::Int(Cow::Owned(
+                    array
+                        .as_primitive::<$t>()
+                        .values()
+                        .iter()
+                        .map(|v| *v as i64)
+                        .collect(),
+                ))
+            };
+        }
+        Ok(match array.data_type() {
+            DataType::Boolean => ValueColumn::Bool(array.as_boolean()),
+            DataType::Int8 => widened!(Int8Type),
+            DataType::Int16 => widened!(Int16Type),
+            DataType::Int32 => widened!(Int32Type),
+            DataType::Int64 => borrowed!(Int64Type),
+            DataType::UInt8 => widened!(UInt8Type),
+            DataType::UInt16 => widened!(UInt16Type),
+            DataType::UInt32 => widened!(UInt32Type),
+            DataType::Date32 => widened!(Date32Type),
+            DataType::Time32(Millisecond) => widened!(Time32MillisecondType),
+            DataType::Time64(Microsecond) => borrowed!(Time64MicrosecondType),
+            DataType::Time64(Nanosecond) => borrowed!(Time64NanosecondType),
+            DataType::Timestamp(Second, _) => borrowed!(TimestampSecondType),
+            DataType::Timestamp(Millisecond, _) => borrowed!(TimestampMillisecondType),
+            DataType::Timestamp(Microsecond, _) => borrowed!(TimestampMicrosecondType),
+            DataType::Timestamp(Nanosecond, _) => borrowed!(TimestampNanosecondType),
+            DataType::Float32 => ValueColumn::Float32(array.as_primitive()),
+            DataType::Float64 => ValueColumn::Float64(array.as_primitive()),
+            DataType::Utf8 => ValueColumn::Str(array.as_string::<i32>()),
+            // A parquet ENUM decodes as binary; its values are still UTF-8.
+            DataType::Binary => ValueColumn::Bin(array.as_binary::<i32>()),
+            other => {
+                return Err(ParquetError::General(format!(
+                    "Cannot profile values of type {other}"
+                )));
+            }
+        })
+    }
+
+    /// The value at `row`, which must not be null.
+    pub(crate) fn get(&self, row: usize) -> Decoded {
+        match self {
+            ValueColumn::Bool(array) => Decoded::Value(Value::Bool(array.value(row))),
+            ValueColumn::Int(values) => Decoded::Value(Value::Int(values[row])),
+            ValueColumn::Float32(array) => float(array.value(row) as f64),
+            ValueColumn::Float64(array) => float(array.value(row)),
+            ValueColumn::Str(array) => Decoded::Value(Value::Text(array.value(row).to_string())),
+            ValueColumn::Bin(array) => text(array.value(row)),
+        }
     }
 }
 

@@ -10,8 +10,8 @@ use quarto_yaml::YamlWithSourceInfo;
 use crate::assert_expr::AssertExpr;
 use crate::join_expr::JoinExpr;
 use crate::model::{
-    Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
-    Source, Spanned, Table,
+    Alias, Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation,
+    Scalar, Source, Spanned, Table,
 };
 use crate::problem::{Problem, ProblemSet, Severity, subspan};
 
@@ -128,18 +128,21 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
             "values" => {
                 values = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_enum_values(&entry.value),
                 });
             }
             "range" => {
                 range = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
                 });
             }
             "examples" => {
                 examples = Some(Representation {
                     span: entry.value_span.clone(),
+                    key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
                 });
             }
@@ -271,6 +274,7 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
     let mut cardinality: Option<Spanned<Cardinality>> = None;
     let mut join_text: Option<Spanned<String>> = None;
     let mut conflicts: Vec<Spanned<String>> = Vec::new();
+    let mut aliases: Vec<Alias> = Vec::new();
 
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
@@ -295,6 +299,21 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
                         if let Some(s) = c.yaml.as_str() {
                             conflicts.push(Spanned::new(s.to_string(), c.source_info.clone()));
                         }
+                    }
+                }
+            }
+            "aliases" => {
+                if let Some(items) = entry.value.as_hash() {
+                    for a in items {
+                        let (Some(name), Some(table)) =
+                            (a.key.yaml.as_str(), a.value.yaml.as_str())
+                        else {
+                            continue;
+                        };
+                        aliases.push(Alias {
+                            name: Spanned::new(name.to_string(), a.key.source_info.clone()),
+                            table: Spanned::new(table.to_string(), a.value_span.clone()),
+                        });
                     }
                 }
             }
@@ -326,5 +345,6 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
         join_text,
         join,
         conflicts,
+        aliases,
     }
 }

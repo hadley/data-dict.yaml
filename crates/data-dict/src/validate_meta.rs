@@ -236,8 +236,8 @@ fn normalize_dict_type(dict_type: &str) -> &str {
 /// data (one of `boolean`, `string`, `enum`, `date`, `datetime`, `number`).
 ///
 /// Dictionary types are coarser/richer than physical types, so the match is by
-/// category rather than exact string. An `enum` is backed by either a string
-/// or a number in the data (or a true parquet enum), so all three are accepted.
+/// category rather than exact string. An `enum` must be backed by string-like
+/// data — a string column or a true parquet enum — never a number.
 fn types_compatible(dict_type: &str, actual: &str) -> bool {
     match normalize_dict_type(dict_type) {
         "number" => actual == "number",
@@ -245,7 +245,7 @@ fn types_compatible(dict_type: &str, actual: &str) -> bool {
         "boolean" => actual == "boolean",
         "date" => actual == "date",
         "datetime" => actual == "datetime",
-        "enum" => matches!(actual, "string" | "number" | "enum"),
+        "enum" => matches!(actual, "string" | "enum"),
         _ => false,
     }
 }
@@ -267,7 +267,7 @@ mod tests {
         assert!(types_compatible("number(quantity)", "number"));
         assert!(types_compatible("string", "string"));
         assert!(types_compatible("enum", "string"));
-        assert!(types_compatible("enum", "number"));
+        assert!(!types_compatible("enum", "number"));
         assert!(types_compatible("enum", "enum"));
         assert!(!types_compatible("number", "string"));
         assert!(!types_compatible("date", "datetime"));

@@ -1,11 +1,13 @@
 //! Parquet reader for data-dict.yaml validation.
 
-mod column_scan;
 mod dictionary;
+mod display;
 mod foreign_key;
+mod keys;
 mod metadata;
 mod page;
 mod profile;
+mod reader;
 mod rle;
 mod scan;
 mod sketch;
