@@ -96,7 +96,8 @@ fn is_dictionary(encoding: Encoding) -> bool {
 }
 
 /// Whether every value in a PLAIN-encoded dictionary page is in `allowed`.
-/// `false` for physical types an enum can't sensibly use, or a malformed buffer.
+/// An enum column is string-like (`BYTE_ARRAY`); any other physical type
+/// defers to the scan.
 fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<String>) -> bool {
     let Page::DictionaryPage {
         buf, num_values, ..
@@ -107,25 +108,12 @@ fn dictionary_in_set(page: &Page, physical: PhysicalType, allowed: &HashSet<Stri
     let count = *num_values as usize;
     match physical {
         PhysicalType::BYTE_ARRAY => byte_arrays_in_set(buf, count, allowed),
-        PhysicalType::INT32 => {
-            fixed_in_set::<4>(buf, count, allowed, |b| i32::from_le_bytes(b).to_string())
-        }
-        PhysicalType::INT64 => {
-            fixed_in_set::<8>(buf, count, allowed, |b| i64::from_le_bytes(b).to_string())
-        }
-        PhysicalType::FLOAT => {
-            fixed_in_set::<4>(buf, count, allowed, |b| f32::from_le_bytes(b).to_string())
-        }
-        PhysicalType::DOUBLE => {
-            fixed_in_set::<8>(buf, count, allowed, |b| f64::from_le_bytes(b).to_string())
-        }
         _ => false,
     }
 }
 
-/// Decode `count` PLAIN byte-array values (`[u32 length][bytes]`), requiring each
-/// to be UTF-8 (matching `field_key`, which only keys `Field::Str`) and present
-/// in `allowed`.
+/// Decode `count` PLAIN byte-array values (`[u32 length][bytes]`), requiring
+/// each to be UTF-8 and present in `allowed`.
 fn byte_arrays_in_set(buf: &[u8], count: usize, allowed: &HashSet<String>) -> bool {
     let mut pos = 0;
     for _ in 0..count {
@@ -146,19 +134,4 @@ fn byte_arrays_in_set(buf: &[u8], count: usize, allowed: &HashSet<String>) -> bo
         }
     }
     true
-}
-
-/// Decode `count` fixed-width PLAIN values, canonicalizing each with `key`.
-fn fixed_in_set<const N: usize>(
-    buf: &[u8],
-    count: usize,
-    allowed: &HashSet<String>,
-    key: impl Fn([u8; N]) -> String,
-) -> bool {
-    if buf.len() < count * N {
-        return false;
-    }
-    buf.chunks_exact(N)
-        .take(count)
-        .all(|chunk| allowed.contains(&key(chunk.try_into().unwrap())))
 }

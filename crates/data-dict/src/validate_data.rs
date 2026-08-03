@@ -59,9 +59,13 @@ fn value_issues(
     let mut needs: HashMap<String, ColumnNeeds> = HashMap::new();
     let mut pending: HashMap<String, Vec<&dyn ColumnCheck>> = HashMap::new();
     for col in &table.columns {
-        if !present(&col.name.value) {
+        let Some(actual_type) = actual
+            .iter()
+            .find(|(name, _)| name == &col.name.value)
+            .map(|(_, actual_type)| actual_type.as_str())
+        else {
             continue;
-        }
+        };
         let Some(meta) = metadata.get(&col.name.value) else {
             continue;
         };
@@ -70,7 +74,7 @@ fn value_issues(
             match check.check_meta(table, col, meta) {
                 CheckResult::Pass => {}
                 CheckResult::Inconclusive => {
-                    merged = merged.merge(check.needs(col));
+                    merged = merged.merge(check.needs(col, actual_type));
                     pending
                         .entry(col.name.value.clone())
                         .or_default()
@@ -175,9 +179,11 @@ trait ColumnCheck {
     /// Attempt the check from footer metadata alone.
     fn check_meta(&self, table: &Table, col: &Column, meta: &ColumnMeta) -> CheckResult;
 
-    /// What this check needs read from the column's data. Returning the default
+    /// What this check needs read from the column's data. `actual` is the
+    /// column's data-side type (one of the six dictionary type names), letting
+    /// a check opt out when the data can't support it. Returning the default
     /// (nothing requested) opts the column out of this check.
-    fn needs(&self, col: &Column) -> ColumnNeeds;
+    fn needs(&self, col: &Column, actual: &str) -> ColumnNeeds;
 
     /// Draw a verdict from the gathered stats. Only ever called with stats whose
     /// requested fields this check (or another) asked for. `table` is passed for
@@ -199,7 +205,7 @@ impl ColumnCheck for RequiredNotNull {
         crate::validate_meta::validate_d01_required_not_null(table, col, meta)
     }
 
-    fn needs(&self, col: &Column) -> ColumnNeeds {
+    fn needs(&self, col: &Column, _actual: &str) -> ColumnNeeds {
         ColumnNeeds {
             nulls: col.is_required_implied(),
             ..ColumnNeeds::default()
@@ -229,9 +235,13 @@ impl ColumnCheck for EnumMembership {
         crate::validate_meta::validate_d04_enum_membership(col)
     }
 
-    fn needs(&self, col: &Column) -> ColumnNeeds {
+    fn needs(&self, col: &Column, actual: &str) -> ColumnNeeds {
+        // Membership is string equality on a string-like column; a numeric
+        // backing is already an M01, so its values are not scanned.
         ColumnNeeds {
-            allowed: enum_allowed(col),
+            allowed: matches!(actual, "string" | "enum")
+                .then(|| enum_allowed(col))
+                .flatten(),
             ..ColumnNeeds::default()
         }
     }
@@ -246,15 +256,16 @@ impl ColumnCheck for EnumMembership {
     }
 }
 
-/// The canonical string forms of an `enum` column's allowed values, or `None`
-/// when the column declares no `values` (so it opts out of the check).
+/// An `enum` column's allowed values, or `None` when the column declares no
+/// `values` (so it opts out of the check). Membership is plain string equality
+/// against the string-like column the metadata level guarantees (M01).
 fn enum_allowed(col: &Column) -> Option<HashSet<String>> {
     let values = col.values.as_ref()?;
     Some(
         values
             .items
             .iter()
-            .flat_map(|item| item.value.value_keys())
+            .filter_map(|item| item.value.as_enum_value().map(str::to_owned))
             .collect(),
     )
 }
@@ -401,7 +412,6 @@ fn barrier_phrase(reason: &str) -> &'static str {
     match reason {
         "json" => "JSON",
         "bson" => "BSON",
-        "float16" => "a 16-bit float",
         "nested" => "a nested type",
         _ => "an unrecognized type",
     }
