@@ -120,24 +120,14 @@ pub fn column_stats(
             }
             if let Some(allowed) = &need.allowed
                 && !proven.contains(name.as_str())
-                && let Some(strings) = array.as_string_opt::<i32>()
             {
-                for row in 0..strings.len() {
-                    if strings.is_null(row) {
-                        continue;
-                    }
-                    let value = strings.value(row);
-                    if !allowed.contains(value) {
-                        stat.outside_count += 1;
-                        if stat.outside_rows.len() < limit {
-                            stat.outside_rows.push(row_offset + row + 1);
-                        }
-                        if stat.outside_values.len() < limit
-                            && !stat.outside_values.iter().any(|v| v == value)
-                        {
-                            stat.outside_values.push(value.to_string());
-                        }
-                    }
+                // A string-like column decodes as strings, or — for a true
+                // parquet ENUM — as binary; both hold UTF-8 values.
+                if let Some(strings) = array.as_string_opt::<i32>() {
+                    let values = strings.iter().map(|value| value.map(str::as_bytes));
+                    check_membership(values, allowed, stat, row_offset, limit);
+                } else if let Some(bytes) = array.as_binary_opt::<i32>() {
+                    check_membership(bytes.iter(), allowed, stat, row_offset, limit);
                 }
             }
         }
@@ -145,4 +135,38 @@ pub fn column_stats(
     }
 
     Ok(stats)
+}
+
+/// Test each non-null value's membership in `allowed`, recording the outsiders.
+/// Values are UTF-8 bytes; one that isn't valid UTF-8 can't be in the set (the
+/// set holds strings) and is rendered as hex for the sample.
+fn check_membership<'a>(
+    values: impl Iterator<Item = Option<&'a [u8]>>,
+    allowed: &HashSet<String>,
+    stat: &mut ColumnStats,
+    row_offset: usize,
+    limit: usize,
+) {
+    for (row, value) in values.enumerate() {
+        let Some(bytes) = value else {
+            continue;
+        };
+        let value = std::str::from_utf8(bytes).ok();
+        if value.is_some_and(|value| allowed.contains(value)) {
+            continue;
+        }
+        stat.outside_count += 1;
+        if stat.outside_rows.len() < limit {
+            stat.outside_rows.push(row_offset + row + 1);
+        }
+        if stat.outside_values.len() < limit {
+            let rendered = match value {
+                Some(value) => value.to_string(),
+                None => bytes.iter().map(|b| format!("{b:02x}")).collect(),
+            };
+            if !stat.outside_values.contains(&rendered) {
+                stat.outside_values.push(rendered);
+            }
+        }
+    }
 }

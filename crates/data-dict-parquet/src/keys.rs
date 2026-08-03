@@ -10,7 +10,10 @@ use arrow_array::types::{
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
     UInt32Type, UInt64Type,
 };
-use arrow_array::{Array, ArrayRef, BinaryArray, FixedSizeBinaryArray, StringArray};
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, FixedSizeBinaryArray, LargeBinaryArray, LargeStringArray,
+    StringArray,
+};
 use arrow_schema::{DataType, TimeUnit};
 use hashbrown::{DefaultHashBuilder, HashSet, HashTable};
 use std::borrow::Cow;
@@ -82,7 +85,9 @@ pub(crate) enum KeyColumn<'a> {
     /// Wide decimals identified by their 32-byte representation.
     Wide(Vec<[u8; 32]>),
     Str(&'a StringArray),
+    LargeStr(&'a LargeStringArray),
     Bin(&'a BinaryArray),
+    LargeBin(&'a LargeBinaryArray),
     Fixed(&'a FixedSizeBinaryArray),
 }
 
@@ -148,7 +153,9 @@ impl<'a> KeyColumn<'a> {
                     .collect(),
             ),
             DataType::Utf8 => KeyColumn::Str(array.as_string::<i32>()),
+            DataType::LargeUtf8 => KeyColumn::LargeStr(array.as_string::<i64>()),
             DataType::Binary => KeyColumn::Bin(array.as_binary::<i32>()),
+            DataType::LargeBinary => KeyColumn::LargeBin(array.as_binary::<i64>()),
             DataType::FixedSizeBinary(_) => KeyColumn::Fixed(array.as_fixed_size_binary()),
             other => {
                 return Err(ParquetError::General(format!(
@@ -204,7 +211,9 @@ fn byte_key<'a>(column: &'a KeyColumn<'_>, row: usize) -> &'a [u8] {
     match column {
         KeyColumn::Wide(values) => &values[row],
         KeyColumn::Str(array) => array.value(row).as_bytes(),
+        KeyColumn::LargeStr(array) => array.value(row).as_bytes(),
         KeyColumn::Bin(array) => array.value(row),
+        KeyColumn::LargeBin(array) => array.value(row),
         KeyColumn::Fixed(array) => array.value(row),
         KeyColumn::I64(_) | KeyColumn::I128(_) => {
             unreachable!("scalar column keyed as bytes")

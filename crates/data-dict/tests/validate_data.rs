@@ -387,6 +387,107 @@ fn nulls_in_optional_enum_are_not_outside_values() {
 }
 
 #[test]
+fn true_parquet_enum_column_is_checked() {
+    // A column with the parquet ENUM logical type decodes as binary, not
+    // strings; membership must still compare its UTF-8 values.
+    let result = check_column(
+        "REQUIRED BYTE_ARRAY status (ENUM)",
+        |col| {
+            col.typed::<ByteArrayType>()
+                .write_batch(
+                    &[
+                        ByteArray::from("active"),
+                        ByteArray::from("other"),
+                        ByteArray::from("banned"),
+                    ],
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+        indoc! {"
+            - name: status
+              type: enum
+              values: [active, banned]
+        "},
+    );
+
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D04"),
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                ..
+            }] if rows == &[2] && values == &["other"]
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+#[test]
+fn foreign_key_between_enum_and_string_ok() {
+    // A parquet ENUM child (decoded as binary) referencing a plain string
+    // parent compares by UTF-8 bytes, so equal values match.
+    let dir = temp_dir();
+    write_single_column(
+        &dir.join("item.parquet"),
+        "REQUIRED BYTE_ARRAY category_id (ENUM)",
+        |col| {
+            col.typed::<ByteArrayType>()
+                .write_batch(&[ByteArray::from("a"), ByteArray::from("b")], None, None)
+                .unwrap();
+        },
+    );
+    write_single_column(
+        &dir.join("category.parquet"),
+        "REQUIRED BYTE_ARRAY id (STRING)",
+        |col| {
+            col.typed::<ByteArrayType>()
+                .write_batch(
+                    &[
+                        ByteArray::from("a"),
+                        ByteArray::from("b"),
+                        ByteArray::from("c"),
+                    ],
+                    None,
+                    None,
+                )
+                .unwrap();
+        },
+    );
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: item
+                source:
+                  parquet: item.parquet
+                columns:
+                  - name: category_id
+                    type: enum
+                    constraints: [foreign_key]
+                    values: [a, b]
+              - name: category
+                source:
+                  parquet: category.parquet
+                columns:
+                  - name: id
+                    type: string
+                    constraints: [primary_key]
+                    examples: [a, b, c]
+            relationships:
+              - join: item.category_id = category.id
+                cardinality: many-to-one
+        "},
+    );
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
+}
+
+#[test]
 fn enum_over_numeric_column_is_type_mismatch() {
     // An enum's underlying column must be string-like; a numeric backing is an
     // M01, and its values are not scanned for membership (no D04 alongside).

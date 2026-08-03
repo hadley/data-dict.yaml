@@ -141,7 +141,7 @@ fn check_foreign_key(
                 Some(values) => values,
                 None => values.insert(Values::new(original.as_ref())?),
             };
-            stats.orphan(row_offset + row, values.get(row), sample_limit);
+            stats.orphan(row_offset + row, || values.get(row), sample_limit);
         }
         row_offset += batch.num_rows();
     }
@@ -164,9 +164,10 @@ fn orphan_all(
         return Ok(());
     }
     let values = Values::new(array.as_ref())?;
+    let validity = array.nulls();
     for row in 0..array.len() {
-        if !array.is_null(row) {
-            stats.orphan(row_offset + row, values.get(row), sample_limit);
+        if !validity.is_some_and(|v| v.is_null(row)) {
+            stats.orphan(row_offset + row, || values.get(row), sample_limit);
         }
     }
     Ok(())
@@ -174,14 +175,18 @@ fn orphan_all(
 
 impl ForeignKeyStats {
     /// Record the orphan at 0-based `row`, sampling its 1-based row number and
-    /// distinct rendered value up to `sample_limit`.
-    fn orphan(&mut self, row: usize, value: String, sample_limit: usize) {
+    /// distinct rendered value up to `sample_limit`. `value` is only rendered
+    /// while the value sample can still grow.
+    fn orphan(&mut self, row: usize, value: impl FnOnce() -> String, sample_limit: usize) {
         self.orphan_count += 1;
         if self.orphan_rows.len() < sample_limit {
             self.orphan_rows.push(row + 1);
         }
-        if self.orphan_values.len() < sample_limit && !self.orphan_values.contains(&value) {
-            self.orphan_values.push(value);
+        if self.orphan_values.len() < sample_limit {
+            let value = value();
+            if !self.orphan_values.contains(&value) {
+                self.orphan_values.push(value);
+            }
         }
     }
 }
@@ -212,8 +217,12 @@ fn common_type(a: &DataType, b: &DataType) -> Option<DataType> {
         (Family::Decimal(_, _), Family::Float) | (Family::Float, Family::Decimal(_, _)) => {
             Some(Float64)
         }
-        (Family::Str, Family::Str) => Some(LargeUtf8),
-        (Family::Bytes, Family::Bytes) => Some(LargeBinary),
+        (Family::Str(l1), Family::Str(l2)) => Some(if l1 || l2 { LargeUtf8 } else { Utf8 }),
+        // Strings and string-like binary (a parquet ENUM decodes as binary)
+        // compare by their UTF-8 bytes.
+        (Family::Str(l1) | Family::Bytes(l1), Family::Str(l2) | Family::Bytes(l2)) => {
+            Some(if l1 || l2 { LargeBinary } else { Binary })
+        }
         (Family::Date, Family::Date) => Some(Date64),
         // Compare instants at the finer unit; the timezone label doesn't
         // change the stored value.
@@ -228,8 +237,9 @@ enum Family {
     UnsignedInt,
     Float,
     Decimal(u8, i8),
-    Str,
-    Bytes,
+    /// `true` when the offsets are 64-bit (the `Large*`/view forms).
+    Str(bool),
+    Bytes(bool),
     Date,
     Timestamp(TimeUnit),
     Time,
@@ -243,8 +253,10 @@ fn family(t: &DataType) -> Family {
         UInt8 | UInt16 | UInt32 | UInt64 => Family::UnsignedInt,
         Float16 | Float32 | Float64 => Family::Float,
         Decimal128(p, s) | Decimal256(p, s) => Family::Decimal(*p, *s),
-        Utf8 | LargeUtf8 | Utf8View => Family::Str,
-        Binary | LargeBinary | BinaryView | FixedSizeBinary(_) => Family::Bytes,
+        Utf8 => Family::Str(false),
+        LargeUtf8 | Utf8View => Family::Str(true),
+        Binary | FixedSizeBinary(_) => Family::Bytes(false),
+        LargeBinary | BinaryView => Family::Bytes(true),
         Date32 | Date64 => Family::Date,
         Timestamp(unit, _) => Family::Timestamp(*unit),
         Time32(_) | Time64(_) => Family::Time,

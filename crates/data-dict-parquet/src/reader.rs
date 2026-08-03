@@ -28,7 +28,11 @@ impl FileContext {
     pub(crate) fn open(path: &Path) -> Result<Self, ParquetError> {
         let file = File::open(path)
             .map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
-        let meta = ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())?;
+        // Ignore any embedded arrow schema: it would reproduce writer-side
+        // arrow types (LargeUtf8, Dictionary, views, …) where we want the
+        // types the *parquet* schema implies — arrow is only our decoder.
+        let options = ArrowReaderOptions::new().with_skip_arrow_metadata(true);
+        let meta = ArrowReaderMetadata::load(&file, options)?;
         Ok(FileContext { file, meta })
     }
 
