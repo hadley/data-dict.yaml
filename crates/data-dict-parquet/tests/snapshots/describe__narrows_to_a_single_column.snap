@@ -6,7 +6,7 @@ expression: "sanitize(&description.to_string(), &path)"
 
 species — string (BYTE_ARRAY)
   distinct   3
-  missing    0
   Adelie     ▇▇▇▇▇▇▇▇▇▇▇▇  4
   Gentoo     ▇▇▇▇▇▇▇▇▇     3
   Chinstrap  ▇▇▇▇▇▇        2
+  missing                  0

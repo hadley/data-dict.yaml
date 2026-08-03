@@ -6,13 +6,12 @@ expression: "sanitize(&description.to_string(), &path)"
 
 species — string (BYTE_ARRAY)
   distinct   3
-  missing    0
   Adelie     ▇▇▇▇▇▇▇▇▇▇▇▇  4
   Gentoo     ▇▇▇▇▇▇▇▇▇     3
   Chinstrap  ▇▇▇▇▇▇        2
+  missing                  0
 
 bill_length_mm — number (DOUBLE)
-  missing    2 (22.2%)
   36.7 – 37.8  ▇▇▇▇▇▇        1
   37.8 – 39.0                0
   39.0 – 40.1  ▇▇▇▇▇▇▇▇▇▇▇▇  2
@@ -33,11 +32,10 @@ bill_length_mm — number (DOUBLE)
   56.2 – 57.3                0
   57.3 – 58.5                0
   58.5 – 59.6  ▇▇▇▇▇▇        1
-  missing      ▇▇▇▇▇▇▇▇▇▇▇▇  2
+  missing      ▇▇▇▇▇▇▇▇▇▇▇▇  2 (22.2%)
 
 body_mass_g — number (INT64)
   distinct   9
-  missing    0
   3250 – 3403  ▇▇▇▇▇▇        1
   3403 – 3555  ▇▇▇▇▇▇        1
   3555 – 3708  ▇▇▇▇▇▇▇▇▇▇▇▇  2
@@ -58,9 +56,10 @@ body_mass_g — number (INT64)
   5843 – 5995                0
   5995 – 6148                0
   6148 – 6300  ▇▇▇▇▇▇        1
+  missing                    0
 
 alive — boolean (BOOLEAN)
   distinct   2
-  missing    0
-  true   ▇▇▇▇▇▇▇▇▇▇▇▇  7
-  false  ▇▇▇           2
+  true     ▇▇▇▇▇▇▇▇▇▇▇▇  7
+  false    ▇▇▇           2
+  missing                0

@@ -332,10 +332,22 @@ impl fmt::Display for FileDescription {
     }
 }
 
-/// One `label  bar  count` row of a histogram or value list.
+/// One `label  bar  count` row of a histogram or value list. `suffix` trails
+/// the count — the missing row carries its percentage there.
 struct Row {
     label: String,
     count: usize,
+    suffix: String,
+}
+
+impl Row {
+    fn new(label: impl Into<String>, count: usize) -> Self {
+        Row {
+            label: label.into(),
+            count,
+            suffix: String::new(),
+        }
+    }
 }
 
 impl ColumnDescription {
@@ -349,107 +361,104 @@ impl ColumnDescription {
             let approx = if distinct.is_approx() { "~" } else { "" };
             writeln!(f, "  {:<11}{approx}{}", "distinct", distinct.count())?;
         }
-        match self.missing {
-            Some(0) => writeln!(f, "  {:<11}0", "missing")?,
-            Some(missing) => {
+
+        // The missing count renders once, always as the last line of the body.
+        let missing = self.missing.map(|missing| {
+            let mut row = Row::new("missing", missing);
+            if missing > 0 {
                 let percent = missing as f64 / rows.max(1) as f64 * 100.0;
-                writeln!(f, "  {:<11}{missing} ({percent:.1}%)", "missing")?;
+                row.suffix = format!(" ({percent:.1}%)");
             }
-            None => writeln!(f, "  {:<11}unknown", "missing")?,
-        }
+            row
+        });
 
         if let ValueKind::Unsupported(reason) = &self.kind {
-            return writeln!(f, "  not summarised ({reason})");
+            writeln!(f, "  not summarised ({reason})")?;
+            if let Some(missing) = &missing {
+                writeln!(f, "  {:<11}{}{}", "missing", missing.count, missing.suffix)?;
+            }
+            return Ok(());
         }
 
         let mut body: Vec<Row> = Vec::new();
         if let Some(histogram) = &self.histogram {
             for bin in &histogram.bins {
-                body.push(Row {
-                    label: bin.label.clone(),
-                    count: bin.count,
-                });
+                body.push(Row::new(bin.label.clone(), bin.count));
             }
             if histogram.nan_count > 0 {
-                body.push(Row {
-                    label: "NaN".to_string(),
-                    count: histogram.nan_count,
-                });
+                body.push(Row::new("NaN", histogram.nan_count));
             }
             if histogram.negative_infinity_count > 0 {
-                body.push(Row {
-                    label: "-inf".to_string(),
-                    count: histogram.negative_infinity_count,
-                });
+                body.push(Row::new("-inf", histogram.negative_infinity_count));
             }
             if histogram.positive_infinity_count > 0 {
-                body.push(Row {
-                    label: "+inf".to_string(),
-                    count: histogram.positive_infinity_count,
-                });
+                body.push(Row::new("+inf", histogram.positive_infinity_count));
             }
         }
         for vc in &self.value_counts {
-            body.push(Row {
-                label: truncate(&scalar_label(&vc.value)),
-                count: vc.count,
-            });
+            body.push(Row::new(truncate(&scalar_label(&vc.value)), vc.count));
         }
-        if let Some(missing) = self.missing
-            && missing > 0
-            && !body.is_empty()
-        {
-            body.push(Row {
-                label: "missing".to_string(),
-                count: missing,
-            });
-        }
-        render_rows(f, &body)?;
-
         // The value list is capped, so say how much of the tail it hides.
-        if let (Some(distinct), false) = (&self.distinct, self.value_counts.is_empty()) {
+        let tail = self.distinct.as_ref().and_then(|distinct| {
             let shown = self.value_counts.len();
-            if distinct.count() > shown {
+            (shown > 0 && distinct.count() > shown).then(|| {
                 let approx = if distinct.is_approx() { "~" } else { "" };
-                writeln!(f, "  ({approx}{} other values)", distinct.count() - shown)?;
+                format!("  ({approx}{} other values)", distinct.count() - shown)
+            })
+        });
+
+        if body.is_empty() {
+            // Nothing to bar-chart, so the missing count stands alone.
+            if let Some(missing) = &missing {
+                writeln!(f, "  {:<11}{}{}", "missing", missing.count, missing.suffix)?;
             }
+            return Ok(());
         }
-        Ok(())
+        render_rows(f, &body, tail.as_deref(), missing.as_ref())
     }
 }
 
-fn render_rows(f: &mut fmt::Formatter<'_>, rows: &[Row]) -> fmt::Result {
-    let Some(max) = rows
-        .iter()
-        .map(|row| row.count)
-        .max()
-        .filter(|&max| max > 0)
-    else {
-        return Ok(());
-    };
-    let label_width = rows
-        .iter()
+/// Render the body block: the bin or value `rows`, the `(n other values)`
+/// tail note, then the missing row last — aligned with the rows above it.
+fn render_rows(
+    f: &mut fmt::Formatter<'_>,
+    rows: &[Row],
+    tail: Option<&str>,
+    missing: Option<&Row>,
+) -> fmt::Result {
+    let all = || rows.iter().chain(missing);
+    let max = all().map(|row| row.count).max().unwrap_or(0).max(1);
+    let label_width = all()
         .map(|row| row.label.chars().count())
         .max()
         .unwrap_or(0);
-    let count_width = rows
-        .iter()
+    let count_width = all()
         .map(|row| row.count.to_string().len())
         .max()
         .unwrap_or(1);
-    for row in rows {
+    let mut write_row = |f: &mut fmt::Formatter<'_>, row: &Row| {
         let padding = label_width - row.label.chars().count();
         writeln!(
             f,
-            "  {}{:pad$}  {:<bar$}  {:>count$}",
+            "  {}{:pad$}  {:<bar$}  {:>count$}{}",
             row.label,
             "",
             bar(row.count, max),
             row.count,
+            row.suffix,
             pad = padding,
             bar = BAR_WIDTH,
             count = count_width,
-        )?;
+        )
+    };
+    for row in rows {
+        write_row(f, row)?;
+    }
+    if let Some(tail) = tail {
+        writeln!(f, "{tail}")?;
+    }
+    if let Some(missing) = missing {
+        write_row(f, missing)?;
     }
     Ok(())
 }

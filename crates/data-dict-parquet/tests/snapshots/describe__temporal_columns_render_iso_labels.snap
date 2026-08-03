@@ -6,7 +6,6 @@ expression: "sanitize(&description.to_string(), &path)"
 
 event_date — date (INT32 / Date)
   distinct   4
-  missing    0
   2020-01-01 – 2020-03-14  ▇▇▇▇▇▇▇▇▇▇▇▇  2
   2020-03-14 – 2020-05-26                0
   2020-05-26 – 2020-08-07                0
@@ -27,10 +26,10 @@ event_date — date (INT32 / Date)
   2023-05-27 – 2023-08-08                0
   2023-08-08 – 2023-10-20                0
   2023-10-20 – 2024-01-01  ▇▇▇▇▇▇▇▇▇▇▇▇  2
+  missing                                0
 
 seen_utc — datetime (INT64 / Timestamp(us,UTC))
   distinct   3
-  missing    0
   2020-01-01 – 2020-03-14  ▇▇▇▇▇▇▇▇▇▇▇▇  2
   2020-03-14 – 2020-05-26                0
   2020-05-26 – 2020-08-07                0
@@ -51,10 +50,10 @@ seen_utc — datetime (INT64 / Timestamp(us,UTC))
   2023-05-26 – 2023-08-07                0
   2023-08-07 – 2023-10-19                0
   2023-10-19 – 2023-12-31  ▇▇▇▇▇▇▇▇▇▇▇▇  2
+  missing                                0
 
 seen_local — datetime (INT64 / Timestamp(ms,local))
   distinct   3
-  missing    0
   2020-01-01 – 2020-03-14  ▇▇▇▇▇▇▇▇▇▇▇▇  2
   2020-03-14 – 2020-05-26                0
   2020-05-26 – 2020-08-07                0
@@ -75,3 +74,4 @@ seen_local — datetime (INT64 / Timestamp(ms,local))
   2023-05-27 – 2023-08-08                0
   2023-08-08 – 2023-10-20                0
   2023-10-20 – 2024-01-01  ▇▇▇▇▇▇▇▇▇▇▇▇  2
+  missing                                0
