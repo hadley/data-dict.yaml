@@ -45,10 +45,11 @@ const BINS: usize = 20;
 pub struct ColumnProfile {
     pub name: String,
     pub kind: ValueKind,
-    /// Nulls in the column. For a [`ValueKind::Unsupported`] column, which is
-    /// never read, this is the footer's count and falls back to 0 when the file
-    /// carries no statistics.
-    pub null_count: usize,
+    /// Nulls in the column. Counted exactly for a scanned column; for a
+    /// [`ValueKind::Unsupported`] column, which is never read, it is the
+    /// footer's count — `None` when any of the column's chunks omits null
+    /// statistics, so an unknown count never poses as zero.
+    pub null_count: Option<usize>,
     /// How many distinct values the column holds. `None` for a column whose
     /// values were never counted: one that was never read, or a continuous
     /// kind, where floating-point noise makes per-value equality misleading
@@ -224,7 +225,7 @@ fn find_leaf(descr: &SchemaDescriptor, name: &str) -> Option<usize> {
 }
 
 /// The profile of a column whose values are never read.
-fn stub(target: &Target, null_count: usize) -> ColumnProfile {
+fn stub(target: &Target, null_count: Option<usize>) -> ColumnProfile {
     ColumnProfile {
         name: target.name.clone(),
         kind: target.kind.clone(),
@@ -238,20 +239,17 @@ fn stub(target: &Target, null_count: usize) -> ColumnProfile {
     }
 }
 
-fn footer_nulls(meta: &ParquetMetaData, leaf: Option<usize>) -> usize {
-    let Some(leaf) = leaf else {
-        return 0;
-    };
-    meta.row_groups()
-        .iter()
-        .try_fold(0usize, |total, group| {
-            group
-                .column(leaf)
-                .statistics()
-                .and_then(|statistics| statistics.null_count_opt())
-                .map(|nulls| total + nulls as usize)
-        })
-        .unwrap_or(0)
+/// The footer's null count for a column, or `None` when any chunk omits the
+/// statistic — a partial sum would understate, and zero would lie outright.
+fn footer_nulls(meta: &ParquetMetaData, leaf: Option<usize>) -> Option<usize> {
+    let leaf = leaf?;
+    meta.row_groups().iter().try_fold(0usize, |total, group| {
+        group
+            .column(leaf)
+            .statistics()
+            .and_then(|statistics| statistics.null_count_opt())
+            .map(|nulls| total + nulls as usize)
+    })
 }
 
 fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, ParquetError> {
@@ -408,7 +406,7 @@ impl Accumulator {
         ColumnProfile {
             name: target.name.clone(),
             kind: target.kind.clone(),
-            null_count: self.nulls,
+            null_count: Some(self.nulls),
             distinct,
             min: self.min,
             max: self.max,

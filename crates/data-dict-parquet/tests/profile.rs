@@ -31,7 +31,7 @@ fn numbers_are_profiled() {
 
     assert_eq!(profile.name, "v");
     assert_eq!(profile.kind, ValueKind::Int);
-    assert_eq!(profile.null_count, 0);
+    assert_eq!(profile.null_count, Some(0));
     assert_eq!(profile.distinct, Some(Distinct::Exact(3)));
     assert_eq!(profile.min, Some(Value::Int(1)));
     assert_eq!(profile.max, Some(Value::Int(3)));
@@ -119,7 +119,7 @@ fn nulls_are_counted_and_never_binned() {
     let path = Fixture::column("OPTIONAL INT64 v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.null_count, 3);
+    assert_eq!(profile.null_count, Some(3));
     assert_eq!(profile.distinct, Some(Distinct::Exact(2)));
     let histogram = profile.histogram.unwrap();
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
@@ -177,7 +177,7 @@ fn row_groups_are_combined() {
         .write();
     let profile = one(&path);
 
-    assert_eq!(profile.null_count, 1);
+    assert_eq!(profile.null_count, Some(1));
     assert_eq!(profile.distinct, Some(Distinct::Exact(3)));
     assert_eq!(profile.min, Some(Value::Int(1)));
     assert_eq!(profile.max, Some(Value::Int(30)));
@@ -288,7 +288,7 @@ fn nans_are_counted_apart_from_nulls_and_values() {
     let path = Fixture::column("OPTIONAL DOUBLE v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.null_count, 1);
+    assert_eq!(profile.null_count, Some(1));
     assert_eq!(profile.distinct, None, "floats are not counted per value");
     assert_eq!(profile.min.and_then(|v| v.as_f64()), Some(1.0));
     assert_eq!(profile.max.and_then(|v| v.as_f64()), Some(3.0));
@@ -404,7 +404,7 @@ fn an_all_null_column_reports_only_nulls() {
     let path = Fixture::column("OPTIONAL INT64 v", values).write();
     let profile = one(&path);
 
-    assert_eq!(profile.null_count, 3);
+    assert_eq!(profile.null_count, Some(3));
     assert_eq!(profile.distinct, Some(Distinct::Exact(0)));
     assert_eq!(profile.min, None);
     assert_eq!(profile.histogram, None);
@@ -419,7 +419,7 @@ fn an_empty_file_profiles_to_nothing() {
     assert_eq!(file.row_count, 0);
     let profile = file.columns.remove(0);
 
-    assert_eq!(profile.null_count, 0);
+    assert_eq!(profile.null_count, Some(0));
     assert_eq!(profile.distinct, Some(Distinct::Exact(0)));
     assert_eq!(profile.min, None);
     assert_eq!(profile.histogram, None);
@@ -460,9 +460,25 @@ fn unprofilable_types_report_null_counts_only() {
     let profile = one(&path);
 
     assert_eq!(profile.kind, ValueKind::Unsupported("decimal"));
-    assert_eq!(profile.null_count, 1, "taken from the footer");
+    assert_eq!(profile.null_count, Some(1), "taken from the footer");
     assert_eq!(profile.min, None);
     assert!(profile.value_counts.is_empty());
+}
+
+/// An unread column takes its null count from the footer, so a footer without
+/// statistics leaves the count unknown — never a fabricated zero.
+#[test]
+fn an_unread_column_without_statistics_has_no_null_count() {
+    let path = Fixture::column(
+        "OPTIONAL INT64 amount (DECIMAL(9,2))",
+        Values::Int64(vec![Some(150), None, Some(275)]),
+    )
+    .statistics(false)
+    .write();
+    let profile = one(&path);
+
+    assert_eq!(profile.kind, ValueKind::Unsupported("decimal"));
+    assert_eq!(profile.null_count, None);
 }
 
 #[test]
@@ -492,7 +508,7 @@ fn a_byte_array_that_is_not_text_is_abandoned() {
     let profiles = profile.columns;
 
     assert_eq!(profiles[0].kind, ValueKind::Unsupported("non-UTF-8"));
-    assert_eq!(profiles[0].null_count, 2, "taken from the footer");
+    assert_eq!(profiles[0].null_count, Some(2), "taken from the footer");
     assert!(profiles[0].value_counts.is_empty());
     assert_eq!(profiles[1].kind, ValueKind::Int);
     assert_eq!(profiles[1].distinct, Some(Distinct::Exact(4)));
