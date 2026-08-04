@@ -8,8 +8,12 @@ use common::{Fixture, Values, write_nested};
 use data_dict_parquet::describe;
 
 /// Snapshots must not carry the unique temp path a fixture is written to.
+/// In JSON output serde escapes the backslashes of a Windows path, so that
+/// form is replaced too.
 fn sanitize(text: &str, path: &Path) -> String {
-    text.replace(&path.display().to_string(), "<file>.parquet")
+    let display = path.display().to_string();
+    text.replace(&display, "<file>.parquet")
+        .replace(&display.replace('\\', "\\\\"), "<file>.parquet")
 }
 
 fn penguins() -> std::path::PathBuf {
