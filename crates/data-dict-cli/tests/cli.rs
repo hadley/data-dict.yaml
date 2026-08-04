@@ -121,10 +121,7 @@ fn describe_text_and_json() {
         stdout.contains("pups.parquet: 4 rows \u{d7} 1 column"),
         "{stdout}"
     );
-    assert!(
-        stdout.contains("pup_count \u{2014} number (INT64)"),
-        "{stdout}"
-    );
+    assert!(stdout.contains("pup_count \u{2014} number"), "{stdout}");
 
     let output = run_in(&dir, &["describe", "pups.parquet", "--json"]);
     assert!(output.status.success());

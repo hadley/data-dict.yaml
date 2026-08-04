@@ -104,8 +104,8 @@ pub struct BinView {
     lower: Scalar,
     upper: Scalar,
     count: usize,
-    /// The pre-rendered `lower – upper` text label, sized to the histogram's
-    /// bin width.
+    /// The pre-rendered `(lower, upper]` text label, at a precision sized to
+    /// the histogram's bin width.
     #[serde(skip)]
     label: String,
 }
@@ -114,6 +114,10 @@ pub struct BinView {
 pub struct ValueCountView {
     value: Scalar,
     count: usize,
+    /// The tracker's error bound once it saturates: the true count lies in
+    /// `count - error ..= count`. Omitted while counts are exact.
+    #[serde(skip_serializing_if = "is_zero")]
+    error: usize,
 }
 
 fn is_zero(count: &usize) -> bool {
@@ -186,6 +190,7 @@ fn column_description(profile: ColumnProfile, info: &ColumnTypeInfo) -> ColumnDe
             .map(|vc| ValueCountView {
                 value: render_scalar(&vc.value, &kind),
                 count: vc.count,
+                error: vc.error,
             })
             .collect()
     } else {
@@ -243,8 +248,12 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
             lower: edge_scalar(bin.lower, kind, width),
             upper: edge_scalar(bin.upper, kind, width),
             count: bin.count,
+            // Interval notation, honest about the engine's boundary rule:
+            // every bin is `(lower, upper]`, except the first, which closes
+            // at both ends so the minimum has a home.
             label: format!(
-                "{} – {}",
+                "{}{}, {}]",
+                if bin.lower_inclusive { '[' } else { '(' },
                 edge_label(bin.lower, kind, width),
                 edge_label(bin.upper, kind, width)
             ),
@@ -260,13 +269,19 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
 
 /// A bin edge in the JSON: a number for numeric kinds, an ISO string for
 /// temporal ones (whose raw scale — days, millis — is an implementation
-/// detail no consumer should need).
+/// detail no consumer should need). Numbers are rounded at the same
+/// width-derived precision as the text labels — bin edges are computed
+/// values, and `37.845000000000006` says nothing that `37.8` doesn't.
 fn edge_scalar(edge: f64, kind: &ValueKind, width: f64) -> Scalar {
     match kind {
         ValueKind::Date | ValueKind::Time { .. } | ValueKind::Timestamp { .. } => {
             Scalar::Text(edge_label(edge, kind, width))
         }
-        _ => Scalar::Float(edge),
+        ValueKind::Int if width >= 1.0 => Scalar::Int(edge.round() as i64),
+        _ => {
+            let scale = 10f64.powi(decimals(width) as i32);
+            Scalar::Float((edge * scale).round() / scale)
+        }
     }
 }
 
@@ -332,11 +347,14 @@ impl fmt::Display for FileDescription {
     }
 }
 
-/// One `label  bar  count` row of a histogram or value list. `suffix` trails
-/// the count — the missing row carries its percentage there.
+/// One `label  bar  count` row of a histogram or value list. `shown` is the
+/// count as displayed (`~`-prefixed when it is a saturated tracker's
+/// estimate); `suffix` trails it — the missing row carries its percentage
+/// there.
 struct Row {
     label: String,
     count: usize,
+    shown: String,
     suffix: String,
 }
 
@@ -345,39 +363,44 @@ impl Row {
         Row {
             label: label.into(),
             count,
+            shown: count.to_string(),
             suffix: String::new(),
+        }
+    }
+
+    fn estimated(label: impl Into<String>, count: usize) -> Self {
+        Row {
+            shown: format!("~{count}"),
+            ..Row::new(label, count)
         }
     }
 }
 
 impl ColumnDescription {
     fn render(&self, f: &mut fmt::Formatter<'_>, rows: usize) -> fmt::Result {
-        writeln!(
-            f,
-            "{} — {} ({})",
-            self.name, self.dict_type, self.parquet_type
-        )?;
+        writeln!(f, "{} — {}", self.name, self.dict_type)?;
+        // The stats section: metadata about the column, kept apart from (and
+        // after) the data rows. Stats carry a `:` and never draw a bar.
+        let mut stats: Vec<Row> = Vec::new();
         if let Some(distinct) = &self.distinct {
             let approx = if distinct.is_approx() { "~" } else { "" };
-            writeln!(f, "  {:<11}{approx}{}", "distinct", distinct.count())?;
+            stats.push(Row {
+                shown: format!("{approx}{}", distinct.count()),
+                ..Row::new("distinct:", 0)
+            });
         }
-
-        // The missing count renders once, always as the last line of the body.
-        let missing = self.missing.map(|missing| {
-            let mut row = Row::new("missing", missing);
+        if let Some(missing) = self.missing {
+            let mut row = Row::new("missing:", missing);
             if missing > 0 {
                 let percent = missing as f64 / rows.max(1) as f64 * 100.0;
                 row.suffix = format!(" ({percent:.1}%)");
             }
-            row
-        });
+            stats.push(row);
+        }
 
         if let ValueKind::Unsupported(reason) = &self.kind {
             writeln!(f, "  not summarised ({reason})")?;
-            if let Some(missing) = &missing {
-                writeln!(f, "  {:<11}{}{}", "missing", missing.count, missing.suffix)?;
-            }
-            return Ok(());
+            return render_rows(f, &[], None, &stats, false);
         }
 
         let mut body: Vec<Row> = Vec::new();
@@ -396,85 +419,136 @@ impl ColumnDescription {
             }
         }
         for vc in &self.value_counts {
-            body.push(Row::new(truncate(&scalar_label(&vc.value)), vc.count));
+            let label = truncate(&scalar_label(&vc.value));
+            body.push(if vc.error > 0 {
+                Row::estimated(label, vc.count)
+            } else {
+                Row::new(label, vc.count)
+            });
         }
-        // The value list is capped, so say how much of the tail it hides.
+        // The value list is capped, so say how much of the tail it hides —
+        // with a taste of it: spread examples that aren't already shown above.
         let tail = self.distinct.as_ref().and_then(|distinct| {
             let shown = self.value_counts.len();
             (shown > 0 && distinct.count() > shown).then(|| {
                 let approx = if distinct.is_approx() { "~" } else { "" };
-                format!("  ({approx}{} other values)", distinct.count() - shown)
+                let mut note = format!("  ({approx}{} other values", distinct.count() - shown);
+                let listed: Vec<String> = body.iter().map(|row| row.label.clone()).collect();
+                let mut separator = ", e.g. ";
+                for example in &self.examples {
+                    let label = truncate(&scalar_label(example));
+                    if listed.contains(&label) {
+                        continue;
+                    }
+                    // The closing paren and a possible `, …` must still fit.
+                    if note.chars().count() + separator.len() + label.chars().count() > 75 {
+                        note.push_str(", …");
+                        break;
+                    }
+                    note.push_str(separator);
+                    note.push_str(&label);
+                    separator = ", ";
+                }
+                note.push(')');
+                note
             })
         });
 
-        if body.is_empty() {
-            // Nothing to bar-chart, so the missing count stands alone.
-            if let Some(missing) = &missing {
-                writeln!(f, "  {:<11}{}{}", "missing", missing.count, missing.suffix)?;
-            }
-            return Ok(());
-        }
-        render_rows(f, &body, tail.as_deref(), missing.as_ref())
+        // Bars belong to the histogram; a value list is just labels and counts.
+        let bars = self.histogram.is_some();
+        render_rows(f, &body, tail.as_deref(), &stats, bars)
     }
 }
 
-/// Render the body block: the bin or value `rows`, the `(n other values)`
-/// tail note, then the missing row last — aligned with the rows above it.
+/// Render a column's two sections on one label and count grid: the data —
+/// bin or value `rows` and the `(n other values)` tail note — then, ruled
+/// off below it, the bar-less stats.
 fn render_rows(
     f: &mut fmt::Formatter<'_>,
     rows: &[Row],
     tail: Option<&str>,
-    missing: Option<&Row>,
+    stats: &[Row],
+    bars: bool,
 ) -> fmt::Result {
-    let all = || rows.iter().chain(missing);
-    let max = all().map(|row| row.count).max().unwrap_or(0).max(1);
+    if rows.is_empty() && stats.is_empty() {
+        return Ok(());
+    }
+    let all = || rows.iter().chain(stats);
+    // Stats aren't counts of rows, so they stay out of the bar scale.
+    let max = rows.iter().map(|row| row.count).max().unwrap_or(0).max(1);
     let label_width = all()
         .map(|row| row.label.chars().count())
         .max()
         .unwrap_or(0);
     let count_width = all()
-        .map(|row| row.count.to_string().len())
+        .map(|row| row.shown.chars().count())
         .max()
         .unwrap_or(1);
-    let write_row = |f: &mut fmt::Formatter<'_>, row: &Row| {
+    let write_row = |f: &mut fmt::Formatter<'_>, row: &Row, with_bar: bool| {
         let padding = label_width - row.label.chars().count();
-        writeln!(
-            f,
-            "  {}{:pad$}  {:<bar$}  {:>count$}{}",
-            row.label,
-            "",
-            bar(row.count, max),
-            row.count,
-            row.suffix,
-            pad = padding,
-            bar = BAR_WIDTH,
-            count = count_width,
-        )
+        if bars {
+            let bar = if with_bar {
+                bar(row.count, max)
+            } else {
+                String::new()
+            };
+            writeln!(
+                f,
+                "  {}{:pad$}  {:<bar_width$}  {:>count$}{}",
+                row.label,
+                "",
+                bar,
+                row.shown,
+                row.suffix,
+                pad = padding,
+                bar_width = BAR_WIDTH,
+                count = count_width,
+            )
+        } else {
+            writeln!(
+                f,
+                "  {}{:pad$}  {:>count$}{}",
+                row.label,
+                "",
+                row.shown,
+                row.suffix,
+                pad = padding,
+                count = count_width,
+            )
+        }
     };
     for row in rows {
-        write_row(f, row)?;
+        write_row(f, row, true)?;
     }
     if let Some(tail) = tail {
         writeln!(f, "{tail}")?;
     }
-    if let Some(missing) = missing {
-        write_row(f, missing)?;
+    if !rows.is_empty() && !stats.is_empty() {
+        let width = label_width + 2 + if bars { BAR_WIDTH + 2 } else { 0 } + count_width;
+        writeln!(f, "  {}", "-".repeat(width))?;
+    }
+    for stat in stats {
+        write_row(f, stat, false)?;
     }
     Ok(())
 }
 
-/// A bar scaled against the largest count: `▇` per block, or a sliver `▏` for
-/// a count too small to earn one, so a nonzero count is never invisible.
+/// A bar scaled against the largest count, in half-character steps: `▇` per
+/// full cell with `▌` as the half step, or a sliver `▏` for a count too small
+/// to earn even that, so a nonzero count is never invisible.
 fn bar(count: usize, max: usize) -> String {
     if count == 0 {
         return String::new();
     }
-    let blocks = (count * BAR_WIDTH + max / 2) / max;
-    if blocks == 0 {
-        "▏".to_string()
-    } else {
-        "▇".repeat(blocks)
+    let halves = (count * BAR_WIDTH * 2 + max / 2) / max;
+    if halves == 0 {
+        return "▏".to_string();
     }
+    let mut bar = "▇".repeat(halves / 2);
+    if halves % 2 == 1 {
+        bar.push('▌');
+    }
+    bar
 }
 
 fn scalar_label(scalar: &Scalar) -> String {
@@ -486,11 +560,23 @@ fn scalar_label(scalar: &Scalar) -> String {
     }
 }
 
+/// A value as a single-line label: control characters shown as escapes (an
+/// embedded newline must not break the row grid), then cut to [`LABEL_WIDTH`].
 fn truncate(label: &str) -> String {
-    if label.chars().count() <= LABEL_WIDTH {
-        return label.to_string();
+    let escaped: String = label
+        .chars()
+        .flat_map(|c| match c {
+            '\n' => "\\n".chars().collect::<Vec<_>>(),
+            '\t' => "\\t".chars().collect(),
+            '\r' => "\\r".chars().collect(),
+            c if c.is_control() => format!("\\u{{{:04x}}}", c as u32).chars().collect(),
+            c => vec![c],
+        })
+        .collect();
+    if escaped.chars().count() <= LABEL_WIDTH {
+        return escaped;
     }
-    let mut truncated: String = label.chars().take(LABEL_WIDTH - 1).collect();
+    let mut truncated: String = escaped.chars().take(LABEL_WIDTH - 1).collect();
     truncated.push('…');
     truncated
 }
@@ -500,11 +586,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bars_scale_and_never_vanish() {
+    fn bars_scale_in_half_steps_and_never_vanish() {
         assert_eq!(bar(56, 56), "▇".repeat(12));
         assert_eq!(bar(0, 56), "");
-        assert_eq!(bar(2, 56), "▏");
         assert_eq!(bar(28, 56), "▇".repeat(6));
+        // The half step doubles the resolution...
+        assert_eq!(bar(53, 56), format!("{}▌", "▇".repeat(11)));
+        assert_eq!(bar(2, 56), "▌");
+        // ...and below even half a cell, a sliver keeps the count visible.
+        assert_eq!(bar(2, 100), "▏");
     }
 
     #[test]
@@ -515,6 +605,17 @@ mod tests {
         assert_eq!(edge_label(32.1, &ValueKind::Float, 2.75), "32.1");
         assert_eq!(edge_label(3250.4, &ValueKind::Int, 152.0), "3250");
         assert_eq!(edge_label(18262.0, &ValueKind::Date, 73.0), "2020-01-01");
+    }
+
+    #[test]
+    fn json_edges_round_like_the_labels() {
+        let rounded = edge_scalar(37.845000000000006, &ValueKind::Float, 1.145);
+        assert!(
+            matches!(rounded, Scalar::Float(v) if v == 37.8),
+            "{rounded:?}"
+        );
+        let int = edge_scalar(3250.4, &ValueKind::Int, 152.0);
+        assert!(matches!(int, Scalar::Int(3250)), "{int:?}");
     }
 
     #[test]
@@ -538,5 +639,11 @@ mod tests {
         assert_eq!(truncated.chars().count(), LABEL_WIDTH);
         assert!(truncated.ends_with('…'));
         assert_eq!(truncate("short"), "short");
+    }
+
+    #[test]
+    fn labels_escape_control_characters() {
+        assert_eq!(truncate("line1\nline2\tend"), "line1\\nline2\\tend");
+        assert_eq!(truncate("bell\u{7}"), "bell\\u{0007}");
     }
 }

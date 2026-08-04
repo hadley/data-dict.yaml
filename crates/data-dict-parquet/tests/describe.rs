@@ -63,14 +63,22 @@ fn json_matches_the_text() {
     insta::assert_snapshot!(sanitize(&json, &path));
 }
 
+/// Every histogram-generating kind in one file: an integer column narrow
+/// enough that whole-number bins mean fewer than 20 of them, a float, a date,
+/// UTC and naive timestamps, and a time of day.
 #[test]
-fn temporal_columns_render_iso_labels() {
+fn histograms_cover_every_binnable_kind() {
     let path = Fixture::new(&[
+        "REQUIRED INT64 count",
+        "REQUIRED DOUBLE reading",
         "REQUIRED INT32 event_date (DATE)",
         "REQUIRED INT64 seen_utc (TIMESTAMP(MICROS,true))",
         "REQUIRED INT64 seen_local (TIMESTAMP(MILLIS,false))",
+        "REQUIRED INT32 tod (TIME(MILLIS,true))",
     ])
     .group(vec![
+        Values::int64([1, 2, 3, 4, 5, 6]),
+        Values::double([1.5, 2.5, 2.5, 3.5, 4.5, 5.5]),
         // 2020-01-01 .. 2024-01-01.
         Values::int32([18262, 18262, 18628, 19000, 19723, 19723]),
         Values::int64([
@@ -89,18 +97,86 @@ fn temporal_columns_render_iso_labels() {
             1_704_096_000_000,
             1_704_096_000_000,
         ]),
+        // 09:30, 12:00, 17:00.
+        Values::int32([
+            34_200_000, 34_200_000, 43_200_000, 43_200_000, 61_200_000, 61_200_000,
+        ]),
     ])
     .write();
     let description = describe(&path, None).unwrap();
     insta::assert_snapshot!(sanitize(&description.to_string(), &path));
     let json = serde_json::to_string_pretty(&description).unwrap();
-    insta::assert_snapshot!(sanitize(&sanitize(&json, &path), &path));
+    insta::assert_snapshot!(sanitize(&json, &path));
 }
 
 #[test]
 fn narrows_to_a_single_column() {
     let path = penguins();
     let description = describe(&path, Some("species")).unwrap();
+    let text = description.to_string();
+    assert!(text.contains("1 column"), "{text}");
+    assert!(text.contains("species — string"), "{text}");
+    assert!(!text.contains("bill_length_mm"), "{text}");
+}
+
+/// A bar whose count rounds below half a cell still shows as a sliver, so a
+/// nonzero count is never invisible next to a dominant one.
+#[test]
+fn tiny_counts_render_a_sliver() {
+    let mut values = vec![1i64; 100];
+    values.extend([100, 100]);
+    let path = Fixture::column("REQUIRED INT64 hits", Values::int64(values)).write();
+    let description = describe(&path, None).unwrap();
+    let text = description.to_string();
+    assert!(text.contains('▏'), "{text}");
+    insta::assert_snapshot!(sanitize(&text, &path));
+}
+
+/// Past the exact tracker's capacity the distinct count is a sketch estimate:
+/// `distinct: ~n`, and a `(~n other values)` tail to match.
+#[test]
+fn approximate_distinct_counts_are_marked() {
+    let values: Vec<Option<String>> = (0..1200).map(|i| Some(format!("visit-{i:04}"))).collect();
+    let path = Fixture::column("REQUIRED BYTE_ARRAY visit (UTF8)", Values::Text(values)).write();
+    let description = describe(&path, None).unwrap();
+    let text = description.to_string();
+    assert!(text.contains("~1200"), "{text}");
+    insta::assert_snapshot!(sanitize(&text, &path));
+}
+
+/// A 200+ character value truncates to the 40-character label budget with an
+/// ellipsis, keeping every line on the grid.
+#[test]
+fn wide_values_truncate_with_an_ellipsis() {
+    let wide = "long ".repeat(50); // 250 characters
+    let path = Fixture::column(
+        "REQUIRED BYTE_ARRAY note (UTF8)",
+        Values::text([wide.as_str(), wide.as_str(), "short", "short"]),
+    )
+    .write();
+    let description = describe(&path, None).unwrap();
+    let text = sanitize(&description.to_string(), &path);
+    assert!(
+        text.lines().all(|l| l.chars().count() <= 80),
+        "every line should stay on the grid:\n{text}"
+    );
+    insta::assert_snapshot!(text);
+}
+
+/// Embedded newlines and tabs render as escapes instead of breaking the row.
+#[test]
+fn control_characters_render_as_escapes() {
+    let path = Fixture::column(
+        "REQUIRED BYTE_ARRAY note (UTF8)",
+        Values::text([
+            "line one\nline two",
+            "line one\nline two",
+            "tabbed\there",
+            "tabbed\there",
+        ]),
+    )
+    .write();
+    let description = describe(&path, None).unwrap();
     insta::assert_snapshot!(sanitize(&description.to_string(), &path));
 }
 
@@ -117,7 +193,7 @@ fn unknown_column_lists_the_available_ones() {
 }
 
 #[test]
-fn wide_string_columns_report_the_hidden_tail() {
+fn many_valued_string_columns_report_the_hidden_tail() {
     // 30 distinct values: the 20 most frequent are shown, 10 are the tail.
     // Nulls too, so the snapshot pins the full ordering of the body's end:
     // value rows, the tail note, then the missing row last.
@@ -129,7 +205,7 @@ fn wide_string_columns_report_the_hidden_tail() {
     let path = Fixture::column("OPTIONAL BYTE_ARRAY site (UTF8)", Values::Text(values)).write();
     let description = describe(&path, None).unwrap();
     let text = description.to_string();
-    assert!(text.contains("(10 other values)"), "{text}");
+    assert!(text.contains("(10 other values, e.g. "), "{text}");
     insta::assert_snapshot!(sanitize(&text, &path));
 }
 

@@ -4,6 +4,6 @@ expression: "sanitize(&description.to_string(), &path)"
 ---
 <file>.parquet: 3 rows × 1 column
 
-reading — number (INT64)
-  distinct   0
-  missing    3 (100.0%)
+reading — number
+  distinct:  0
+  missing:   3 (100.0%)

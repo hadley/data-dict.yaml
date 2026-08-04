@@ -141,9 +141,9 @@ impl NotFinite {
 /// so that the minimum has a home. The rule is carried on the bin rather than
 /// left as a convention, so every consumer sees the boundary explicitly.
 ///
-/// Bounds are `f64` because equal-width bins over an integer or temporal range
-/// generally fall between representable values; a column's [`ValueKind`] gives
-/// the unit they are measured in.
+/// Bounds are `f64`, but for integer-valued kinds the bin width is a whole
+/// number, so every edge lands on a representable value; a column's
+/// [`ValueKind`] gives the unit they are measured in.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bin {
     pub lower: f64,
@@ -289,7 +289,8 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
     // reduced the column to its extremes.
     if accumulator.bins.is_none()
         && target.kind.is_binnable()
-        && let Some(bins) = BinCounts::spanning(&accumulator.min, &accumulator.max)
+        && let Some(bins) =
+            BinCounts::spanning(&accumulator.min, &accumulator.max, integral(&target.kind))
     {
         let mut binner = BinOnly { bins };
         scan(&ctx, leaf, &mut binner)?;
@@ -380,7 +381,7 @@ impl Accumulator {
             counts: SpaceSaving::new(TRACKED_VALUES),
             distinct: HyperLogLog::new(),
             sample: BottomK::new(SAMPLED_VALUES),
-            bins: range.map(|(low, high)| BinCounts::new(low, high)),
+            bins: range.map(|(low, high)| BinCounts::new(low, high, integral(&target.kind))),
             unprofilable: false,
         }
     }
@@ -479,22 +480,42 @@ impl Observe for BinOnly {
     fn observe_null(&mut self, _count: usize) {}
 }
 
-/// Counts falling in each of [`BINS`] equal-width bins spanning `[low, high]`.
+/// Whether a kind's values are whole numbers, so its histogram bins should be
+/// too. Everything binnable but floats: ints, and the temporal kinds' raw
+/// days/millis/micros/nanos.
+fn integral(kind: &ValueKind) -> bool {
+    kind.is_binnable() && !kind.is_continuous()
+}
+
+/// Counts falling in each of up to [`BINS`] equal-width bins spanning the
+/// observed range.
 struct BinCounts {
     low: f64,
-    high: f64,
+    width: f64,
     counts: Vec<usize>,
 }
 
 impl BinCounts {
-    fn new(low: f64, high: f64) -> Self {
-        // A single value spans no range, so it gets one bin of its own rather
-        // than twenty empty ones around it.
-        let bins = if low < high { BINS } else { 1 };
+    /// `integral` means the values are whole numbers (everything but floats:
+    /// ints, and the temporal kinds' raw days/millis/…), so the bins get a
+    /// whole-number width too — fewer than [`BINS`] of them when the range is
+    /// narrow — keeping every edge on a representable value.
+    fn new(low: f64, high: f64, integral: bool) -> Self {
+        // A single value spans no range, so it gets one zero-width bin of its
+        // own rather than twenty empty ones around it.
+        let span = high - low;
+        let (bins, width) = if span <= 0.0 {
+            (1, 0.0)
+        } else if integral {
+            let width = (span / BINS as f64).ceil().max(1.0);
+            ((span / width).ceil() as usize, width)
+        } else {
+            (BINS, span / BINS as f64)
+        };
         BinCounts {
             low,
-            high,
-            counts: vec![0; bins],
+            width,
+            counts: vec![0; bins.max(1)],
         }
     }
 
@@ -502,14 +523,10 @@ impl BinCounts {
     /// bin or the values aren't numbers. The extremes are finite by
     /// construction (see [`crate::F64::new`]); the check restates that here, so
     /// that a non-finite edge can never silently turn every bin into NaN.
-    fn spanning(min: &Option<Value>, max: &Option<Value>) -> Option<BinCounts> {
+    fn spanning(min: &Option<Value>, max: &Option<Value>, integral: bool) -> Option<BinCounts> {
         let low = min.as_ref()?.as_f64()?;
         let high = max.as_ref()?.as_f64()?;
-        (low.is_finite() && high.is_finite()).then(|| BinCounts::new(low, high))
-    }
-
-    fn width(&self) -> f64 {
-        (self.high - self.low) / self.counts.len() as f64
+        (low.is_finite() && high.is_finite()).then(|| BinCounts::new(low, high, integral))
     }
 
     fn add(&mut self, value: f64, count: usize) {
@@ -519,20 +536,19 @@ impl BinCounts {
         let index = if value <= self.low {
             0
         } else {
-            (((value - self.low) / self.width()).ceil() as usize).saturating_sub(1)
+            (((value - self.low) / self.width).ceil() as usize).saturating_sub(1)
         };
         self.counts[index.min(last)] += count;
     }
 
     fn finish(self, not_finite: NotFinite) -> Histogram {
-        let width = self.width();
         let bins = self
             .counts
             .iter()
             .enumerate()
             .map(|(index, &count)| Bin {
-                lower: self.low + width * index as f64,
-                upper: self.low + width * (index + 1) as f64,
+                lower: self.low + self.width * index as f64,
+                upper: self.low + self.width * (index + 1) as f64,
                 lower_inclusive: index == 0,
                 count,
             })
@@ -770,8 +786,21 @@ mod tests {
     }
 
     #[test]
+    fn integral_bins_have_whole_widths() {
+        // A narrow integer range takes one bin per unit, not twenty slivers.
+        let bins = BinCounts::new(0.0, 9.0, true);
+        assert_eq!((bins.counts.len(), bins.width), (9, 1.0));
+        // A wide one rounds the width up to the next whole number.
+        let bins = BinCounts::new(3250.0, 6300.0, true);
+        assert_eq!((bins.counts.len(), bins.width), (BINS, 153.0));
+        // The same range binned as floats keeps the exact fractional width.
+        let bins = BinCounts::new(0.0, 9.0, false);
+        assert_eq!((bins.counts.len(), bins.width), (BINS, 0.45));
+    }
+
+    #[test]
     fn bins_are_half_open_except_the_first() {
-        let mut bins = BinCounts::new(0.0, 20.0);
+        let mut bins = BinCounts::new(0.0, 20.0, false);
         bins.add(0.0, 1); // the minimum belongs to the first bin
         bins.add(1.0, 1); // as does its upper bound
         bins.add(1.5, 1); // above it, so the second
@@ -789,7 +818,7 @@ mod tests {
 
     #[test]
     fn a_single_value_gets_one_bin() {
-        let mut bins = BinCounts::new(7.0, 7.0);
+        let mut bins = BinCounts::new(7.0, 7.0, false);
         bins.add(7.0, 3);
         let histogram = bins.finish(NotFinite::default());
         assert_eq!(histogram.bins.len(), 1);
