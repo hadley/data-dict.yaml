@@ -460,6 +460,13 @@ fn s06_self_join_one_to_many() {
     assert_snapshot!(failing_diagnostic("spec/s06-self-join-one-to-many.yaml"));
 }
 
+// Names that aren't plain identifiers are referenced from a `join` in
+// backticks, so S02/S03 resolve them like any other name.
+#[test]
+fn quoted_names_ok() {
+    assert_valid(fixture("spec/quoted-names-ok.yaml"));
+}
+
 // --- aliases (S25/S26/S27) -----------------------------------------------
 
 #[test]
@@ -1259,6 +1266,55 @@ fn constraints_s20_unknown_column_in_columns_list() {
               - assert: COLUMNS([a, missing]) IS NOT NULL
     "});
     diagnostic.assert_contains(&["S20", "`missing`"]);
+}
+
+// Backticks are optional on a name that doesn't need them: a quoted name is
+// matched exactly like a bare one.
+#[test]
+fn constraints_quoting_does_not_change_matching() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+                constraints:
+                  - assert: '`qty` > 0'
+    "});
+}
+
+// S20: a quoted name resolves against the table like any other, so one that
+// isn't there is still unknown.
+#[test]
+fn constraints_s20_unknown_quoted_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`no such column` IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S20", "`no such column`", "not on this table"]);
+}
+
+// S19: a backtick left unclosed is a syntax error like any other.
+#[test]
+fn constraints_s19_unterminated_quoted_name() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`a IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S19", "unterminated quoted name"]);
 }
 
 // S21: a type mismatch — a numeric length compared as if the column were a

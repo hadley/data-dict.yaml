@@ -21,14 +21,19 @@
 //! cmp         := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 //! literal     := number | string | "TRUE" | "FALSE" | "NULL"
 //! funcall     := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
-//! columns     := "COLUMNS" "(" ("*" | string | "[" IDENT ("," IDENT)* "]") ")"
+//! columns     := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
 //! case        := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
+//! column      := IDENT | QUOTED
 //! IDENT       := [A-Za-z_][A-Za-z0-9_]*
+//! QUOTED      := "`" ( [^`] | "``" )+ "`"
 //! ```
 //!
 //! Keywords and function names are matched case-insensitively; column
 //! identifiers are preserved verbatim (case-sensitive, matched against the
-//! table). String literals are single-quoted, doubling a quote to embed one.
+//! table). A column whose name isn't an `IDENT`, or which collides with a
+//! reserved word, is written in backticks, doubling a backtick to embed one;
+//! quoting affects only how the name is read, never how it is matched. String
+//! literals are single-quoted, doubling a quote to embed one.
 //! Every node records the byte offsets it spans within the input so diagnostics
 //! can point at the failing token, exactly as [`crate::join_expr`] does.
 //!
@@ -156,12 +161,7 @@ pub enum CmpOp {
     Ge,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub message: String,
-    /// Byte offset of the failing token (or end-of-string) within the input.
-    pub at: usize,
-}
+pub use crate::expr_lex::ParseError;
 
 impl AssertExpr {
     pub fn parse(input: &str) -> Result<AssertExpr, ParseError> {
@@ -464,6 +464,10 @@ impl<'a> Parser<'a> {
                 })
             }
             Some(b'\'') => self.parse_string(),
+            Some(b'`') => {
+                let name = crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?;
+                Ok(self.node(ExprKind::Column(name), start))
+            }
             Some(b) if b.is_ascii_digit() => self.parse_number(),
             Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.parse_word_expr(),
             _ => Err(self.err("expected an expression")),
@@ -490,7 +494,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(_) => {
                     let ch_start = self.pos;
-                    self.advance_char();
+                    crate::expr_lex::advance_char(self.src, &mut self.pos);
                     value.push_str(
                         std::str::from_utf8(&self.src[ch_start..self.pos])
                             .expect("input is valid utf-8"),
@@ -503,18 +507,6 @@ impl<'a> Parser<'a> {
             start,
             end: self.pos,
         })
-    }
-
-    fn advance_char(&mut self) {
-        // Step over one whole UTF-8 code point.
-        self.pos += 1;
-        while let Some(&b) = self.src.get(self.pos) {
-            if b & 0xC0 == 0x80 {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
     }
 
     fn parse_number(&mut self) -> Result<Expr, ParseError> {
@@ -659,13 +651,11 @@ impl<'a> Parser<'a> {
                 loop {
                     self.skip_ws();
                     let n_start = self.pos;
-                    if !self
-                        .peek()
-                        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-                    {
-                        return Err(self.err("expected a column name"));
-                    }
-                    let name = self.read_word();
+                    let name = match self.peek() {
+                        Some(b'`') => crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?,
+                        Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.read_word(),
+                        _ => return Err(self.err("expected a column name")),
+                    };
                     names.push(Named {
                         name,
                         start: n_start,
@@ -1558,6 +1548,82 @@ mod tests {
         ));
         parse("COLUMNS('q[4-8]') IS NOT NULL");
         parse("COLUMNS([a, b, c]) IS NOT NULL");
+    }
+
+    #[test]
+    fn quoted_column_names() {
+        let e = parse("`creation date` IS NOT NULL");
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert!(matches!(&operand.kind, ExprKind::Column(c) if c == "creation date"));
+    }
+
+    #[test]
+    fn quoted_column_name_may_be_a_reserved_word() {
+        let e = parse("`end` >= `start`");
+        let ExprKind::Compare { lhs, rhs, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert!(matches!(&lhs.kind, ExprKind::Column(c) if c == "end"));
+        assert!(matches!(&rhs.kind, ExprKind::Column(c) if c == "start"));
+    }
+
+    #[test]
+    fn quoted_column_name_holds_any_character() {
+        for (src, name) in [
+            ("`a``b` IS NULL", "a`b"),
+            ("`a.b` IS NULL", "a.b"),
+            ("`café` IS NULL", "café"),
+            ("`LENGTH(x)` IS NULL", "LENGTH(x)"),
+        ] {
+            let e = parse(src);
+            let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+                panic!("{src}")
+            };
+            assert!(
+                matches!(&operand.kind, ExprKind::Column(c) if c == name),
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_column_span_covers_the_backticks() {
+        let src = "`a b` IS NULL";
+        let e = parse(src);
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert_eq!(&src[operand.start..operand.end], "`a b`");
+    }
+
+    #[test]
+    fn quoted_column_in_columns_list() {
+        let e = parse("COLUMNS([`creation date`, b]) IS NOT NULL");
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        let ExprKind::Columns(ColumnsSelector::List(names)) = &operand.kind else {
+            panic!("expected a list selector")
+        };
+        assert_eq!(
+            names.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(),
+            ["creation date", "b"]
+        );
+    }
+
+    #[test]
+    fn rejects_unterminated_quoted_name() {
+        let err = AssertExpr::parse("`a b IS NULL").unwrap_err();
+        assert!(err.message.contains("unterminated"));
+        assert_eq!(err.at, 0);
+    }
+
+    #[test]
+    fn rejects_empty_quoted_name() {
+        let err = AssertExpr::parse("`` IS NULL").unwrap_err();
+        assert!(err.message.contains("empty"));
     }
 
     #[test]
