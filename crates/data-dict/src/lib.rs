@@ -12,8 +12,11 @@
 //! holds the shared [`Level`] and the `compare_dataset` driver the meta and
 //! data levels build on.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod assert_expr;
+mod expr_lex;
 pub mod join_expr;
 pub mod lower;
 pub mod model;
@@ -26,8 +29,8 @@ pub use problem::{Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanL
 pub use quarto_source_map::SourceContext;
 pub use validate_data::validate_data;
 pub use validate_meta::validate_meta;
-pub use validate_spec::validate_spec;
 pub(crate) use validate_spec::{load, validate_and_lower};
+pub use validate_spec::{validate_spec, validate_spec_str};
 
 use model::{DataDict, Table};
 
@@ -42,8 +45,15 @@ pub enum Level {
     Data,
 }
 
+/// The readable data behind the selected tables, keyed by table name: the
+/// resolved parquet path and the column names present in it. Passed to the
+/// cross-table pass so it can find each table's data and skip a table (or column)
+/// that couldn't be read.
+pub(crate) type ReadTables = HashMap<String, (PathBuf, Vec<String>)>;
+
 /// The shared prologue for `validate_meta` and `validate_data`, so they differ
-/// only in the `checks` they pass.
+/// only in the passes they run: `checks` per table, then `cross` once over the
+/// tables that were read (for checks that span tables, like foreign keys).
 ///
 /// Validates the spec first and stops if it has errors. Otherwise it validates
 /// every table (or just `table`, when named), locating each table's data through
@@ -54,6 +64,7 @@ pub(crate) fn compare_dataset(
     dict_path: &Path,
     table: Option<&str>,
     checks: impl Fn(&Table, &Path, &[(String, String)], &mut ProblemSet),
+    cross: impl Fn(&DataDict, &ReadTables, &mut ProblemSet),
 ) -> ProblemSet {
     let (mut problems, doc) = match load(dict_path) {
         Ok(loaded) => loaded,
@@ -66,11 +77,15 @@ pub(crate) fn compare_dataset(
         return problems;
     };
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
+    let mut readable: ReadTables = HashMap::new();
     for table in tables {
         if let Some((parquet_path, actual)) = read_parquet(table, base_dir, &mut problems) {
             checks(table, &parquet_path, &actual, &mut problems);
+            let columns = actual.iter().map(|(name, _)| name.clone()).collect();
+            readable.insert(table.name.value.clone(), (parquet_path, columns));
         }
     }
+    cross(&dict, &readable, &mut problems);
     problems
 }
 

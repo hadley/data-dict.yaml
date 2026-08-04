@@ -1,0 +1,29 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: table
+    columns:
+      - name: zip
+        type: string
+        examples:
+          - '02134'
+          - '94110'
+          - 60614
+          - '98101'
+────────────────────────────────────────
+error[S12]: Each `examples` value of a `string` column must be a string.
+  --> dict.yaml:11:13
+   |
+LL |   - name: table
+LL |     columns:
+LL |       - name: zip
+LL |         type: string
+LL |         examples:
+...
+LL |           - 60614
+   |             ^^^^^ is a number
+   |
+   = help: Quote it to make it a string: `'60614'`.

@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    columns:
+      - name: notes
+        type: string
+        constraints: [unique]
+        examples: ["{}"]
+────────────────────────────────────────
+warning[D03]: Uniqueness can only be verified for comparable types.
+  --> dict.yaml:10:23
+   |
+LL |   - name: t
+...
+LL |       - name: notes
+LL |         type: string
+LL |         constraints: [unique]
+   |                       ^^^^^^ `notes` has JSON, whose values can't be compared for uniqueness

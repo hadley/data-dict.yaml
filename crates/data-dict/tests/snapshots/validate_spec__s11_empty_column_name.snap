@@ -16,4 +16,4 @@ error[S11]: Every column must have a non-empty `name`.
 LL |   - name: table
 LL |     columns:
 LL |       - name: ""
-   |               ^ the `name` is empty
+   |               ^^ the `name` is empty

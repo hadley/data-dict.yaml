@@ -6,15 +6,16 @@ $learn_more: http://data-dict.tidyverse.org/
 tables:
   - name: t
     columns:
-      - name: c
-        type: list(foo)
-        examples: [a, b, c]
+      - name: a
+        type: number
+        examples: [1, 2]
+    constraints:
+      - assert: a > b
 ────────────────────────────────────────
-error[S19]: A column's `type` must be a known type.
-  --> dict.yaml:7:15
+error[S20]: An assertion may only reference columns of its table.
+  --> dict.yaml:10:21
    |
 LL |   - name: t
-LL |     columns:
-LL |       - name: c
-LL |         type: list(foo)
-   |               ^^^^^^^^^ `foo` is not a recognised list element type
+...
+LL |       - assert: a > b
+   |                     ^ column `b` is not on this table

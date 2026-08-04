@@ -7,9 +7,11 @@ A data dictionary has three kinds of top-level keys: `$`-prefixed metadata keys 
 The metadata keys are:
 
 * `$version` (required): the version of the `data-dict.yaml` spec the document conforms to. Currently `0.1.0`. While the spec is pre-1.0, breaking changes are expected, but once the spec stabilises at 1.0, breaking changes will always increment at least the minor version.
-* `$learn_more` (optional, but recommended): a URL where readers can learn about the `data-dict.yaml` format, so that people and tools meeting the file for the first time can find out what it is. Use <http://data-dict.tidyverse.org/>. Omitting it is valid, but a validator will emit a warning rather than an error (see [Validation](validation.md)).
+* `$learn_more` (optional, but recommended): a URL where readers can learn about the `data-dict.yaml` format, so that people and tools meeting the file for the first time can find out what it is. Use <https://data-dict.tidyverse.org/>. Omitting it is valid, but a validator will emit a warning rather than an error (see [Validation](validation.md)).
 
 The descriptive keys — `name`, `label`, `description`, and `details` — identify and document the dataset as a whole. All four are optional here, and work the same way at every level of the dictionary; see [Name, label, description & details](#name-label-description--details) for their full meaning. For the dataset, `name` is a terse identifier (e.g. `foodbank`) and `label` its human-readable title.
+
+The dataset may also carry an optional `origin` key: a link to the code that produced it (see [Origin](#origin)). The same key is available on each table.
 
 In the common case of a dictionary that describes a single table, these top-level keys should be used to describe the dataset, leaving the table itself undescribed.
 
@@ -27,7 +29,9 @@ The content keys all hold the actual information about the data:
 * `name` (required): the table's name. Used to match the table to the underlying data and to refer to it from `relationships`. Must be non-empty and unique within the dictionary.
 * `label`, `description`, `details`: human-readable documentation for the table; see [Name, label, description & details](#name-label-description--details).
 * `source`: ways to access the data. Optional at the spec level, so you can draft a dictionary before its data exists, but required to validate against data (see [Validation](validation.md)).
+* `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
+* `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
 
 For example:
 
@@ -78,6 +82,22 @@ Parquet is the only source `data-dict` can currently validate against, so it's t
 
 `source` is optional while you're only validating the spec, letting you sketch a table before its data exists. But the metadata and data levels validate the dictionary against real data, so every table they check must declare a `source` whose file exists and is readable.
 
+### Origin
+
+`origin` is an optional link to the code that produced the data — the script, pipeline, or repository a reader can follow to see how the data was built. It's a single string holding either a URL or a path:
+
+```yaml
+# A URL...
+origin: https://github.com/example/foodbank/blob/main/data-raw/food.R
+
+# ...or a path, resolved relative to the dictionary file.
+origin: data-raw/food.R
+```
+
+A path points at a script alongside the dictionary; a URL points anywhere, such as a repository or the entry point of a workflow tool like `targets`. The validator treats `origin` as a reference for a human or agent to follow — it never fetches a URL or checks that a path exists.
+
+`origin` may be given for the whole dataset (at the top level) or for an individual table. Use the dataset level when a single pipeline produces everything, and the table level when tables are built by different scripts. If several scripts feed one table, link the directory or repository rather than listing them all.
+
 ### Columns
 
 Each entry in the `columns` list is a column descriptor. Columns are matched to the underlying data by `name`, so the order in which you list them does not need to match the column order in the data.
@@ -118,10 +138,12 @@ The optional `display` property controls whether a column should appear in user-
 - name: ssn
   type: string
   display: restricted
-  examples: [000-00-0000]
+  examples: ["000-00-0000", "123-45-6789"]
 ```
 
-A restricted column must be excluded from default user interfaces and other user-facing output, including tables, plots, and downloads. We can't guarantee this protection, but we hope it will steer agents (and humans!) away from showing it by default.
+A restricted column must be excluded from default user interfaces and other user-facing output, including tables, plots, and downloads. (And its examples should not include real data). We can't guarantee this protection, but we hope it will steer agents (and humans!) away from showing it by default.
+
+The primary use case is **personally identifiable information (PII)** — columns containing data such as names, email addresses, phone numbers, social security numbers, or other details that identify an individual. More broadly, `display: restricted` applies to any sensitive, confidential, or secret data that should not be surfaced by default.
 
 #### Types
 
@@ -134,7 +156,7 @@ The supported types are:
 * `boolean`: true/false values.
 * `date`: calendar dates, written as ISO 8601 strings (`YYYY-MM-DD`, e.g. `2024-01-31`).
 * `datetime`: date-times, written as ISO 8601 strings. Without a `time_zone` they carry an offset (e.g. `2024-01-31T09:30:00Z`); with a `time_zone` they're written zoneless and interpreted in that zone (see [Time zones](#time-zones)).
-* `enum`: a column with repeated values from a known set. The allowed values are listed in the `values` property.
+* `enum`: a string column with repeated values from a known set. The allowed values are listed in the `values` property, and are always strings.
 * `list(element_type)`: an ordered sequence of zero or more elements of the given type (see [List element types](#list-element-types)).
 * `struct`: a structured record with named fields documented in the required `fields` property (see [Struct fields](#struct-fields)).
 
@@ -212,11 +234,11 @@ A `struct` column may include a `fields` property — an ordered list of field d
 
 Most typed columns carry exactly one of the following three properties to represent the data they contain. The exceptions are `boolean` (values are always `true`/`false`) and `struct` (whose fields carry their own).
 
-* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be scalars (string, number, or boolean); in the map form the labels must be strings. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
+* `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be **strings**, and there must be at least one of them; in the map form the labels must be strings too. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
 * `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Used for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`.
-* `examples`: a list of ~5 representative values from the column. Used for all other types: `string`, `number`, and `number(id)`. Each example must match the column's type. A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
+* `examples`: a list of ~5 representative values from the column. Used for all other types: `string`, `number`, and `number(id)`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
 
 `boolean` columns are the exception to this rule because they can only contain `true`, `false`, and (if not required) `null`.
 
@@ -245,21 +267,76 @@ NB: when `time_zone` is present, write the column's `range` as plain, zoneless d
 
 #### Column constraints
 
-The `constraints` property is a list of constraint names. The supported constraints are:
+The `constraints` property is a list of constraints. Each entry is either a **structural constraint** (a bareword naming a structural or relational fact about the column) or an **assertion** (a map carrying an expression that must hold for the data).
+
+The structural constraints are:
 
 * `primary_key`: the set of columns with the `primary_key` constraint uniquely identifies each row. Implies `required` and `unique`. Not valid on `list` or `struct` columns, or on fields within a `struct`.
-* `foreign_key`: the column references a primary key in another table (or in the current table, if a self-join). The specific relationship is defined in [`relationships`](#relationships). Not valid on `list` or `struct` columns, or on fields within a `struct`.
+* `foreign_key`: the column references a primary key in another table (or in the current table, if a self-join). The specific relationship is defined in [`relationships`](#relationships). Validating the data checks that every value appears in the referenced primary key (see D05/D06 in [validation](validation.md)). Not valid on `list` or `struct` columns, or on fields within a `struct`.
 * `required`: the column does not contain null/missing values.
-* `unique`: the column's values are distinct (no duplicates).
+* `unique`: the column's values are distinct (no duplicates). Null/missing values are exempt — a `unique` column may contain multiple nulls, and nulls are never treated as duplicates.
+
+An assertion is a map with an `assert` key holding a boolean expression that must be true for every row, plus an optional `description`:
+
+```yaml
+columns:
+  - name: postcode
+    type: string
+    constraints:
+      - required
+      - assert: LENGTH(postcode) <= 10
+```
+
+Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
+
+Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
+
+### Table constraints
+
+A table's `constraints` property is a list of assertions, using exactly the same form as a [column assertion](#column-constraints): a map with an `assert` key and an optional `description`. The only difference is scope — a table constraint isn't tied to a single column, so it's the natural home for rules that span columns:
+
+```yaml
+tables:
+  - name: survey
+    constraints:
+      - assert: end_date >= start_date
+        description: A contract can't end before it starts.
+      - assert: NOT(q3) OR (q4 IS NOT NULL AND q5 IS NOT NULL)
+        description: If q3 is true, q4 and q5 must be answered.
+```
+
+Table constraints can only carry assertions; the structural barewords (`primary_key`, `unique`, …) live on columns.
+
+### Assertions
+
+An `assert` expression is a single-table, row-level boolean expression written in data-dict's small SQL-like [expression language](expressions.md). It is evaluated against every row, and the constraint holds unless the expression is *false* for some row. Bare names refer to columns of the table.
+
+Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
+
+Assertions state what must be **true**, so conditional rules are written as implications, e.g. `NOT(q3) OR q4 IS NOT NULL`.
+
+Assertions are deliberately **per-row and single-table**: an expression sees only the columns of one row at a time. There are no aggregates and no subqueries — cross-table rules belong in [`relationships`](#relationships), and the per-row restriction keeps assertions cheap to check. Aside from `NOW()`, they are also deterministic: the same row always gives the same result.
+
+The language offers the SQL operators you'd expect — comparisons, `AND`/`OR`/`NOT`, `IS NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR TO`, `CASE`, and arithmetic — over column references, numeric, string, boolean, and `NULL` literals, plus a handful of string (`LENGTH`, `LOWER`, `UPPER`, `TRIM`, `STARTS_WITH`, `ENDS_WITH`), numeric (`ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`), and date/time (`NOW()`, `interval(<n>, <unit>)`) functions. A `COLUMNS(...)` expression applies one predicate to many columns at once:
+
+```yaml
+constraints:
+  # Every q4–q8 answer is present whenever q3 is true.
+  - assert: NOT(q3) OR COLUMNS('q[4-8]') IS NOT NULL
+    description: q4–q8 must be answered when q3 is true.
+```
+
+[Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
 
 ## Relationships
 
 `relationships` is a list of join descriptors. Each entry describes how two tables are related.
 
 * `join` (required): a join expression of the form `table1.column = table2.column`, or `table1.date >= table2.start AND table1.date <= table2.end`.
-* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left table to the right table in the join expression.
+* `cardinality` (required): either `one-to-one`, `one-to-many`, or `many-to-one`. Describes the relationship from the left side to the right side of the join expression.
 * `description`: human-readable description of the relationship. Only needed if it's not clear from the context.
-* `conflicts`: a list of column names that appear in both tables with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `conflicts`: a list of column names that appear on both sides of the join with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
+* `aliases`: a map from alias to table name, naming the role each side of the join plays. See [aliases](#aliases).
 
 For example:
 
@@ -268,6 +345,36 @@ relationships:
   - join: food.food_category_id = food_category.id
     cardinality: many-to-one
     conflicts: [description]
+```
+
+### Aliases
+
+A join brings together two sets of rows. Usually they come from two different tables, so the table names are enough to tell the sides apart. When they don't, `aliases` gives each side its own name:
+
+```yaml
+relationships:
+  - join: mother.otter_no = pup.pup_number
+    aliases:
+      mother: otters
+      pup: otters
+    cardinality: one-to-many
+    description: Links a female otter to her dependent pup's own record.
+```
+
+Within a `join`, a name before the `.` resolves first as an alias declared by that relationship, then as a table name. An alias is scoped to the relationship that declares it, and it must not have the same name as a table in the dictionary. Every alias must name a table that exists, and every alias declared should be used by the join. Self-joins must use aliases.
+
+Prefer aliases that name the role a side plays (`mother`/`pup`, `manager`/`report`) over positional names like `left`/`right`; they make the join expression readable on its own.
+
+Aliases are also allowed, but not required, when two tables are joined more than once and each join means something different. Naming the roles says which is which:
+
+```yaml
+relationships:
+  - join: flights.origin = origin_airport.faa
+    aliases: {origin_airport: airports}
+    cardinality: many-to-one
+  - join: flights.dest = dest_airport.faa
+    aliases: {dest_airport: airports}
+    cardinality: many-to-one
 ```
 
 ## Glossary

@@ -1,0 +1,35 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: item
+    source:
+      parquet: item.parquet
+    columns:
+      - name: category_id
+        type: string
+        constraints: [foreign_key]
+        examples: ["{}"]
+  - name: category
+    source:
+      parquet: category.parquet
+    columns:
+      - name: id
+        type: string
+        constraints: [primary_key]
+        examples: ["{}"]
+relationships:
+  - join: item.category_id = category.id
+    cardinality: many-to-one
+────────────────────────────────────────
+warning[D06]: Referential integrity can only be verified for comparable types.
+  --> dict.yaml:10:23
+   |
+LL |   - name: item
+...
+LL |       - name: category_id
+LL |         type: string
+LL |         constraints: [foreign_key]
+   |                       ^^^^^^^^^^^ can't be verified against `category.id`: JSON values aren't comparable

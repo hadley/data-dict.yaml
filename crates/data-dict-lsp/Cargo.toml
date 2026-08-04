@@ -1,0 +1,13 @@
+[package]
+name = "data-dict-lsp"
+description = "Language server for data-dict.yaml authoring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+data-dict.workspace = true
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "net", "time"] }
+serde_json.workspace = true

@@ -1,0 +1,41 @@
+# expected: validates cleanly. Names that aren't plain identifiers — a space in
+# `other studies`/`study id`, and a column called `end`, a reserved word — are
+# referenced from the `join` and from an assertion in backticks. The quotes
+# change how the names are read, not how they are matched.
+
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+
+tables:
+  - name: study
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        description: Study id.
+        examples: [1, 2, 3, 4, 5]
+
+  - name: other studies
+    columns:
+      - name: study id
+        type: number(id)
+        constraints: [foreign_key]
+        description: The study this one follows up.
+        examples: [1, 2, 3, 4, 5]
+      - name: creation date
+        type: date
+        description: When the record was created.
+        range: [2000-01-01, 2030-01-01]
+      - name: end
+        type: date
+        description: When the study ended.
+        range: [2000-01-01, 2030-01-01]
+    constraints:
+      - assert: '`creation date` <= `end`'
+        description: A study can't be created after it ends.
+      - assert: COLUMNS([`creation date`, `end`]) IS NOT NULL
+
+relationships:
+  - join: '`other studies`.`study id` = study.id'
+    cardinality: many-to-one
+    description: Each follow-up names the study it follows up.

@@ -20,13 +20,17 @@ use quarto_yaml::YamlWithSourceInfo;
 use quarto_yaml_validation::error::ValidationErrorKind;
 use quarto_yaml_validation::{Schema, SchemaRegistry, ValidationDiagnostic, ValidationError};
 
+use crate::assert_expr::{self, CheckEnv, ColumnKind};
 use crate::join_expr::{JoinExpr, QCol};
-use crate::model::{Cardinality, Column, Constraint, DataDict, Scalar, Spanned, Table};
+use crate::model::{
+    Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
+    Spanned, Table,
+};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Suggestion, subspan};
 use crate::{SourceContext, lower};
 
 /// The canonical documentation URL suggested for `$learn_more`.
-pub const LEARN_MORE_URL: &str = "http://data-dict.tidyverse.org/";
+pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 
 /// The spec version this validator implements, suggested for a missing `$version`.
 pub const SPEC_VERSION: &str = "0.1.0";
@@ -58,6 +62,17 @@ pub fn validate_spec(path: &Path) -> ProblemSet {
     problems
 }
 
+/// The content twin of [`validate_spec`]: validates in-memory `content` (no I/O,
+/// for an unsaved buffer), attributing problems to `filename`.
+pub fn validate_spec_str(content: &str, filename: &str) -> ProblemSet {
+    let (mut problems, doc) = match load_str(content, filename) {
+        Ok(loaded) => loaded,
+        Err(problems) => return problems,
+    };
+    validate_and_lower(&doc, &mut problems);
+    problems
+}
+
 /// Read, parse, and schema-check the document at `path`, creating the run's
 /// [`ProblemSet`] with the document's source — this is where every level starts.
 /// `Ok((problems, doc))` hands back the fresh set and the parsed AST to validate;
@@ -69,8 +84,16 @@ pub(crate) fn load(path: &Path) -> Result<(ProblemSet, YamlWithSourceInfo), Prob
         Err(e) => return Err(ProblemSet::from_preflight(ProblemKind::Io, e.to_string())),
     };
     let filename = path.display().to_string();
+    load_str(&content, &filename)
+}
 
-    let doc = match quarto_yaml::parse_file(&content, &filename) {
+/// The content twin of [`load`]: parses and schema-checks in-memory `content`
+/// without reading a file, so it never fails with [`ProblemKind::Io`].
+pub(crate) fn load_str(
+    content: &str,
+    filename: &str,
+) -> Result<(ProblemSet, YamlWithSourceInfo), ProblemSet> {
+    let doc = match quarto_yaml::parse_file(content, filename) {
         Ok(doc) => doc,
         Err(e) => {
             return Err(ProblemSet::from_preflight(
@@ -81,8 +104,8 @@ pub(crate) fn load(path: &Path) -> Result<(ProblemSet, YamlWithSourceInfo), Prob
     };
 
     let mut source = SourceContext::new();
-    let file_id = quarto_yaml::file_id_for_filename(&filename);
-    source.add_file_with_id(file_id, filename, Some(content));
+    let file_id = quarto_yaml::file_id_for_filename(filename);
+    source.add_file_with_id(file_id, filename.to_string(), Some(content.to_string()));
 
     let registry = SchemaRegistry::new();
     if let Err(err) = quarto_yaml_validation::validate(&doc, schema(), &registry, &source) {
@@ -187,6 +210,9 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
     validate_s04_join_table_count(dict, out);
     validate_s05_conflicts_present_on_both_sides(dict, out);
     validate_s06_cardinality_consistency(dict, out);
+    validate_s25_unaliased_self_join(dict, out);
+    validate_s26_alias_shadows_table(dict, out);
+    validate_s27_unused_alias(dict, out);
     validate_s16_single_table_description(dict, out);
 
     let mut seen_tables: HashMap<String, SourceInfo> = HashMap::new();
@@ -194,13 +220,14 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
         if validate_s11_table_name(table, out) {
             validate_s10_unique_table_name(table, &mut seen_tables, out);
         }
+        validate_table_assertions(table, out);
         check_columns(dict, table, &table.columns, false, out);
     }
 }
 
 /// Run all column-level checks for a slice of columns. `in_struct` is `true`
 /// when the columns are fields inside a `struct`, which changes S01 (skipped)
-/// and S20 (always fires for primary_key/foreign_key).
+/// and S29 (always fires for primary_key/foreign_key).
 fn check_columns(
     dict: &DataDict,
     table: &Table,
@@ -212,20 +239,21 @@ fn check_columns(
     for col in columns {
         if !in_struct {
             validate_s01_foreign_key(dict, table, col, out);
+            validate_column_assertions(table, col, out);
         }
         validate_s08_units(table, col, out);
         validate_s14_time_zone(table, col, out);
         validate_s15_time_zone_format(table, col, out);
-        validate_s20_key_constraints(table, col, in_struct, out);
+        validate_s29_key_constraints(table, col, in_struct, out);
         if validate_s11_column_name(table, col, out) {
             validate_s10_unique_name(table, col, &mut seen, out);
         }
-        if validate_s19_type(table, col, out) {
-            if validate_s07_representation(table, col, out)
-                && validate_s12_value_types(table, col, out)
-            {
-                validate_s13_range_order(table, col, out);
-            }
+        validate_enum_values(table, col, out);
+        if validate_s28_type(table, col, out)
+            && validate_s07_representation(table, col, out)
+            && validate_s12_value_types(table, col, out)
+        {
+            validate_s13_range_order(table, col, out);
         }
         // Recurse into struct fields (covers both `struct` and `list(struct)`).
         if let Some(fields) = &col.fields {
@@ -234,19 +262,133 @@ fn check_columns(
     }
 }
 
+// --- S20 / S21 (assertion semantics) ---------------------------------------
+
+/// A [`CheckEnv`] over one table: it resolves column kinds and parses the date
+/// literals an assertion may compare against a `date`/`datetime` column.
+struct TableEnv<'a> {
+    table: &'a Table,
+}
+
+impl TableEnv<'_> {
+    fn kind_of(col: &Column) -> ColumnKind {
+        match col.col_type.as_ref().map(|t| t.value.as_str()) {
+            Some("string") => ColumnKind::String,
+            Some("number" | "number(id)" | "number(ordinal)" | "number(quantity)") => {
+                ColumnKind::Number
+            }
+            Some("boolean") => ColumnKind::Bool,
+            Some("date") => ColumnKind::Date,
+            Some("datetime") => ColumnKind::Datetime,
+            // An enum's values are its categories, and those are always strings.
+            Some("enum") => ColumnKind::String,
+            _ => ColumnKind::Untyped,
+        }
+    }
+}
+
+impl CheckEnv for TableEnv<'_> {
+    fn column(&self, name: &str) -> Option<ColumnKind> {
+        self.table.column(name).map(Self::kind_of)
+    }
+
+    fn columns(&self) -> Vec<(String, ColumnKind)> {
+        self.table
+            .columns
+            .iter()
+            .map(|c| (c.name.value.clone(), Self::kind_of(c)))
+            .collect()
+    }
+
+    fn is_date(&self, s: &str) -> bool {
+        parse_date(s).is_some()
+    }
+
+    fn is_datetime(&self, s: &str) -> bool {
+        // Accept either an offset-bearing or a zoneless ISO 8601 datetime; the
+        // column's `time_zone` decides which is canonical, but for a literal
+        // comparison either spelling is a legitimate datetime.
+        parse_datetime(s).is_some() || parse_naive_datetime(s).is_some()
+    }
+}
+
+fn validate_column_assertions(table: &Table, col: &Column, out: &mut ProblemSet) {
+    let env = TableEnv { table };
+    for assertion in &col.assertions {
+        run_assertion_check(&env, assertion, &[&table.name, &col.name], out);
+    }
+}
+
+fn validate_table_assertions(table: &Table, out: &mut ProblemSet) {
+    let env = TableEnv { table };
+    for assertion in &table.constraints {
+        run_assertion_check(&env, assertion, &[&table.name], out);
+    }
+}
+
+/// Run the S20/S21/S22 checks for one parsed assertion, turning each finding
+/// into a located problem. `enclosing` are the outer nodes (table, and column
+/// for a column assertion) shown as context before the offending token.
+fn run_assertion_check(
+    env: &dyn CheckEnv,
+    assertion: &Assertion,
+    enclosing: &[&Spanned<String>],
+    out: &mut ProblemSet,
+) {
+    use crate::assert_expr::FindingSeverity;
+
+    let Some(expr) = &assertion.expr else { return };
+    for finding in assert_expr::check(expr, env) {
+        let span = subspan(&assertion.text.span, finding.start, finding.end)
+            .unwrap_or_else(|| assertion.text.span.clone());
+        let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
+        spans.push(span);
+        let expected = match finding.code {
+            "S20" => "An assertion may only reference columns of its table.",
+            "S22" => "A `COLUMNS(...)` selection should match at least one column.",
+            "S23" => "An assertion may only use columns with a declared `type`.",
+            _ => "An assertion must be a well-typed boolean expression.",
+        };
+        match finding.severity {
+            FindingSeverity::Error => {
+                out.push_spec_error(finding.code, expected, finding.message, spans)
+            }
+            FindingSeverity::Warning => {
+                out.push_spec_warning(finding.code, expected, finding.message, spans)
+            }
+        }
+    }
+}
+
 // --- S02 --------------------------------------------------------------
 
 fn validate_s02_relationship_table_refs(dict: &DataDict, out: &mut ProblemSet) {
     for rel in &dict.relationships {
+        for alias in &rel.aliases {
+            if dict.table(&alias.table.value).is_none() {
+                out.push_spec_error(
+                    "S02",
+                    "An alias must name a known table.",
+                    format!("table `{}` is not defined", alias.table.value),
+                    [
+                        rel.join_text.span.clone(),
+                        alias.name.span.clone(),
+                        alias.table.span.clone(),
+                    ],
+                );
+            }
+        }
         let Some(join) = &rel.join else { continue };
         for q in join.qcols() {
-            if dict.table(&q.table).is_none() {
+            // An alias that points at a missing table is reported above; here
+            // the name resolves to itself, so a second report would repeat it.
+            if rel.alias(&q.table).is_none() && dict.table(&q.table).is_none() {
                 let span = subspan(&rel.join_text.span, q.start, q.end)
                     .unwrap_or_else(|| rel.join_text.span.clone());
                 out.push_spec_error(
                     "S02",
-                    "A `join` must refer to known tables.",
-                    format!("table `{}` is not defined", q.table),
+                    "A `join` must refer to known tables or aliases.",
+                    format!("`{}` is neither a table nor an alias", q.table),
                     [span],
                 );
             }
@@ -262,7 +404,8 @@ fn validate_s03_relationship_column_refs(dict: &DataDict, out: &mut ProblemSet) 
             for q in join.qcols() {
                 // Skip if the table doesn't exist — S02 handles that case
                 // and a column report would be noise.
-                let Some(table) = dict.table(&q.table) else {
+                let table_name = rel.resolve(&q.table);
+                let Some(table) = dict.table(table_name) else {
                     continue;
                 };
                 if table.column(&q.column).is_none() {
@@ -271,7 +414,7 @@ fn validate_s03_relationship_column_refs(dict: &DataDict, out: &mut ProblemSet) 
                     out.push_spec_error(
                         "S03",
                         "A `join` must refer to known columns.",
-                        format!("table `{}` has no column `{}`", q.table, q.column),
+                        format!("table `{table_name}` has no column `{}`", q.column),
                         [span],
                     );
                 }
@@ -287,17 +430,94 @@ fn validate_s03_relationship_column_refs(dict: &DataDict, out: &mut ProblemSet) 
 
 fn validate_s04_join_table_count(dict: &DataDict, out: &mut ProblemSet) {
     // Parse failures are emitted during lowering. Here we only check the
-    // table-count invariant on successfully parsed joins.
+    // table-count invariant on successfully parsed joins. One name on both
+    // sides is S25's case, not S04's.
     for rel in &dict.relationships {
         let Some(join) = &rel.join else { continue };
-        let tables = join.tables();
-        if tables.is_empty() || tables.len() > 2 {
+        let names = join.tables();
+        if names.len() > 2 {
             out.push_spec_error(
                 "S04",
-                "A `join` must reference one (self-join) or two tables.",
-                format!("this `join` references {} tables", tables.len()),
+                "A `join` must reference exactly two tables.",
+                format!("this `join` references {} tables", names.len()),
                 [rel.join_text.span.clone()],
             );
+        }
+    }
+}
+
+// --- S25 --------------------------------------------------------------
+
+/// A join needs two row sets. Two sides denote the same rows when they share a
+/// name, or when they resolve to the same table without each being its own
+/// alias — the self-join the spec requires aliases for.
+fn validate_s25_unaliased_self_join(dict: &DataDict, out: &mut ProblemSet) {
+    for rel in &dict.relationships {
+        let Some(join) = &rel.join else { continue };
+        let names = join.tables();
+        let (found, table) = match names.as_slice() {
+            [only] => (
+                format!("`{only}` is on both sides of the join"),
+                rel.resolve(only).to_string(),
+            ),
+            [a, b] => {
+                let table = rel.resolve(a);
+                if table != rel.resolve(b) || (rel.alias(a).is_some() && rel.alias(b).is_some()) {
+                    continue;
+                }
+                (
+                    format!("`{a}` and `{b}` both refer to table `{table}`"),
+                    table.to_string(),
+                )
+            }
+            _ => continue,
+        };
+        out.push_spec_error(
+            "S25",
+            "A self-join must give each side its own alias.",
+            found,
+            [rel.join_text.span.clone()],
+        );
+        out.hint_last(format!(
+            "Name the role each side plays, e.g. `aliases: {{parent: {table}, child: {table}}}`, \
+             and use those names in the `join`."
+        ));
+    }
+}
+
+// --- S26 / S27 ---------------------------------------------------------
+
+fn validate_s26_alias_shadows_table(dict: &DataDict, out: &mut ProblemSet) {
+    for rel in &dict.relationships {
+        for alias in &rel.aliases {
+            if dict.table(&alias.name.value).is_some() {
+                out.push_spec_error(
+                    "S26",
+                    "An alias must not have the same name as a table.",
+                    format!(
+                        "`{}` is already a table in this dictionary",
+                        alias.name.value
+                    ),
+                    [rel.join_text.span.clone(), alias.name.span.clone()],
+                );
+            }
+        }
+    }
+}
+
+fn validate_s27_unused_alias(dict: &DataDict, out: &mut ProblemSet) {
+    for rel in &dict.relationships {
+        let Some(join) = &rel.join else { continue };
+        let names = join.tables();
+        for alias in &rel.aliases {
+            if !names.contains(&alias.name.value.as_str()) {
+                out.push_spec_warning(
+                    "S27",
+                    "Every alias should be used by its relationship's `join`.",
+                    format!("alias `{}` is never used", alias.name.value),
+                    [rel.join_text.span.clone(), alias.name.span.clone()],
+                );
+            }
         }
     }
 }
@@ -310,28 +530,7 @@ fn validate_s01_foreign_key(dict: &DataDict, table: &Table, col: &Column, out: &
     if !col.has(ForeignKey) {
         return;
     }
-    let table_name = table.name.value.as_str();
-    let satisfied = dict.relationships.iter().any(|rel| {
-        let Some(join) = &rel.join else { return false };
-        // The FK column must appear on one side of some conjunct, and the
-        // corresponding other side must carry PrimaryKey.
-        join.conjuncts.iter().any(|conj| {
-            let sides = [(&conj.lhs, &conj.rhs), (&conj.rhs, &conj.lhs)];
-            sides.iter().any(|(fk_side, pk_side)| {
-                if fk_side.table != table_name || fk_side.column != col.name.value {
-                    return false;
-                }
-                let Some(other_tbl) = dict.table(&pk_side.table) else {
-                    return false;
-                };
-                let Some(other_col) = other_tbl.column(&pk_side.column) else {
-                    return false;
-                };
-                other_col.has(PrimaryKey)
-            })
-        })
-    });
-    if !satisfied {
+    if dict.resolve_foreign_key(table, col).is_none() {
         let fk_span = col
             .constraints
             .iter()
@@ -354,9 +553,15 @@ fn validate_s05_conflicts_present_on_both_sides(dict: &DataDict, out: &mut Probl
             continue;
         }
         let Some(join) = &rel.join else { continue };
-        let tables = join.tables();
-        // For a self-join, the "both sides" reduces to the single table; for
-        // a normal join, both tables must contain the column.
+        // Two aliases of one table are one table for this check, so resolve
+        // and dedup before looking the column up.
+        let mut tables: Vec<&str> = Vec::new();
+        for name in join.tables() {
+            let resolved = rel.resolve(name);
+            if !tables.contains(&resolved) {
+                tables.push(resolved);
+            }
+        }
         for c in &rel.conflicts {
             let mut missing_from: Vec<&str> = Vec::new();
             for t_name in &tables {
@@ -408,7 +613,7 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
         // cardinality against a column that doesn't exist would just produce a
         // redundant, confusing S06.
         let all_cols_resolve = join.qcols().all(|q| {
-            dict.table(&q.table)
+            dict.table(rel.resolve(&q.table))
                 .is_some_and(|t| t.column(&q.column).is_some())
         });
         if !all_cols_resolve {
@@ -422,8 +627,8 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
         let Some(first) = join.conjuncts.first() else {
             continue;
         };
-        let lhs_table = first.lhs.table.clone();
-        let rhs_table = first.rhs.table.clone();
+        let lhs_side = first.lhs.table.clone();
+        let rhs_side = first.rhs.table.clone();
 
         // Which columns are "the join side" for each table?  For the
         // single-conjunct equality case this is straightforward. For
@@ -435,9 +640,9 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
         // joins without producing noise for legitimate overlap joins.
 
         let lhs_cols_unique =
-            side_has_unique_implied(dict, &lhs_table, join, /* use_lhs = */ true);
+            side_has_unique_implied(dict, rel, &lhs_side, join, /* use_lhs = */ true);
         let rhs_cols_unique =
-            side_has_unique_implied(dict, &rhs_table, join, /* use_lhs = */ false);
+            side_has_unique_implied(dict, rel, &rhs_side, join, /* use_lhs = */ false);
 
         let card_span = rel.cardinality.span.clone();
         match rel.cardinality.value {
@@ -448,7 +653,7 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
                         "A `one-to-one` join must have `primary_key` or `unique` columns on both sides.",
                         format!(
                             "the join columns on `{}` or `{}` are not marked `primary_key` or `unique`",
-                            lhs_table, rhs_table
+                            lhs_side, rhs_side
                         ),
                         [
                             rel.join_text.span.clone(),
@@ -466,7 +671,7 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
                         "A `one-to-many` join must have a `primary_key` or `unique` column on its left (\"one\") side.",
                         format!(
                             "the left-side join column on `{}` is not marked `primary_key` or `unique`",
-                            lhs_table
+                            lhs_side
                         ),
                         [
                             rel.join_text.span.clone(),
@@ -482,7 +687,7 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
                         "A `many-to-one` join must have a `primary_key` or `unique` column on its right (\"one\") side.",
                         format!(
                             "the right-side join column on `{}` is not marked `primary_key` or `unique`",
-                            rhs_table
+                            rhs_side
                         ),
                         [
                             rel.join_text.span.clone(),
@@ -495,18 +700,21 @@ fn validate_s06_cardinality_consistency(dict: &DataDict, out: &mut ProblemSet) {
     }
 }
 
+/// `side` is the name as it appears in the join — an alias or a table name —
+/// so the two sides of a self-join stay distinguishable.
 fn side_has_unique_implied(
     dict: &DataDict,
-    table_name: &str,
+    rel: &Relationship,
+    side: &str,
     join: &JoinExpr,
     use_lhs: bool,
 ) -> bool {
-    let Some(table) = dict.table(table_name) else {
+    let Some(table) = dict.table(rel.resolve(side)) else {
         return false;
     };
     join.conjuncts.iter().any(|conj| {
         let q: &QCol = if use_lhs { &conj.lhs } else { &conj.rhs };
-        if q.table != table_name {
+        if q.table != side {
             return false;
         }
         table
@@ -548,12 +756,12 @@ fn is_valid_type(type_name: &str) -> bool {
     false
 }
 
-// --- S19 --------------------------------------------------------------
+// --- S28 --------------------------------------------------------------
 
 /// Validate that the column's type string, if present, is a known type.
 /// Returns `true` when the type is absent (name-only column) or valid, so
 /// that callers can gate further checks on the result.
-fn validate_s19_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool {
+fn validate_s28_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool {
     let Some(col_type) = &col.col_type else {
         return true;
     };
@@ -566,7 +774,7 @@ fn validate_s19_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool 
         format!("`{}` is not a recognised type", col_type.value)
     };
     out.push_spec_error(
-        "S19",
+        "S28",
         "A column's `type` must be a known type.",
         message,
         [
@@ -578,11 +786,11 @@ fn validate_s19_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool 
     false
 }
 
-// --- S20 --------------------------------------------------------------
+// --- S29 --------------------------------------------------------------
 
 /// Error when `primary_key` or `foreign_key` appears on a `list` or `struct`
 /// column, or on any field inside a `struct`.
-fn validate_s20_key_constraints(
+fn validate_s29_key_constraints(
     table: &Table,
     col: &Column,
     in_struct: bool,
@@ -610,7 +818,7 @@ fn validate_s20_key_constraints(
                 format!("`{type_name}` columns")
             };
             out.push_spec_error(
-                "S20",
+                "S29",
                 format!("`{constraint_name}` is not valid on {context}."),
                 format!("has `{constraint_name}`"),
                 [
@@ -657,10 +865,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
 
     // For list types, delegate representation rules to the element type and
     // check fields only for list(struct).
-    let (effective_type, is_list) = match list_element_type(type_name) {
-        Some(elem) => (elem, true),
-        None => (type_name, false),
-    };
+    let effective_type = list_element_type(type_name).unwrap_or(type_name);
 
     let art = article(type_name);
 
@@ -675,7 +880,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
             );
         }
         for (span, key) in [
-            (col.values.as_ref(), "values"),
+            (col.values.as_ref().map(|v| &v.span), "values"),
             (col.range.as_ref().map(|r| &r.span), "range"),
             (col.examples.as_ref().map(|e| &e.span), "examples"),
         ] {
@@ -727,7 +932,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
                 "S07",
                 format!("{art} `{type_name}` column must use `range`, not `values`."),
                 found("values"),
-                at(values),
+                at(&values.span),
             );
         }
         if let Some(examples) = &col.examples {
@@ -741,7 +946,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
     } else if effective_type == "boolean" {
         // Neither scalar boolean nor list(boolean) takes representation keys.
         for (span, key) in [
-            (col.values.as_ref(), "values"),
+            (col.values.as_ref().map(|v| &v.span), "values"),
             (col.range.as_ref().map(|r| &r.span), "range"),
             (col.examples.as_ref().map(|e| &e.span), "examples"),
         ] {
@@ -769,7 +974,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
                 "S07",
                 format!("{art} `{type_name}` column must not use `values`."),
                 found("values"),
-                at(values),
+                at(&values.span),
             );
         }
         if let Some(range) = &col.range {
@@ -783,20 +988,19 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
     }
 
     // `fields` is only valid on struct and list(struct) columns.
-    if effective_type != "struct" {
-        if let Some(fields_span) = col
+    if effective_type != "struct"
+        && let Some(fields_span) = col
             .fields
             .as_ref()
             .and_then(|f| f.first())
             .map(|f| &f.name.span)
-        {
-            out.push_spec_error(
-                "S07",
-                format!("{art} `{type_name}` column must not use `fields`."),
-                found("fields"),
-                at(fields_span),
-            );
-        }
+    {
+        out.push_spec_error(
+            "S07",
+            format!("{art} `{type_name}` column must not use `fields`."),
+            found("fields"),
+            at(fields_span),
+        );
     }
 
     out.items.len() == before
@@ -993,16 +1197,14 @@ fn validate_s11_column_name(table: &Table, col: &Column, out: &mut ProblemSet) -
 /// one it owns so that a misplaced key reports as S07 rather than cascading
 /// into S12. For list types the element type determines the key and the
 /// expected value kind.
-fn typed_representation(col: &Column) -> Option<(&'static str, &str, &[Spanned<Scalar>])> {
+fn typed_representation(col: &Column) -> Option<(&'static str, &str, &Representation)> {
     let type_name = col.col_type.as_ref()?.value.as_str();
     let effective = list_element_type(type_name).unwrap_or(type_name);
     match effective {
         "number(ordinal)" | "number(quantity)" | "date" | "datetime" => {
-            Some(("range", effective, &col.range.as_ref()?.items))
+            Some(("range", effective, col.range.as_ref()?))
         }
-        "string" | "number" | "number(id)" => {
-            Some(("examples", effective, &col.examples.as_ref()?.items))
-        }
+        "string" | "number" | "number(id)" => Some(("examples", effective, col.examples.as_ref()?)),
         _ => None,
     }
 }
@@ -1010,15 +1212,16 @@ fn typed_representation(col: &Column) -> Option<(&'static str, &str, &[Spanned<S
 /// Returns whether every value in the column's typed representation matches its
 /// type — i.e. whether the bounds are sound enough to compare for order (S13).
 fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -> bool {
-    let Some(type_name) = col.col_type.as_ref().map(|t| t.value.as_str()) else {
+    let Some(col_type) = col.col_type.as_ref() else {
         return true;
     };
-    let Some((key, effective_type, values)) = typed_representation(col) else {
+    let type_name = col_type.value.as_str();
+    let Some((key, effective_type, rep)) = typed_representation(col) else {
         return true;
     };
     let tz_present = col.time_zone.is_some();
     let mut ok = true;
-    for v in values {
+    for v in &rep.items {
         if value_matches_type(effective_type, &v.value, tz_present) {
             continue;
         }
@@ -1035,26 +1238,30 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
             [
                 table.name.span.clone(),
                 col.name.span.clone(),
+                col_type.span.clone(),
+                rep.key_span.clone(),
                 v.span.clone(),
             ],
         );
+        if effective_type == "string"
+            && let Some(hint) = quoting_hint(&v.value)
+        {
+            out.hint_last(hint);
+        }
     }
     ok
 }
 
 fn is_infinite(value: &Scalar) -> bool {
-    matches!(value, Scalar::Number(f) if f.is_infinite())
+    matches!(value, Scalar::Float(f) if f.is_infinite())
 }
 
 fn value_matches_type(type_name: &str, value: &Scalar, tz_present: bool) -> bool {
     match type_name {
         "number" | "number(id)" | "number(ordinal)" | "number(quantity)" => {
-            matches!(value, Scalar::Number(_))
+            matches!(value, Scalar::Int(_) | Scalar::Float(_))
         }
-        // The YAML parser discards quote style, so a quoted `'1'` arrives as a
-        // number and a quoted `'null'` as null; we can't tell those from a real
-        // string. So `string` accepts any scalar and only rejects a list/map.
-        "string" => !matches!(value, Scalar::Compound),
+        "string" => matches!(value, Scalar::String(_)),
         // An infinite bound leaves that end of a temporal range open (spec:
         // Representative values), so accept it alongside a real ISO 8601 value.
         "date" => {
@@ -1101,6 +1308,66 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
     }
 }
 
+// --- S24 --------------------------------------------------------------
+
+/// An enum's values are the categories of the column, so there must be some and
+/// each must be a string. Both forms reach here the same way: the map form's
+/// keys are lowered as its values.
+fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
+    let Some(col_type) = col.col_type.as_ref().filter(|t| t.value == "enum") else {
+        return;
+    };
+    // A missing `values` is S07's to report.
+    let Some(values) = &col.values else { return };
+    // The `type` and `values` lines come along so the finding reads as being
+    // about this column's categories, not a bare scalar somewhere in the file.
+    let at = |span: &SourceInfo| {
+        [
+            table.name.span.clone(),
+            col.name.span.clone(),
+            col_type.span.clone(),
+            values.key_span.clone(),
+            span.clone(),
+        ]
+    };
+
+    if values.items.is_empty() {
+        out.push_spec_error(
+            "S24",
+            "An `enum` column must list at least one value.",
+            "is empty",
+            at(&values.span),
+        );
+        return;
+    }
+    for item in &values.items {
+        if !matches!(item.value, Scalar::String(_)) {
+            out.push_spec_error(
+                "S24",
+                "An `enum`'s values must be strings.",
+                format!("is {}", item.value.noun()),
+                at(&item.span),
+            );
+            if let Some(hint) = quoting_hint(&item.value) {
+                out.hint_last(hint);
+            }
+        }
+    }
+}
+
+/// A category or `string` value written unquoted is resolved by its text, so a
+/// numeric or boolean spelling arrives as the wrong kind; the fix is to quote
+/// it. `None` for a value no quoting rescues (null, or a nested list/map).
+fn quoting_hint(value: &Scalar) -> Option<String> {
+    let literal = match value {
+        Scalar::Int(n) => n.to_string(),
+        Scalar::Float(n) => n.to_string(),
+        Scalar::Bool(b) => b.to_string(),
+        _ => return None,
+    };
+    Some(format!("Quote it to make it a string: `'{literal}'`."))
+}
+
 // --- S13 --------------------------------------------------------------
 
 /// Only reached when S12 confirmed both bounds parse for the column's type, so
@@ -1138,8 +1405,8 @@ fn validate_s13_range_order(table: &Table, col: &Column, out: &mut ProblemSet) {
 /// only when it sits on the wrong end (`+inf` as minimum, `-inf` as maximum).
 fn range_descending(type_name: &str, lo: &Scalar, hi: &Scalar, tz_present: bool) -> bool {
     if is_infinite(lo) || is_infinite(hi) {
-        let is_pos = |v: &Scalar| matches!(v, Scalar::Number(f) if *f == f64::INFINITY);
-        let is_neg = |v: &Scalar| matches!(v, Scalar::Number(f) if *f == f64::NEG_INFINITY);
+        let is_pos = |v: &Scalar| matches!(v, Scalar::Float(f) if *f == f64::INFINITY);
+        let is_neg = |v: &Scalar| matches!(v, Scalar::Float(f) if *f == f64::NEG_INFINITY);
         return (is_pos(lo) && !is_pos(hi)) || (is_neg(hi) && !is_neg(lo));
     }
     match (type_name, lo, hi) {
@@ -1159,8 +1426,10 @@ fn range_descending(type_name: &str, lo: &Scalar, hi: &Scalar, tz_present: bool)
                 _ => false,
             }
         }
-        (_, Scalar::Number(a), Scalar::Number(b)) => a > b,
-        _ => false,
+        (_, lo, hi) => match (lo.as_f64(), hi.as_f64()) {
+            (Some(a), Some(b)) => a > b,
+            _ => false,
+        },
     }
 }
 

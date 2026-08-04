@@ -20,7 +20,7 @@ LL |       - name: tags
 LL |         type: list(string)
 LL |         constraints: [foreign_key]
    |                       ^^^^^^^^^^^ is `foreign_key` but no relationship points it at a `primary_key`
-error[S20]: `foreign_key` is not valid on `list(string)` columns.
+error[S29]: `foreign_key` is not valid on `list(string)` columns.
   --> dict.yaml:8:23
    |
 LL |   - name: t

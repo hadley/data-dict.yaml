@@ -30,8 +30,8 @@ relationships:
   - join: food.food_category_id = category.id
     cardinality: many-to-one
 ────────────────────────────────────────
-error[S02]: A `join` must refer to known tables.
+error[S02]: A `join` must refer to known tables or aliases.
   --> spec/s02-missing-table.yaml:27:35
    |
 LL |   - join: food.food_category_id = category.id
-   |                                   ^^^^^^^^^^^ table `category` is not defined
+   |                                   ^^^^^^^^^^^ `category` is neither a table nor an alias

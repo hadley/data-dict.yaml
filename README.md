@@ -1,6 +1,6 @@
 # `data-dict.yaml`
 
-`data-dict.yaml` is a lightweight, YAML-based data dictionary specification. It
+`data-dict.yaml` is a lightweight YAML specification for data dictionaries, paired with a command line application for validation. It
 describes a collection of related tables — their columns, types, constraints,
 relationships, and the domain vocabulary you need to understand them — in a
 single file that humans and AI agents can co-author and keep in sync with your
@@ -32,7 +32,8 @@ The `data-dict` CLI validates dictionaries at [three levels](https://data-dict.t
 * Compare a dictionary against its tables' data — column names and types
   (`validate-meta`), or values too (`validate-data`). The data is located
   through each table's `source`, so only the dictionary is passed.
-* Print the column types of a Parquet file (`types parquet`).
+* Summarise the columns of a Parquet file — types, distinct and missing
+  counts, histograms and common values (`describe`).
 * Print an embedded agent skill for reading or writing data dictionaries
   (`skill read` / `skill write`).
 * Print the full specification (`spec`).
@@ -65,11 +66,11 @@ Run `data-dict` with no arguments to see the usage:
 Usage: data-dict <COMMAND>
 
 Commands:
+  describe       Summarise the columns of a parquet file
   validate-spec  Validate a data-dict.yaml file or directory against the spec [default: .]
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary
   spec           Print the data-dict.yaml specification
-  types parquet  Print column types for a parquet file
   skill read     Skill for reading and understanding a data dictionary
   skill write    Skill for creating or updating a data dictionary
   help           Print this message or the help of the given subcommand(s)

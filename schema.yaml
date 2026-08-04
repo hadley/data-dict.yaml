@@ -39,6 +39,10 @@ object:
     description: string
     details: string
 
+    # A loose link (URL or dictionary-relative path) to the code that produced
+    # the dataset. Unenforced: no S-check, never fetched or resolved.
+    origin: string
+
     tables:
       arrayOf:
         object:
@@ -56,6 +60,7 @@ object:
             label: string
             description: string
             details: string
+            origin: string
 
             source:
               object:
@@ -87,7 +92,7 @@ object:
                     time_zone: string
                     # Valid types: the fixed scalars, "struct", and "list(element_type)"
                     # where element_type is any of the above. Semantic validation
-                    # (S19) catches unknown strings; the schema accepts any string
+                    # (S28) catches unknown strings; the schema accepts any string
                     # so that list(...) variants don't require enumeration here.
                     type: string
                     values:
@@ -108,7 +113,16 @@ object:
                         length: 2
                     constraints:
                       arrayOf:
-                        enum: [primary_key, foreign_key, required, unique]
+                        anyOf:
+                          # structural barewords
+                          - enum: [primary_key, foreign_key, required, unique]
+                          # assertions
+                          - object:
+                              closed: true
+                              required: [assert]
+                              properties:
+                                assert: string
+                                description: string
                     examples:
                       arrayOf: any
                     # Struct fields: same shape as columns. Type-specific rules
@@ -117,6 +131,15 @@ object:
                     # recursive structure through; S07/S11/etc. validate it.
                     fields:
                       arrayOf: any
+
+            constraints:
+              arrayOf:
+                object:
+                  closed: true
+                  required: [assert]
+                  properties:
+                    assert: string
+                    description: string
 
     relationships:
       arrayOf:
@@ -130,6 +153,10 @@ object:
             join: string
             conflicts:
               arrayOf: string
+            # alias -> table name. S25/S26/S27 cover the semantic rules.
+            aliases:
+              object:
+                additionalProperties: string
 
     glossary:
       object:

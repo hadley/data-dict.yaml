@@ -1,0 +1,19 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x]
+        constraints:
+          - assert: LENGTH(a) <=
+────────────────────────────────────────
+error[S19]: 
+  --> dict.yaml:10:33
+   |
+LL |           - assert: LENGTH(a) <=
+   |                                 ^ `assert` expression does not parse: expected an expression

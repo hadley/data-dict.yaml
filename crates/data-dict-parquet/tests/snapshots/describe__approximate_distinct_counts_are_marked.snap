@@ -1,0 +1,31 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&text, &path)"
+---
+<file>.parquet: 1200 rows × 1 column
+
+visit — string
+  visit-1000     ~2
+  visit-1001     ~2
+  visit-1002     ~2
+  visit-1003     ~2
+  visit-1004     ~2
+  visit-1005     ~2
+  visit-1006     ~2
+  visit-1007     ~2
+  visit-1008     ~2
+  visit-1009     ~2
+  visit-1010     ~2
+  visit-1011     ~2
+  visit-1012     ~2
+  visit-1013     ~2
+  visit-1014     ~2
+  visit-1015     ~2
+  visit-1016     ~2
+  visit-1017     ~2
+  visit-1018     ~2
+  visit-1019     ~2
+  (~1180 other values, e.g. visit-0002, visit-0324, visit-0660, visit-0905, …)
+  -----------------
+  distinct:   ~1200
+  missing:        0

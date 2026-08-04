@@ -1,0 +1,43 @@
+# expected: valid
+# Aliases where they're optional: two tables joined twice, each join meaning
+# something different. The alias names the role rather than telling two sides
+# apart.
+
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+
+tables:
+  - name: flights
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+      - name: origin
+        type: string
+        constraints: [foreign_key]
+        examples: ["EWR", "LGA"]
+      - name: dest
+        type: string
+        constraints: [foreign_key]
+        examples: ["IAH", "ATL"]
+
+  - name: airports
+    columns:
+      - name: faa
+        type: string
+        constraints: [primary_key]
+        examples: ["EWR", "IAH"]
+      - name: name
+        type: string
+        examples: ["Newark Liberty Intl", "George Bush Intercontinental"]
+
+relationships:
+  - join: flights.origin = origin_airport.faa
+    aliases:
+      origin_airport: airports
+    cardinality: many-to-one
+  - join: flights.dest = dest_airport.faa
+    aliases:
+      dest_airport: airports
+    cardinality: many-to-one

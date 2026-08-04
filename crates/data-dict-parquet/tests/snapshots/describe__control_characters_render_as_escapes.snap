@@ -1,0 +1,12 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&description.to_string(), &path)"
+---
+<file>.parquet: 4 rows × 1 column
+
+note — string
+  line one\nline two  2
+  tabbed\there        2
+  ---------------------
+  distinct:           2
+  missing:            0

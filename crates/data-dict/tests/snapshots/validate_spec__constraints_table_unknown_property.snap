@@ -1,0 +1,22 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x]
+    constraints:
+      - assert: end_date >= start_date
+        bogus: 1
+────────────────────────────────────────
+error[Q-1-18]: An object may only contain the properties its schema defines.
+  --> dict.yaml:11:9
+   |
+LL |         bogus: 1
+   |         ^^^^^ Unknown property 'bogus'
+   |
+   = help: Check for typos in property names or remove unrecognized properties?

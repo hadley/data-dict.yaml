@@ -1,0 +1,41 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+# expected: S27 (warning)
+# `category` is declared but the join names `food_category` directly, so the
+# alias does nothing. Warning only: the join itself is still valid.
+
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+
+tables:
+  - name: food
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+      - name: food_category_id
+        type: number(id)
+        examples: [1, 2]
+
+  - name: food_category
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+
+relationships:
+  - join: food.food_category_id = food_category.id
+    aliases:
+      category: food_category
+    cardinality: many-to-one
+────────────────────────────────────────
+warning[S27]: Every alias should be used by its relationship's `join`.
+  --> spec/s27-unused-alias.yaml:29:7
+   |
+LL |   - join: food.food_category_id = food_category.id
+LL |     aliases:
+LL |       category: food_category
+   |       ^^^^^^^^ alias `category` is never used

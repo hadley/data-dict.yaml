@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x]
+        constraints:
+          - primary
+────────────────────────────────────────
+error[Q-1-12]: A value must be one of its schema's allowed values.
+  --> dict.yaml:10:13
+   |
+LL |           - primary
+   |             ^^^^^^^ Value must be one of: "primary_key", "foreign_key", "required", "unique", got '"primary"'
+   |
+   = help: Check the schema for allowed values?

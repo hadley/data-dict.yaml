@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x]
+    constraints:
+      - assert: 42
+────────────────────────────────────────
+error[Q-1-11]: A value must have the type its schema requires.
+  --> dict.yaml:10:17
+   |
+LL |       - assert: 42
+   |                 ^^ Expected string, got integer
+   |
+   = help: Ensure the value is a string (quoted if it contains special characters)?

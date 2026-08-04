@@ -27,9 +27,14 @@ pub(crate) enum CheckResult {
 /// data the dictionary does not describe. Values are never read; see
 /// [`crate::validate_data::validate_data`] for the level that does.
 pub fn validate_meta(dict_path: &Path, table: Option<&str>) -> ProblemSet {
-    crate::compare_dataset(dict_path, table, |table, _parquet, actual, problems| {
-        meta_issues(table, actual, problems);
-    })
+    crate::compare_dataset(
+        dict_path,
+        table,
+        |table, _parquet, actual, problems| {
+            meta_issues(table, actual, problems);
+        },
+        |_dict, _readable, _problems| {},
+    )
 }
 
 /// Compare the dictionary's `table` against the actual column types read from
@@ -55,6 +60,48 @@ pub(crate) fn validate_d01_required_not_null(
         Some(0) => CheckResult::Pass,
         Some(count) => CheckResult::Fail(Box::new(nulls_in_required_meta(table, col, count))),
         None => CheckResult::Inconclusive,
+    }
+}
+
+/// Attempt D04 from footer metadata. Set membership can't be settled from the
+/// footer — min/max bound the extremes but say nothing about the values between
+/// them — so an `enum` column carrying a `values` set is always inconclusive and
+/// deferred to the scan; any other column passes here.
+pub(crate) fn validate_d04_enum_membership(col: &Column) -> CheckResult {
+    if col.is_enum() && col.values.is_some() {
+        CheckResult::Inconclusive
+    } else {
+        CheckResult::Pass
+    }
+}
+
+/// Attempt the individual-column form of D02 from footer statistics.
+pub(crate) fn validate_d02_unique_column(
+    table: &Table,
+    col: &Column,
+    meta: &ColumnMeta,
+) -> CheckResult {
+    if !col.has(Constraint::Unique) {
+        return CheckResult::Pass;
+    }
+    let (Some(distinct), Some(nulls)) = (meta.distinct_count, meta.null_count) else {
+        return CheckResult::Inconclusive;
+    };
+    // Parquet writers differ in how they populate distinct counts around nulls;
+    // scan nullable data rather than drawing an unsafe footer-only conclusion.
+    if nulls > 0 {
+        return CheckResult::Inconclusive;
+    }
+    if distinct == meta.row_count {
+        CheckResult::Pass
+    } else if distinct < meta.row_count {
+        CheckResult::Fail(Box::new(duplicates_meta(
+            table,
+            col,
+            meta.row_count - distinct,
+        )))
+    } else {
+        CheckResult::Inconclusive
     }
 }
 
@@ -87,6 +134,37 @@ fn nulls_in_required_meta(table: &Table, col: &Column, count: usize) -> Problem 
             constraint_span,
         ],
         kind: ProblemKind::NullsInRequired {
+            count,
+            rows: Vec::new(),
+        },
+    }
+}
+
+fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
+    let plural = if count == 1 { "" } else { "s" };
+    let constraint_span = col
+        .constraints
+        .iter()
+        .find(|constraint| constraint.value == Constraint::Unique)
+        .map_or_else(
+            || col.name.span.clone(),
+            |constraint| constraint.span.clone(),
+        );
+    Problem {
+        code: Some("D02"),
+        severity: Severity::Error,
+        message: format!("has {count} repeated occurrence{plural}"),
+        column: None,
+        expected: Some("A unique column must not contain duplicate values.".into()),
+        hint: None,
+        suggestion: None,
+        context: vec![
+            table.name.span.clone(),
+            col.name.span.clone(),
+            constraint_span,
+        ],
+        kind: ProblemKind::DuplicateValues {
+            columns: vec![col.name.value.clone()],
             count,
             rows: Vec::new(),
         },
@@ -158,8 +236,8 @@ fn normalize_dict_type(dict_type: &str) -> &str {
 /// data (one of `boolean`, `string`, `enum`, `date`, `datetime`, `number`).
 ///
 /// Dictionary types are coarser/richer than physical types, so the match is by
-/// category rather than exact string. An `enum` is backed by either a string
-/// or a number in the data (or a true parquet enum), so all three are accepted.
+/// category rather than exact string. An `enum` must be backed by string-like
+/// data — a string column or a true parquet enum — never a number.
 fn types_compatible(dict_type: &str, actual: &str) -> bool {
     match normalize_dict_type(dict_type) {
         "number" => actual == "number",
@@ -167,7 +245,7 @@ fn types_compatible(dict_type: &str, actual: &str) -> bool {
         "boolean" => actual == "boolean",
         "date" => actual == "date",
         "datetime" => actual == "datetime",
-        "enum" => matches!(actual, "string" | "number" | "enum"),
+        "enum" => matches!(actual, "string" | "enum"),
         _ => false,
     }
 }
@@ -189,7 +267,7 @@ mod tests {
         assert!(types_compatible("number(quantity)", "number"));
         assert!(types_compatible("string", "string"));
         assert!(types_compatible("enum", "string"));
-        assert!(types_compatible("enum", "number"));
+        assert!(!types_compatible("enum", "number"));
         assert!(types_compatible("enum", "enum"));
         assert!(!types_compatible("number", "string"));
         assert!(!types_compatible("date", "datetime"));

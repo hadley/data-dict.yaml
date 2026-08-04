@@ -50,7 +50,10 @@ fn assert_valid_dict(body: &str) {
 /// Assert `body` validates with neither errors nor warnings — entirely clean.
 /// Stronger than [`assert_valid_dict`], which only checks for errors.
 fn assert_clean_dict(body: &str) {
-    let path = dict(body);
+    assert_clean(dict(body));
+}
+
+fn assert_clean(path: PathBuf) {
     let errors = diagnostics(&path, Severity::Error);
     assert!(
         errors.is_empty(),
@@ -176,6 +179,20 @@ fn failing_diagnostic(rel: &str) -> Diagnostic {
     }
 }
 
+/// [`failing_diagnostic`]'s counterpart for a fixture that validates but warns.
+fn warning_diagnostic(rel: &str) -> Diagnostic {
+    let path = fixture(rel);
+    assert_valid(path.clone());
+    let warnings = diagnostics(&path, Severity::Warning);
+    if warnings.is_empty() {
+        panic!("expected {rel} to warn, but it was clean");
+    }
+    Diagnostic {
+        source: std::fs::read_to_string(&path).unwrap(),
+        rendered: common::sanitize(&warnings.join("\n"), &fixtures_root()),
+    }
+}
+
 // --- valid documents -----------------------------------------------------
 
 // The smallest recommended document: the required `$version` plus the
@@ -218,6 +235,38 @@ fn top_level_description_no_s16() {
                 type: number(id)
                 examples: [1, 2, 3]
     "});
+}
+
+// `origin` is a loose, unenforced reference (a URL or a dictionary-relative
+// path) accepted at both the dataset and table levels.
+#[test]
+fn origin_dataset_and_table() {
+    assert_clean_dict(indoc! {"
+        name: foodbank
+        origin: https://github.com/example/foodbank/blob/main/data-raw/all.R
+        tables:
+          - name: food
+            origin: data-raw/food.R
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+    "});
+}
+
+// `origin` is not a column-level key: the closed column object rejects it.
+#[test]
+fn origin_on_column_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: food
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1, 2, 3]
+                origin: data-raw/food.R
+    "});
+    diagnostic.assert_contains(&["Unknown property 'origin'"]);
 }
 
 #[test]
@@ -370,6 +419,11 @@ fn s02_missing_table() {
 }
 
 #[test]
+fn s02_alias_unknown_table() {
+    assert_snapshot!(failing_diagnostic("spec/s02-alias-unknown-table.yaml"));
+}
+
+#[test]
 fn s03_missing_column() {
     assert_snapshot!(failing_diagnostic("spec/s03-missing-column.yaml"));
 }
@@ -404,6 +458,81 @@ fn s06_cardinality_mismatch() {
 #[test]
 fn s06_self_join_one_to_many() {
     assert_snapshot!(failing_diagnostic("spec/s06-self-join-one-to-many.yaml"));
+}
+
+// Names that aren't plain identifiers are referenced from a `join` in
+// backticks, so S02/S03 resolve them like any other name.
+#[test]
+fn quoted_names_ok() {
+    assert_valid(fixture("spec/quoted-names-ok.yaml"));
+}
+
+// --- aliases (S25/S26/S27) -----------------------------------------------
+
+#[test]
+fn s25_unaliased_self_join() {
+    assert_snapshot!(failing_diagnostic("spec/s25-unaliased-self-join.yaml"));
+}
+
+// One alias and one bare table name still leaves both sides standing for the
+// same rows, so aliasing half the join isn't enough.
+#[test]
+fn s25_half_aliased_self_join() {
+    assert_snapshot!(failing_diagnostic("spec/s25-half-aliased-self-join.yaml"));
+}
+
+// Two aliases of one table are two sides, so this is the self-join spelling the
+// spec asks for. Also covers S01 resolving a foreign key through an alias.
+#[test]
+fn aliases_self_join_ok() {
+    assert_clean(fixture("spec/aliases-self-join-ok.yaml"));
+}
+
+// Aliases are allowed where they aren't required: two tables joined twice, with
+// the alias naming each role.
+#[test]
+fn aliases_role_playing_ok() {
+    assert_clean(fixture("spec/aliases-role-playing-ok.yaml"));
+}
+
+#[test]
+fn s26_alias_shadows_table() {
+    assert_snapshot!(failing_diagnostic("spec/s26-alias-shadows-table.yaml"));
+}
+
+#[test]
+fn s27_unused_alias() {
+    assert_snapshot!(warning_diagnostic("spec/s27-unused-alias.yaml"));
+}
+
+// An alias resolves only within the relationship that declares it, so a second
+// relationship naming it gets S02 rather than the first one's table.
+#[test]
+fn alias_does_not_leak_between_relationships() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: a
+                columns:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [1, 2]
+              - name: b
+                columns:
+                  - name: a_id
+                    type: number(id)
+                    examples: [1, 2]
+
+            relationships:
+              - join: b.a_id = parent.id
+                aliases: {parent: a}
+                cardinality: many-to-one
+              - join: b.a_id = parent.id
+                cardinality: many-to-one
+        "},
+        &["S02"],
+    );
 }
 
 // --- data representation (S07) -------------------------------------------
@@ -625,6 +754,44 @@ fn s12_wrong_value_type() {
     assert_snapshot!(diagnostic);
 }
 
+// S12: a `string` column's examples are strings, so a zip code written bare is
+// a number, with the same quoting hint S24 gives a category.
+#[test]
+fn s12_unquoted_string_example() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples: ['02134', 94110]
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'94110'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// The same finding with the examples written one per line, where the offending
+// value sits several lines below the key that introduces it.
+#[test]
+fn s12_unquoted_string_example_block_form() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: zip
+                type: string
+                examples:
+                  - '02134'
+                  - '94110'
+                  - 60614
+                  - '98101'
+    "});
+    diagnostic.assert_contains(&["S12", "must be a string", "`'60614'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn s12_date_not_iso() {
     let diagnostic = failing_dict(indoc! {r#"
@@ -713,6 +880,117 @@ fn s13_infinite_bound_wrong_end() {
                 range: [.inf, 2019-04-01]
     "});
     diagnostic.assert_contains(&["S13", "is greater than the maximum"]);
+}
+
+// --- enum values (S24) ---------------------------------------------------
+
+// S24: a value no quoting rescues, so it carries no hint.
+#[test]
+fn s24_null_enum_value() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: {pass: Pass, ~: Unknown}
+    "});
+    diagnostic.assert_contains(&["S24", "is null"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A category coded as a number is a string once quoted.
+#[test]
+fn s24_numeric_codes_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: ["1", "2", "3"]
+    "#});
+}
+
+// S24: written unquoted, the same codes are numbers, and the hint says so.
+#[test]
+fn s24_unquoted_numeric_codes() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: correction
+                type: enum
+                values:
+                  1: No correction
+                  0.974: Curvilinear correction
+    "});
+    diagnostic.assert_contains(&["S24", "is a number", "`'0.974'`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_unquoted_boolean_value() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: consent
+                    type: enum
+                    values: [true, false, unknown]
+        "},
+        &["S24", "is a boolean", "`'true'`"],
+    );
+}
+
+// Numeric-looking keys must not make the map form read as a list.
+#[test]
+fn s24_mixed_key_types_map_form_ok() {
+    assert_valid_dict(indoc! {r#"
+        tables:
+          - name: table
+            columns:
+              - name: thermocline
+                type: enum
+                values:
+                  '-9': Not known
+                  N: 'No'
+                  Y: 'Yes'
+    "#});
+}
+
+// S24: an empty `values` permits nothing, in either form.
+#[test]
+fn s24_empty_enum_values() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: grade
+                type: enum
+                values: []
+    "});
+    diagnostic.assert_contains(&["S24", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s24_empty_enum_values_map_form() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: table
+                columns:
+                  - name: grade
+                    type: enum
+                    values: {}
+        "},
+        &["S24", "is empty"],
+    );
 }
 
 // --- version (S17) -------------------------------------------------------
@@ -891,7 +1169,7 @@ fn s15_bad_time_zone() {
     assert_snapshot!(diagnostic);
 }
 
-// --- list and struct types (S07, S19, S20) --------------------------------
+// --- list and struct types (S07, S28, S29) --------------------------------
 
 #[test]
 fn struct_with_fields_ok() {
@@ -911,7 +1189,7 @@ fn struct_with_fields_ok() {
                     examples: [123 Main St, 456 Oak Ave]
                   - name: zip
                     type: string
-                    examples: [97201, 78701]
+                    examples: ['97201', '78701']
     "});
 }
 
@@ -1002,9 +1280,9 @@ fn list_boolean_no_representation_ok() {
     "});
 }
 
-// S19: list(foo) names the bad element type, not the whole list type.
+// S28: list(foo) names the bad element type, not the whole list type.
 #[test]
-fn s19_invalid_list_element_type() {
+fn s28_invalid_list_element_type() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1013,14 +1291,14 @@ fn s19_invalid_list_element_type() {
                 type: list(foo)
                 examples: [a, b, c]
     "});
-    diagnostic.assert_contains(&["S19", "foo", "element type"]);
+    diagnostic.assert_contains(&["S28", "foo", "element type"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
 
-// S19: an unrecognised type string is rejected.
+// S28: an unrecognised type string is rejected.
 #[test]
-fn s19_invalid_type() {
+fn s28_invalid_type() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1029,7 +1307,7 @@ fn s19_invalid_type() {
                 type: foobar
                 examples: [1, 2, 3]
     "});
-    diagnostic.assert_contains(&["S19", "foobar"]);
+    diagnostic.assert_contains(&["S28", "foobar"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -1084,9 +1362,9 @@ fn s07_list_missing_representation() {
     assert_snapshot!(diagnostic);
 }
 
-// S20: primary_key on a struct column is an error.
+// S29: primary_key on a struct column is an error.
 #[test]
-fn s20_primary_key_on_struct() {
+fn s29_primary_key_on_struct() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1099,14 +1377,14 @@ fn s20_primary_key_on_struct() {
                     type: string
                     examples: [123 Main St]
     "});
-    diagnostic.assert_contains(&["S20", "primary_key", "struct"]);
+    diagnostic.assert_contains(&["S29", "primary_key", "struct"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
 
-// S20: foreign_key on a list column is an error.
+// S29: foreign_key on a list column is an error.
 #[test]
-fn s20_foreign_key_on_list() {
+fn s29_foreign_key_on_list() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1116,14 +1394,14 @@ fn s20_foreign_key_on_list() {
                 constraints: [foreign_key]
                 examples: [a, b, c]
     "});
-    diagnostic.assert_contains(&["S20", "foreign_key", "list(string)"]);
+    diagnostic.assert_contains(&["S29", "foreign_key", "list(string)"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
 
-// S20: primary_key on a struct field is always an error.
+// S29: primary_key on a struct field is always an error.
 #[test]
-fn s20_primary_key_on_struct_field() {
+fn s29_primary_key_on_struct_field() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1136,7 +1414,7 @@ fn s20_primary_key_on_struct_field() {
                     constraints: [primary_key]
                     examples: [1, 2, 3]
     "});
-    diagnostic.assert_contains(&["S20", "primary_key"]);
+    diagnostic.assert_contains(&["S29", "primary_key"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -1158,4 +1436,503 @@ fn struct_field_s12_wrong_type() {
     diagnostic.assert_contains(&["S12"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
+}
+
+// --- constraints (column & table assertions) -----------------------------
+//
+// The schema fixes only the *shape* of constraints: a column entry is either a
+// structural bareword or an assertion map (`assert` + optional `description`),
+// and a table entry is an assertion map only. The `assert` expression itself is
+// then validated semantically — parsed (S19), its columns resolved (S20), and
+// type-checked (S21) — by `assert_expr` (see that module for the grammar).
+
+// A column may mix structural barewords with assertion maps in one list, and an
+// assertion may carry an optional `description`.
+#[test]
+fn constraints_column_mixed_structural_and_assertion() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: postcode
+                type: string
+                examples: [AB1 2CD]
+                constraints:
+                  - required
+                  - assert: LENGTH(postcode) <= 10
+                    description: Postcodes are at most ten characters.
+    "});
+}
+
+// Table-level constraints are a list of assertion maps, the natural home for
+// rules that span columns.
+#[test]
+fn constraints_table_assertions() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: start_date
+                type: date
+                range: [2000-01-01, 2030-01-01]
+              - name: end_date
+                type: date
+                range: [2000-01-01, 2030-01-01]
+            constraints:
+              - assert: end_date >= start_date
+                description: A contract can't end before it starts.
+              - assert: COLUMNS(*) IS NOT NULL
+    "});
+}
+
+// S19: an `assert` expression that fails to parse points at the failing token.
+#[test]
+fn constraints_s19_syntax_error() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+                constraints:
+                  - assert: LENGTH(a) <=
+    "});
+    diagnostic.assert_contains(&["S19", "does not parse"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S20: an assertion referencing a column not on the table.
+#[test]
+fn constraints_s20_unknown_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: a > b
+    "});
+    diagnostic.assert_contains(&["S20", "`b`", "not on this table"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S20: a `COLUMNS([...])` list naming a column that does not exist.
+#[test]
+fn constraints_s20_unknown_column_in_columns_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: COLUMNS([a, missing]) IS NOT NULL
+    "});
+    diagnostic.assert_contains(&["S20", "`missing`"]);
+}
+
+// Backticks are optional on a name that doesn't need them: a quoted name is
+// matched exactly like a bare one.
+#[test]
+fn constraints_quoting_does_not_change_matching() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+                constraints:
+                  - assert: '`qty` > 0'
+    "});
+}
+
+// S20: a quoted name resolves against the table like any other, so one that
+// isn't there is still unknown.
+#[test]
+fn constraints_s20_unknown_quoted_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`no such column` IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S20", "`no such column`", "not on this table"]);
+}
+
+// S19: a backtick left unclosed is a syntax error like any other.
+#[test]
+fn constraints_s19_unterminated_quoted_name() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`a IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S19", "unterminated quoted name"]);
+}
+
+// S21: a type mismatch — a numeric length compared as if the column were a
+// string, and a non-boolean assertion at the top level.
+#[test]
+fn constraints_s21_type_mismatch() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+                constraints:
+                  - assert: LENGTH(qty) <= 10
+    "});
+    diagnostic.assert_contains(&["S21", "LENGTH"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S21: an assertion whose whole expression is not boolean.
+#[test]
+fn constraints_s21_non_boolean() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: qty
+                    type: number
+                    examples: [1, 2]
+                    constraints:
+                      - assert: qty
+        "},
+        &["S21", "boolean"],
+    );
+}
+
+// S21: at most one `COLUMNS(...)` may appear in an assertion.
+#[test]
+fn constraints_s21_two_columns() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: a
+                    type: number
+                    examples: [1, 2]
+                  - name: b
+                    type: number
+                    examples: [1, 2]
+                constraints:
+                  - assert: COLUMNS(*) IS NOT NULL AND COLUMNS('a') > 0
+        "},
+        &["S21", "at most one"],
+    );
+}
+
+// S21: a malformed `SIMILAR TO` regular expression.
+#[test]
+fn constraints_s21_bad_regex() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: a
+                    type: string
+                    examples: [x]
+                    constraints:
+                      - assert: a SIMILAR TO '('
+        "},
+        &["S21", "regular expression"],
+    );
+}
+
+// A date column may be compared against an ISO date string literal.
+#[test]
+fn constraints_date_literal_comparison_ok() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: d
+                type: date
+                range: [2000-01-01, 2030-01-01]
+                constraints:
+                  - assert: d >= '2000-01-01'
+    "});
+}
+
+// An `enum`'s values are its categories, so an enum is a string and takes the
+// string functions, whatever its values look like.
+#[test]
+fn constraints_enum_is_a_string() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: sex
+                type: enum
+                values: [M, F, U]
+                constraints:
+                  - assert: LENGTH(sex) = 1
+              - name: grade
+                type: enum
+                values: ['1', '2', '3']
+                constraints:
+                  - assert: grade LIKE '_'
+    "});
+}
+
+// S21: an enum is a string even when its values look like numbers, so numeric
+// comparisons don't apply.
+#[test]
+fn constraints_s21_enum_compared_with_number() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: grade
+                    type: enum
+                    values: [1, 2, 3]
+                    constraints:
+                      - assert: grade > 0
+        "},
+        &["S21", "a string", "a number"],
+    );
+}
+
+// S23: a column listed by name only has no type, so it can't be used where one
+// matters.
+#[test]
+fn constraints_s23_untyped_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+              - name: notes
+            constraints:
+              - assert: notes > a
+    "});
+    diagnostic.assert_contains(&["S23", "`notes`", "no declared type"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// An untyped column is fine where no type is needed: a null test asks nothing of
+// its operand, and neither does `COLUMNS(*) IS NOT NULL`.
+#[test]
+fn constraints_untyped_column_needs_no_type_for_null_tests() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+              - name: notes
+            constraints:
+              - assert: notes IS NOT NULL
+              - assert: COLUMNS(*) IS NOT NULL
+    "});
+}
+
+// S22: a `COLUMNS('<regex>')` that matches no column is a warning, not an error.
+#[test]
+fn constraints_s22_columns_regex_matches_nothing() {
+    let diagnostic = warning_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: COLUMNS('zzz_nope') IS NOT NULL
+    "});
+    diagnostic.assert_contains(&["S22", "matches no columns"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S21: a `COLUMNS(...)` selection is type-checked per matched column, so
+// applying LENGTH to a matched numeric column is an error.
+#[test]
+fn constraints_s21_columns_wrong_type() {
+    assert_invalid_dict(
+        indoc! {"
+            tables:
+              - name: t
+                columns:
+                  - name: amount_paid
+                    type: number
+                    examples: [1, 2]
+                constraints:
+                  - assert: LENGTH(COLUMNS('amount')) > 0
+        "},
+        &["S21", "amount_paid"],
+    );
+}
+
+// A column constraint bareword must be one of the four structural names.
+#[test]
+fn constraints_column_unknown_bareword() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+                constraints:
+                  - primary
+    "});
+    diagnostic.assert_contains(&["Q-1-12", "primary_key", r#"got '"primary"'"#]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A malformed column assertion map matches neither `anyOf` branch, so it falls
+// back to the enum branch's message rather than a precise "missing assert".
+#[test]
+fn constraints_column_malformed_assertion() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+                constraints:
+                  - description: missing the assert key
+    "});
+    diagnostic.assert_contains(&["Q-1-12", "primary_key"]);
+}
+
+// A table constraint must be an assertion map; a bareword is a plain string and
+// is rejected as the wrong type.
+#[test]
+fn constraints_table_bareword_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+            constraints:
+              - required
+    "});
+    diagnostic.assert_contains(&["Q-1-11", "Expected object, got string"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A table assertion map must carry `assert`.
+#[test]
+fn constraints_table_missing_assert() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+            constraints:
+              - description: no assert here
+    "});
+    diagnostic.assert_contains(&["Q-1-10", "Missing required property 'assert'"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Assertion maps are closed: an unknown key is rejected.
+#[test]
+fn constraints_table_unknown_property() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+            constraints:
+              - assert: end_date >= start_date
+                bogus: 1
+    "});
+    diagnostic.assert_contains(&["Q-1-18", "Unknown property 'bogus'"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// `assert` and `description` are both strings.
+#[test]
+fn constraints_table_assert_not_string() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+            constraints:
+              - assert: 42
+    "});
+    diagnostic.assert_contains(&["Q-1-11", "Expected string"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// --- in-memory entry point ----------------------------------------------
+
+#[test]
+fn validate_spec_str_accepts_valid_content() {
+    let content = indoc! {"
+        $version: 0.1.0
+        $learn_more: http://data-dict.tidyverse.org/
+        tables:
+          - name: t
+            description: A table.
+            source:
+              parquet: t.parquet
+            columns:
+              - name: c
+                type: string
+                examples: [a, b]
+                description: A column.
+    "};
+    let problems = data_dict::validate_spec_str(content, "buffer.yaml");
+    assert!(!problems.status().failed());
+}
+
+#[test]
+fn validate_spec_str_reports_located_schema_error() {
+    // Missing the required `$version` key: a structural schema failure that
+    // still resolves to a location in the buffer.
+    let problems = data_dict::validate_spec_str("tables: {}\n", "buffer.yaml");
+    assert!(problems.status().failed());
+    let schema_error = problems
+        .items
+        .iter()
+        .find(|p| p.code.is_some())
+        .expect("expected a coded schema problem");
+    assert!(schema_error.location(&problems.source).is_some());
 }

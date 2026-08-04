@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: number
+        examples: [1, 2]
+    constraints:
+      - assert: COLUMNS('zzz_nope') IS NOT NULL
+────────────────────────────────────────
+warning[S22]: A `COLUMNS(...)` selection should match at least one column.
+  --> dict.yaml:10:17
+   |
+LL |   - name: t
+...
+LL |       - assert: COLUMNS('zzz_nope') IS NOT NULL
+   |                 ^^^^^^^^^^^^^^^^^^^ `COLUMNS('zzz_nope')` matches no columns on this table

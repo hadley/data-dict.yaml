@@ -14,7 +14,7 @@ tables:
             type: string
             examples: [123 Main St]
 ────────────────────────────────────────
-error[S20]: `primary_key` is not valid on `struct` columns.
+error[S29]: `primary_key` is not valid on `struct` columns.
   --> dict.yaml:8:23
    |
 LL |   - name: t

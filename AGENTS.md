@@ -1,6 +1,6 @@
 # data-dict.yaml
 
-`data-dict.yaml` is a YAML-based data dictionary specification and validator. It describes collections of related tables — their columns, types, constraints, relationships, and domain vocabulary — and is designed to be co-written by humans and AI agents. The main deliverable is a CLI tool that validates data dictionary YAML files against the spec.
+`data-dict.yaml` is a lightweight YAML specification for data dictionaries, paired with a command line application for validation. It describes collections of related tables — their columns, types, constraints, relationships, and glossary. The main deliverable is a self-contained rust CLI called `data-dict`.
 
 The repo contains:
 
@@ -123,3 +123,15 @@ If a schema change causes `site/examples/` to fail, don't fix them. Instead repo
 ## Code
 
 - Use nanoparquet for reading/writing parquet files (R code).
+
+## Benchmarking
+
+When benchmarking performance work (e.g. the parquet validators):
+
+- Benchmark on a realistic large dataset: a ~10M-row parquet file generated with nanoparquet, not a toy fixture. Use the duckdb row group size, i.e. `num_rows_per_row_group = 122880`
+- Always report both speed and peak memory (RSS), as a summary table. Use best-of-N timings (e.g. best of 3).
+- Isolate component costs (e.g. decode vs. hashing/dedup) before optimising, so effort goes where the bottleneck actually is.
+- Verify correctness in the same harness (known duplicates, including ones spanning row groups) and re-measure before/after; revert changes that regress.
+- Prefer real measurements over guesses when weighing an alternative (e.g. a new dependency vs. hand-rolled): measure binary size, dependency count, build time, and runtime.
+- **Find hotspots with `/usr/bin/sample`** (macOS, built-in, no sudo — unlike flamegraph's dtrace). Loop the operation so the process runs ~20–30s, `sample <pid> <secs> 1 -file out.txt`, then read the "Sort by top of stack" section (self-time) piped through `c++filt`. Build with `CARGO_PROFILE_RELEASE_DEBUG=2` for symbols. Ignore `__psynch_cvwait` — that's idle rayon workers, not work.
+- **Judge changes with `criterion`** (`crates/data-dict-parquet/benches/uniqueness.rs`, `cargo bench`). Use a saved-baseline A/B — `--save-baseline after`, restore the old code, `--baseline after` — not sequential runs, which overstate gains on a noisy machine. Trust the p-values: only keep a change criterion calls significant, and confirm profiler-suggested tweaks actually help (some hurt — e.g. `collect()` vs. a pre-sized `Vec` defeats vectorisation).

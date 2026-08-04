@@ -1,0 +1,68 @@
+{
+  "name": "data-dict",
+  "displayName": "data-dict.yaml",
+  "description": "Live validation for data-dict.yaml data dictionaries.",
+  "version": "0.0.1",
+  "publisher": "data-dict",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hadley/data-dict.yaml"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dataDict.validateData",
+        "title": "data-dict: Validate data against dictionary"
+      },
+      {
+        "command": "dataDict.restartServer",
+        "title": "data-dict: Restart language server"
+      }
+    ],
+    "configuration": {
+      "title": "data-dict.yaml",
+      "properties": {
+        "dataDict.server.path": {
+          "type": "string",
+          "default": "data-dict",
+          "markdownDescription": "Path to the `data-dict` executable, which must be built with the `lsp` feature (`cargo build -p data-dict-cli --features lsp`). Defaults to `data-dict` on your `PATH`; when left at the default, a `target/release` or `target/debug` build in the workspace is used if present."
+        },
+        "dataDict.files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/data-dict.yaml"
+          ],
+          "markdownDescription": "Glob patterns for files validated as data dictionaries. Add e.g. `**/*.yaml` to validate every YAML file."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

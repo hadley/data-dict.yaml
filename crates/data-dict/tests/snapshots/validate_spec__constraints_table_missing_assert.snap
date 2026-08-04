@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x]
+    constraints:
+      - description: no assert here
+────────────────────────────────────────
+error[Q-1-10]: A required property must be present.
+  --> dict.yaml:10:9
+   |
+LL |       - description: no assert here
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Missing required property 'assert' (expected string)
+   |
+   = help: Add the `assert` property to your YAML document?

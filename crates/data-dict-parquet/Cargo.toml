@@ -8,9 +8,33 @@ repository.workspace = true
 
 [dependencies]
 parquet = { workspace = true, features = [
+  "arrow",
   "snap",
   "flate2",
   "lz4",
   "zstd",
   "brotli"
 ] }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-row = { workspace = true }
+arrow-schema = { workspace = true }
+half = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+rayon = "1"
+hashbrown = "0.15"
+
+[dev-dependencies]
+criterion = "0.5"
+insta = "1"
+serde_json = { workspace = true }
+
+[[bench]]
+name = "uniqueness"
+harness = false
+
+[[bench]]
+name = "foreign_key"
+harness = false

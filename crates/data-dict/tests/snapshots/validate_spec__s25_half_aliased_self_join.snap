@@ -1,0 +1,34 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+# expected: S25
+# Only one side is aliased, so `mother` and `otters` both stand for the same
+# table and the join still doesn't say which rows are which. Both sides need
+# their own alias.
+
+$version: "0.1.0"
+
+tables:
+  - name: otters
+    columns:
+      - name: otter_no
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: pup_number
+        type: number(id)
+        examples: [1, 2]
+
+relationships:
+  - join: otters.pup_number = mother.otter_no
+    aliases:
+      mother: otters
+    cardinality: many-to-one
+────────────────────────────────────────
+error[S25]: A self-join must give each side its own alias.
+  --> spec/s25-half-aliased-self-join.yaml:20:11
+   |
+LL |   - join: otters.pup_number = mother.otter_no
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `otters` and `mother` both refer to table `otters`
+   |
+   = help: Name the role each side plays, e.g. `aliases: {parent: otters, child: otters}`, and use those names in the `join`.

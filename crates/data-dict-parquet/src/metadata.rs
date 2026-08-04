@@ -21,6 +21,11 @@ pub struct ColumnMeta {
     /// Total nulls across all row groups, or `None` when any row group omits
     /// null-count statistics. Required Parquet fields always report `Some(0)`.
     pub null_count: Option<usize>,
+    /// Number of rows in the file.
+    pub row_count: usize,
+    /// Distinct values when a single row group's footer provides the count.
+    /// Multiple row-group counts cannot prove file-wide uniqueness.
+    pub distinct_count: Option<usize>,
 }
 
 /// Read the inexpensive, footer-only statistics for each top-level column.
@@ -47,7 +52,22 @@ pub fn column_meta(path: &Path) -> Result<HashMap<String, ColumnMeta>, ParquetEr
                         .map(|count| total + count as usize)
                 })
             };
-            (field.name().to_string(), ColumnMeta { null_count })
+            let distinct_count = match meta.row_groups() {
+                [row_group] => row_group
+                    .column(idx)
+                    .statistics()
+                    .and_then(|statistics| statistics.distinct_count_opt())
+                    .map(|count| count as usize),
+                _ => None,
+            };
+            (
+                field.name().to_string(),
+                ColumnMeta {
+                    null_count,
+                    row_count: meta.file_metadata().num_rows() as usize,
+                    distinct_count,
+                },
+            )
         })
         .collect())
 }
@@ -79,7 +99,11 @@ pub fn column_type_info(path: &Path) -> Result<Vec<ColumnTypeInfo>, ParquetError
                 name: field.name().to_string(),
                 dict_type: parquet_type_to_dict_type(field),
                 logical_type: info.logical_type().map(format_logical_type),
-                physical_type: format!("{:?}", field.get_physical_type()),
+                physical_type: if field.is_primitive() {
+                    format!("{:?}", field.get_physical_type())
+                } else {
+                    "GROUP".to_string()
+                },
             }
         })
         .collect())
@@ -132,8 +156,76 @@ fn format_time_unit(unit: TimeUnit) -> &'static str {
     }
 }
 
+/// Whether a column's values can be compared for the uniqueness checks (D02) —
+/// see the "comparable types" section of `site/validation.md`. Arrow decoding
+/// settles most representation questions (decimals arrive as numeric values,
+/// 16-bit floats as floats, INT96 as timestamps); floats are additionally
+/// canonicalized before hashing. `Incomparable` carries a short slug naming the
+/// barrier, used to build the D03 warning.
+pub(crate) enum Comparability {
+    Comparable,
+    Incomparable(&'static str),
+}
+
+pub(crate) fn uniqueness_comparability(field: &Type) -> Comparability {
+    use Comparability::{Comparable, Incomparable};
+    if !field.is_primitive() {
+        return Incomparable("nested");
+    }
+    if let Some(logical) = field.get_basic_info().logical_type() {
+        return match logical {
+            LogicalType::String
+            | LogicalType::Enum
+            | LogicalType::Date
+            | LogicalType::Time { .. }
+            | LogicalType::Timestamp { .. }
+            | LogicalType::Integer { .. }
+            | LogicalType::Decimal { .. }
+            | LogicalType::Float16
+            | LogicalType::Uuid => Comparable,
+            LogicalType::Json => Incomparable("json"),
+            LogicalType::Bson => Incomparable("bson"),
+            LogicalType::Map | LogicalType::List => Incomparable("nested"),
+            LogicalType::Unknown => Incomparable("unknown"),
+        };
+    }
+    match field.get_physical_type() {
+        PhysicalType::BOOLEAN
+        | PhysicalType::INT32
+        | PhysicalType::INT64
+        | PhysicalType::INT96
+        | PhysicalType::FLOAT
+        | PhysicalType::DOUBLE
+        | PhysicalType::BYTE_ARRAY
+        | PhysicalType::FIXED_LEN_BYTE_ARRAY => Comparable,
+    }
+}
+
+/// The barrier reason for each top-level column that can't be compared for the
+/// uniqueness checks, keyed by column name. Comparable columns are absent.
+pub fn uniqueness_barriers(path: &Path) -> Result<HashMap<String, &'static str>, ParquetError> {
+    let file =
+        File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
+    let reader = SerializedFileReader::new(file)?;
+    let schema = reader.metadata().file_metadata().schema();
+    Ok(schema
+        .get_fields()
+        .iter()
+        .filter_map(|field| match uniqueness_comparability(field) {
+            Comparability::Incomparable(reason) => Some((field.name().to_string(), reason)),
+            Comparability::Comparable => None,
+        })
+        .collect())
+}
+
 fn parquet_type_to_dict_type(field: &Type) -> String {
     let info = field.get_basic_info();
+
+    // A repeated field outside the standard LIST encoding holds several
+    // values per row, which no data-dict type describes.
+    if info.has_repetition() && info.repetition() == Repetition::REPEATED {
+        return "nested".into();
+    }
 
     if let Some(logical) = info.logical_type() {
         match logical {
@@ -168,7 +260,7 @@ fn parquet_type_to_dict_type(field: &Type) -> String {
 /// we descend through the standard wrapper to find the element field.
 fn parquet_list_to_dict_type(field: &Type) -> String {
     let elem_type = parquet_list_element(field)
-        .map(|e| parquet_type_to_dict_type(e))
+        .map(parquet_type_to_dict_type)
         .unwrap_or_else(|| "string".into());
     format!("list({elem_type})")
 }
@@ -182,4 +274,65 @@ fn parquet_list_element(field: &Type) -> Option<&Type> {
     let middle = fields.first()?;
     // That middle group has one child — the element.
     middle.get_fields().first().map(|f| f.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Comparability, parquet_type_to_dict_type, uniqueness_comparability};
+    use parquet::schema::parser::parse_message_type;
+
+    fn classify(field_line: &str) -> Comparability {
+        let message = format!("message schema {{ {field_line}; }}");
+        let schema = parse_message_type(&message).unwrap();
+        uniqueness_comparability(&schema.get_fields()[0])
+    }
+
+    #[test]
+    fn nested_fields_map_without_panicking() {
+        for (message, expected) in [
+            (
+                "message schema { OPTIONAL group g { REQUIRED INT64 x; } }",
+                "struct",
+            ),
+            ("message schema { REPEATED INT32 xs; }", "nested"),
+        ] {
+            let schema = parse_message_type(message).unwrap();
+            assert_eq!(parquet_type_to_dict_type(&schema.get_fields()[0]), expected);
+        }
+    }
+
+    #[test]
+    fn comparable_types_are_recognized() {
+        for line in [
+            "REQUIRED BYTE_ARRAY s (STRING)",
+            "REQUIRED BYTE_ARRAY u (UTF8)",
+            "REQUIRED INT64 i (INTEGER(64,true))",
+            "REQUIRED INT32 d (DATE)",
+            "REQUIRED BOOLEAN b",
+            "REQUIRED FIXED_LEN_BYTE_ARRAY(16) uu (UUID)",
+            "REQUIRED INT64 dec (DECIMAL(9,2))",
+            "REQUIRED BYTE_ARRAY dec2 (DECIMAL(9,2))",
+            "REQUIRED DOUBLE f",
+            "REQUIRED FLOAT g",
+            "REQUIRED FIXED_LEN_BYTE_ARRAY(2) h (FLOAT16)",
+        ] {
+            assert!(
+                matches!(classify(line), Comparability::Comparable),
+                "expected comparable: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn uncomparable_types_report_their_barrier() {
+        for (line, reason) in [
+            ("REQUIRED BYTE_ARRAY j (JSON)", "json"),
+            ("REQUIRED BYTE_ARRAY b (BSON)", "bson"),
+        ] {
+            assert!(
+                matches!(classify(line), Comparability::Incomparable(r) if r == reason),
+                "expected barrier {reason}: {line}"
+            );
+        }
+    }
 }

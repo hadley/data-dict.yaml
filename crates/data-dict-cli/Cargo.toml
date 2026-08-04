@@ -10,11 +10,17 @@ repository.workspace = true
 name = "data-dict"
 path = "src/main.rs"
 
+[features]
+# Bundles the language server in, behind a flag so a plain install stays lean.
+lsp = ["dep:data-dict-lsp"]
+
 [dependencies]
 data-dict.workspace = true
 data-dict-parquet.workspace = true
+data-dict-lsp = { workspace = true, optional = true }
 clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 insta = "1"
+parquet.workspace = true

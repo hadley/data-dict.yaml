@@ -14,7 +14,7 @@ tables:
             constraints: [primary_key]
             examples: [1, 2, 3]
 ────────────────────────────────────────
-error[S20]: `primary_key` is not valid on struct fields.
+error[S29]: `primary_key` is not valid on struct fields.
   --> dict.yaml:11:27
    |
 LL |   - name: t

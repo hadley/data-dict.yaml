@@ -7,14 +7,14 @@ tables:
   - name: t
     columns:
       - name: c
-        type: foobar
-        examples: [1, 2, 3]
+        type: list(foo)
+        examples: [a, b, c]
 ────────────────────────────────────────
-error[S19]: A column's `type` must be a known type.
+error[S28]: A column's `type` must be a known type.
   --> dict.yaml:7:15
    |
 LL |   - name: t
 LL |     columns:
 LL |       - name: c
-LL |         type: foobar
-   |               ^^^^^^ `foobar` is not a recognised type
+LL |         type: list(foo)
+   |               ^^^^^^^^^ `foo` is not a recognised list element type

@@ -1,0 +1,23 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: qty
+        type: number
+        examples: [1, 2]
+        constraints:
+          - assert: LENGTH(qty) <= 10
+────────────────────────────────────────
+error[S21]: An assertion must be a well-typed boolean expression.
+  --> dict.yaml:10:28
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: qty
+...
+LL |           - assert: LENGTH(qty) <= 10
+   |                            ^^^ `LENGTH` expects a string, found a number

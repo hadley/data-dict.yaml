@@ -1,0 +1,35 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: item
+    source:
+      parquet: item.parquet
+    columns:
+      - name: category_id
+        type: number(id)
+        constraints: [foreign_key]
+        examples: [1, 2]
+  - name: category
+    source:
+      parquet: category.parquet
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+relationships:
+  - join: item.category_id = category.id
+    cardinality: many-to-one
+────────────────────────────────────────
+error[D05]: A foreign key's values must all appear in the primary key it references.
+  --> dict.yaml:10:23
+   |
+LL |   - name: item
+...
+LL |       - name: category_id
+LL |         type: number(id)
+LL |         constraints: [foreign_key]
+   |                       ^^^^^^^^^^^ has 1 value not found in `category.id` (`5`; row: 3)
