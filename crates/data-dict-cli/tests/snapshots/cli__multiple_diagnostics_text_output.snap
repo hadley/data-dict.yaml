@@ -10,7 +10,7 @@ warning[S09]: A document should point readers to the spec with `$learn_more`.
   |
 help: point readers to the spec
   |
-2 + $learn_more: http://data-dict.tidyverse.org/
+2 + $learn_more: https://data-dict.tidyverse.org/
   |
 error[S07]: A `number(id)` column must describe its data with `examples`.
  --> <fixture>:9:15

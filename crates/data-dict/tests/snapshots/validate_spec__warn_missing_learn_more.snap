@@ -11,5 +11,5 @@ LL | $version: 0.1.0
    |
 help: point readers to the spec
    |
-LL + $learn_more: http://data-dict.tidyverse.org/
+LL + $learn_more: https://data-dict.tidyverse.org/
    |
