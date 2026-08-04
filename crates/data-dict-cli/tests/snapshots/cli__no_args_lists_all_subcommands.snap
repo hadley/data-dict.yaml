@@ -10,7 +10,6 @@ Commands:
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary
   spec           Print the data-dict.yaml specification
-  types parquet  Print column types for a parquet file
   skill read     Skill for reading and understanding a data dictionary
   skill write    Skill for creating or updating a data dictionary
   help           Print this message or the help of the given subcommand(s)
