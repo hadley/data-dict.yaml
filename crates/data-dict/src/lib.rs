@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod assert_expr;
+mod expr_lex;
 pub mod join_expr;
 pub mod lower;
 pub mod model;

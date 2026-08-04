@@ -48,13 +48,7 @@ pub enum JoinOp {
     Lt,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub message: String,
-    /// Byte offset of the failing token (or end-of-string) within the join
-    /// expression.
-    pub at: usize,
-}
+pub use crate::expr_lex::ParseError;
 
 impl JoinExpr {
     pub fn parse(input: &str) -> Result<JoinExpr, ParseError> {
@@ -161,7 +155,7 @@ impl<'a> Parser<'a> {
     fn parse_ident(&mut self) -> Result<String, ParseError> {
         let start = self.pos;
         match self.peek() {
-            Some(b'`') => return self.parse_quoted_name(),
+            Some(b'`') => return crate::expr_lex::parse_quoted_name(self.src, &mut self.pos),
             Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.pos += 1,
             _ => return Err(self.err("expected identifier")),
         }
@@ -175,63 +169,6 @@ impl<'a> Parser<'a> {
         Ok(std::str::from_utf8(&self.src[start..self.pos])
             .expect("identifier bytes are ASCII")
             .to_string())
-    }
-
-    /// Parse a backtick-quoted table or column name, leaving `self.pos` after
-    /// the closing backtick. Errors point at the opening backtick, the token
-    /// the reader has to fix.
-    fn parse_quoted_name(&mut self) -> Result<String, ParseError> {
-        let start = self.pos;
-        debug_assert_eq!(self.peek(), Some(b'`'));
-        self.pos += 1;
-        let mut name = String::new();
-        loop {
-            match self.peek() {
-                None => {
-                    return Err(ParseError {
-                        message: "unterminated quoted name".into(),
-                        at: start,
-                    });
-                }
-                Some(b'`') => {
-                    // A doubled backtick is a literal backtick; a lone one ends it.
-                    if self.src.get(self.pos + 1) == Some(&b'`') {
-                        name.push('`');
-                        self.pos += 2;
-                    } else {
-                        self.pos += 1;
-                        break;
-                    }
-                }
-                Some(_) => {
-                    let ch_start = self.pos;
-                    self.advance_char();
-                    name.push_str(
-                        std::str::from_utf8(&self.src[ch_start..self.pos])
-                            .expect("input is valid utf-8"),
-                    );
-                }
-            }
-        }
-        if name.is_empty() {
-            return Err(ParseError {
-                message: "empty quoted name".into(),
-                at: start,
-            });
-        }
-        Ok(name)
-    }
-
-    /// Step over one whole UTF-8 code point.
-    fn advance_char(&mut self) {
-        self.pos += 1;
-        while let Some(&b) = self.src.get(self.pos) {
-            if b & 0xC0 == 0x80 {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
     }
 
     fn parse_op(&mut self) -> Result<JoinOp, ParseError> {
