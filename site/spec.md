@@ -7,7 +7,7 @@ A data dictionary has three kinds of top-level keys: `$`-prefixed metadata keys 
 The metadata keys are:
 
 * `$version` (required): the version of the `data-dict.yaml` spec the document conforms to. Currently `0.1.0`. While the spec is pre-1.0, breaking changes are expected, but once the spec stabilises at 1.0, breaking changes will always increment at least the minor version.
-* `$learn_more` (optional, but recommended): a URL where readers can learn about the `data-dict.yaml` format, so that people and tools meeting the file for the first time can find out what it is. Use <http://data-dict.tidyverse.org/>. Omitting it is valid, but a validator will emit a warning rather than an error (see [Validation](validation.md)).
+* `$learn_more` (optional, but recommended): a URL where readers can learn about the `data-dict.yaml` format, so that people and tools meeting the file for the first time can find out what it is. Use <https://data-dict.tidyverse.org/>. Omitting it is valid, but a validator will emit a warning rather than an error (see [Validation](validation.md)).
 
 The descriptive keys — `name`, `label`, `description`, and `details` — identify and document the dataset as a whole. All four are optional here, and work the same way at every level of the dictionary; see [Name, label, description & details](#name-label-description--details) for their full meaning. For the dataset, `name` is a terse identifier (e.g. `foodbank`) and `label` its human-readable title.
 

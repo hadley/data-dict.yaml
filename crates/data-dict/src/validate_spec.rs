@@ -29,7 +29,7 @@ use crate::problem::{Problem, ProblemKind, ProblemSet, Suggestion, subspan};
 use crate::{SourceContext, lower};
 
 /// The canonical documentation URL suggested for `$learn_more`.
-pub const LEARN_MORE_URL: &str = "http://data-dict.tidyverse.org/";
+pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 
 /// The spec version this validator implements, suggested for a missing `$version`.
 pub const SPEC_VERSION: &str = "0.1.0";
