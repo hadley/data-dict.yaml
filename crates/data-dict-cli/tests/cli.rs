@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Running `data-dict` with no arguments lists every subcommand, including
-/// nested ones like `skill read`.
+/// Running `data-dict` with no arguments lists every subcommand.
 ///
 /// When this snapshot changes (i.e. the set of commands changes), update the
 /// command listing under "### Usage" in the repo-root README.md to match.

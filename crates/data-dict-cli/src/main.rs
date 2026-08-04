@@ -35,11 +35,10 @@ enum Command {
     ValidateData(ValidateArgs),
     /// Print the data-dict.yaml specification
     Spec,
-    /// Agents: read these skills to learn how to work with data-dict files
-    Skill {
-        #[command(subcommand)]
-        command: SkillCommand,
-    },
+    /// Skill for reading and understanding a data dictionary
+    SkillRead,
+    /// Skill for creating or updating a data dictionary
+    SkillWrite,
     /// Run the language server over stdio (used by editor extensions).
     #[cfg(feature = "lsp")]
     #[command(hide = true)]
@@ -56,14 +55,6 @@ struct ValidateArgs {
     /// Emit results as JSON
     #[arg(long)]
     json: bool,
-}
-
-#[derive(Subcommand)]
-enum SkillCommand {
-    /// Skill for reading and understanding a data dictionary
-    Read,
-    /// Skill for creating or updating a data dictionary
-    Write,
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
@@ -102,12 +93,12 @@ fn main() -> ExitCode {
             print!("{}", data_dict::SPEC_MD);
             ExitCode::SUCCESS
         }
-        Command::Skill { command } => {
-            let skill = match command {
-                SkillCommand::Read => READ_SKILL,
-                SkillCommand::Write => WRITE_SKILL,
-            };
-            print!("{skill}");
+        Command::SkillRead => {
+            print!("{READ_SKILL}");
+            ExitCode::SUCCESS
+        }
+        Command::SkillWrite => {
+            print!("{WRITE_SKILL}");
             ExitCode::SUCCESS
         }
         #[cfg(feature = "lsp")]
@@ -125,48 +116,27 @@ fn print_all_subcommands() {
     print!("{}", subcommands_listing());
 }
 
-/// Build the listing of all leaf subcommands, including nested ones like
-/// `skill read`. The top-level `help` command is kept, but the auto-generated
-/// `help` entries on each subcommand group are dropped as noise.
+/// Build the listing of all subcommands.
 fn subcommands_listing() -> String {
     // `build()` injects clap's auto-generated `help` subcommand into the tree.
     let mut cmd = Cli::command();
     cmd.build();
-    let mut rows = Vec::new();
-    collect_subcommands(&cmd, "", &mut rows);
-    let width = rows.iter().map(|(path, _)| path.len()).max().unwrap_or(0);
-    let mut out = String::from("Usage: data-dict <COMMAND>\n\nCommands:\n");
-    for (path, about) in rows {
-        out.push_str(&format!("  {path:<width$}  {about}\n"));
-    }
-    out
-}
-
-fn collect_subcommands(cmd: &clap::Command, prefix: &str, rows: &mut Vec<(String, String)>) {
-    for sub in cmd.get_subcommands() {
+    let rows: Vec<(String, String)> = cmd
+        .get_subcommands()
         // Hidden subcommands (e.g. `lsp`) are excluded from `--help`; keep them
         // out of this listing too.
-        if sub.is_hide_set() {
-            continue;
-        }
-        let is_help = sub.get_name() == "help";
-        // Keep only the top-level `help`; nested `help` entries are noise.
-        if is_help && !prefix.is_empty() {
-            continue;
-        }
-        let path = if prefix.is_empty() {
-            sub.get_name().to_string()
-        } else {
-            format!("{prefix} {}", sub.get_name())
-        };
-        // `help` carries a mirror of the whole command tree; treat it as a leaf.
-        if !is_help && sub.get_subcommands().any(|s| s.get_name() != "help") {
-            collect_subcommands(sub, &path, rows);
-        } else {
+        .filter(|sub| !sub.is_hide_set())
+        .map(|sub| {
             let about = sub.get_about().map(|s| s.to_string()).unwrap_or_default();
-            rows.push((path, about));
-        }
+            (sub.get_name().to_string(), about)
+        })
+        .collect();
+    let width = rows.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
+    let mut out = String::from("Usage: data-dict <COMMAND>\n\nCommands:\n");
+    for (name, about) in rows {
+        out.push_str(&format!("  {name:<width$}  {about}\n"));
     }
+    out
 }
 
 /// Summarise a parquet file's columns, as text or `--json`. Dispatches on the
