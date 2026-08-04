@@ -1,0 +1,11 @@
+---
+title: "contoso"
+description: "Synced from hadley/contoso"
+---
+
+A real-world `data-dict.yaml`, synced from [hadley/contoso](https://github.com/hadley/contoso).
+[Download the raw file](contoso.yaml).
+
+```{.yaml filename="contoso.yaml"}
+{{< include contoso.yaml >}}
+```

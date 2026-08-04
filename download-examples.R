@@ -1,6 +1,7 @@
 # If you change this list, also update site/examples: add or remove the matching
 # `<name>.qmd` wrapper (and the entry in download-examples will create the .yaml).
 repos <- list(
+  contoso = "hadley/contoso",
   elevators = "hadley/elevators",
   foodbank = "hadley/foodbank",
   `loan-application` = "hadley/loan-application",
