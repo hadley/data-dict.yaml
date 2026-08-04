@@ -99,7 +99,11 @@ pub fn column_type_info(path: &Path) -> Result<Vec<ColumnTypeInfo>, ParquetError
                 name: field.name().to_string(),
                 dict_type: parquet_type_to_dict_type(field),
                 logical_type: info.logical_type().map(format_logical_type),
-                physical_type: format!("{:?}", field.get_physical_type()),
+                physical_type: if field.is_primitive() {
+                    format!("{:?}", field.get_physical_type())
+                } else {
+                    "GROUP".to_string()
+                },
             }
         })
         .collect())
@@ -217,6 +221,13 @@ pub fn uniqueness_barriers(path: &Path) -> Result<HashMap<String, &'static str>,
 fn parquet_type_to_dict_type(field: &Type) -> String {
     let info = field.get_basic_info();
 
+    // A group or repeated field holds nested values per row, which no
+    // data-dict type describes (and a group would panic `get_physical_type`).
+    if !field.is_primitive() || (info.has_repetition() && info.repetition() == Repetition::REPEATED)
+    {
+        return "nested".into();
+    }
+
     if let Some(logical) = info.logical_type() {
         match logical {
             LogicalType::String => return "string".into(),
@@ -241,13 +252,24 @@ fn parquet_type_to_dict_type(field: &Type) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Comparability, uniqueness_comparability};
+    use super::{Comparability, parquet_type_to_dict_type, uniqueness_comparability};
     use parquet::schema::parser::parse_message_type;
 
     fn classify(field_line: &str) -> Comparability {
         let message = format!("message schema {{ {field_line}; }}");
         let schema = parse_message_type(&message).unwrap();
         uniqueness_comparability(&schema.get_fields()[0])
+    }
+
+    #[test]
+    fn nested_fields_map_without_panicking() {
+        for message in [
+            "message schema { OPTIONAL group g { REQUIRED INT64 x; } }",
+            "message schema { REPEATED INT32 xs; }",
+        ] {
+            let schema = parse_message_type(message).unwrap();
+            assert_eq!(parquet_type_to_dict_type(&schema.get_fields()[0]), "nested");
+        }
     }
 
     #[test]

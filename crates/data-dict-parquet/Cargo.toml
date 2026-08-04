@@ -21,11 +21,15 @@ arrow-cast = { workspace = true }
 arrow-row = { workspace = true }
 arrow-schema = { workspace = true }
 half = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
 rayon = "1"
 hashbrown = "0.15"
 
 [dev-dependencies]
 criterion = "0.5"
+insta = "1"
+serde_json = { workspace = true }
 
 [[bench]]
 name = "uniqueness"

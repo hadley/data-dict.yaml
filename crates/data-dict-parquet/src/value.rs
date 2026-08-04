@@ -109,6 +109,60 @@ pub enum TimeGrain {
     Nanos,
 }
 
+/// Days from `NaiveDate`'s internal epoch (0001-01-01) to the Unix epoch.
+const DAYS_CE_TO_EPOCH: i64 = 719_163;
+
+/// A [`ValueKind::Date`] raw value (days since the Unix epoch) as an ISO 8601
+/// date. `None` when it falls outside the representable range.
+pub fn date_iso(days: i64) -> Option<String> {
+    let days = i32::try_from(days.checked_add(DAYS_CE_TO_EPOCH)?).ok()?;
+    let date = chrono::NaiveDate::from_num_days_from_ce_opt(days)?;
+    Some(date.format("%Y-%m-%d").to_string())
+}
+
+/// A [`ValueKind::Timestamp`] raw value as an ISO 8601 datetime at second (or
+/// finer) precision; `Z`-suffixed when `utc_adjusted`, zoneless when the
+/// column carries no zone. `None` when it falls outside the representable
+/// range.
+pub fn datetime_iso(raw: i64, grain: TimeGrain, utc_adjusted: bool) -> Option<String> {
+    let datetime = match grain {
+        TimeGrain::Millis => chrono::DateTime::from_timestamp_millis(raw)?,
+        TimeGrain::Micros => chrono::DateTime::from_timestamp_micros(raw)?,
+        TimeGrain::Nanos => chrono::DateTime::from_timestamp_nanos(raw),
+    }
+    .naive_utc();
+    let format = if datetime.and_utc().timestamp_subsec_nanos() == 0 {
+        "%Y-%m-%dT%H:%M:%S"
+    } else {
+        "%Y-%m-%dT%H:%M:%S%.f"
+    };
+    let mut rendered = datetime.format(format).to_string();
+    if utc_adjusted {
+        rendered.push('Z');
+    }
+    Some(rendered)
+}
+
+/// A [`ValueKind::Time`] raw value (since midnight, in `grain` units) as an
+/// ISO 8601 time, with the fraction of a second only when nonzero.
+pub fn time_iso(raw: i64, grain: TimeGrain) -> String {
+    let (seconds, nanos) = match grain {
+        TimeGrain::Millis => (raw / 1_000, (raw % 1_000) * 1_000_000),
+        TimeGrain::Micros => (raw / 1_000_000, (raw % 1_000_000) * 1_000),
+        TimeGrain::Nanos => (raw / 1_000_000_000, raw % 1_000_000_000),
+    };
+    let (hours, minutes, secs) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+    if nanos == 0 {
+        format!("{hours:02}:{minutes:02}:{secs:02}")
+    } else {
+        let fraction = format!("{nanos:09}");
+        format!(
+            "{hours:02}:{minutes:02}:{secs:02}.{}",
+            fraction.trim_end_matches('0')
+        )
+    }
+}
+
 /// What a column's values mean, beyond the [`Value`] variant that carries them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueKind {

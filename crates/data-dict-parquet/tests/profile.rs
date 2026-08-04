@@ -49,11 +49,13 @@ fn numbers_are_profiled() {
     );
 
     let histogram = profile.histogram.expect("numbers are binnable");
-    assert_eq!(histogram.bins.len(), 20);
+    // Integer values get whole-width bins: a 1..3 range is two of them, the
+    // closed first bin [1, 2] and (2, 3].
+    assert_eq!(histogram.bins.len(), 2);
     assert_eq!(histogram.not_finite.nan_count, 0);
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 6);
-    assert_eq!(histogram.bins[0].count, 1);
-    assert_eq!(histogram.bins[19].count, 3);
+    assert_eq!(histogram.bins[0].count, 3);
+    assert_eq!(histogram.bins[1].count, 3);
 }
 
 #[test]
@@ -216,7 +218,8 @@ fn a_missing_footer_range_is_recovered_by_a_second_pass() {
         100
     );
     assert_eq!(histogram.bins[0].lower, 1.0);
-    assert_eq!(histogram.bins[19].upper, 100.0);
+    // The whole-number width (⌈99/20⌉ = 5) overshoots the maximum a little.
+    assert_eq!(histogram.bins[19].upper, 101.0);
 }
 
 /// Past the tracking cap the counts stop being exact, but a value that only

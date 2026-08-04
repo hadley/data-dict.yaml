@@ -1,0 +1,12 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: text
+---
+<file>.parquet: 4 rows × 1 column
+
+note — string
+  long long long long long long long long…  2
+  short                                     2
+  -------------------------------------------
+  distinct:                                 2
+  missing:                                  0

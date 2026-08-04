@@ -30,9 +30,9 @@ a plausible-sounding description for a column whose meaning you had to guess.
 1.  **Discover the data.** Identify every table (parquet file, database table,
     or data-frame) in scope. For each table, read the schema to get column
     names and physical types. For parquet files, run
-    `data-dict types parquet <file>` to see each column's physical type
-    alongside the data-dict type it maps to -- start from that mapping rather
-    than guessing.
+    `data-dict describe <file>` to see each column's data-dict type along
+    with its distinct and missing counts and a sketch of its values -- start
+    from that rather than guessing.
 
 2.  **Interview the user.** Once you know the shape of the data, work out what
     you genuinely cannot determine from it alone, and ask. This is the step most
