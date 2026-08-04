@@ -44,10 +44,16 @@ impl FileContext {
         self.parquet().file_metadata().num_rows().max(0) as usize
     }
 
-    /// The leaf index of the column named `name`, if present.
+    /// The leaf index of the top-level column named `name`, if present.
     pub(crate) fn leaf(&self, name: &str) -> Option<usize> {
-        let descr = self.parquet().file_metadata().schema_descr();
-        (0..descr.num_columns()).find(|&i| descr.column(i).name() == name)
+        self.leaf_path(std::slice::from_ref(&name.to_string()))
+    }
+
+    /// The leaf index reached by a column-then-fields path, crossing list
+    /// wrappers; a path ending on a nested node resolves to its first leaf.
+    pub(crate) fn leaf_path(&self, path: &[String]) -> Option<usize> {
+        let schema = self.parquet().file_metadata().schema_descr().root_schema();
+        crate::metadata::leaf_index(schema, path)
     }
 
     /// The parquet schema descriptor behind a leaf, for comparability

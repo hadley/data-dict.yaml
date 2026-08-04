@@ -913,6 +913,22 @@ fn s24_numeric_codes_ok() {
     "#});
 }
 
+// S24 applies to `list(enum)` exactly as to a scalar enum.
+#[test]
+fn s24_empty_values_on_list_enum() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: categories
+                type: list(enum)
+                values: []
+    "});
+    diagnostic.assert_contains(&["S24", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // S24: written unquoted, the same codes are numbers, and the hint says so.
 #[test]
 fn s24_unquoted_numeric_codes() {
@@ -1399,9 +1415,27 @@ fn s29_foreign_key_on_list() {
     assert_snapshot!(diagnostic);
 }
 
-// S29: primary_key on a struct field is always an error.
+// S29: unique on a list column is an error.
 #[test]
-fn s29_primary_key_on_struct_field() {
+fn s29_unique_on_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: tags
+                type: list(string)
+                constraints: [unique]
+                examples: [a, b, c]
+    "});
+    diagnostic.assert_contains(&["S29", "unique", "list(string)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Fields are reduced column descriptors: `constraints` (like `label` and
+// `display`) is rejected structurally by the schema.
+#[test]
+fn constraints_banned_on_struct_field() {
     let diagnostic = failing_dict(indoc! {"
         tables:
           - name: t
@@ -1414,7 +1448,31 @@ fn s29_primary_key_on_struct_field() {
                     constraints: [primary_key]
                     examples: [1, 2, 3]
     "});
-    diagnostic.assert_contains(&["S29", "primary_key"]);
+    diagnostic.assert_contains(&["Unknown property 'constraints'"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Deep nesting stays structurally checked: the field schema recurses, so a
+// banned property is caught on a field of a field.
+#[test]
+fn display_banned_on_nested_struct_field() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: geo
+                    type: struct
+                    fields:
+                      - name: lat
+                        type: number
+                        display: restricted
+                        examples: [45.5]
+    "});
+    diagnostic.assert_contains(&["Unknown property 'display'"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -1517,6 +1575,75 @@ fn constraints_s20_unknown_column() {
               - assert: a > b
     "});
     diagnostic.assert_contains(&["S20", "`b`", "not on this table"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// An assertion may reach a struct's fields with dot access, at any depth.
+#[test]
+fn constraints_field_access_ok() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                constraints:
+                  - assert: LENGTH(addr.zip) = 5
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+                  - name: geo
+                    type: struct
+                    fields:
+                      - name: lat
+                        type: number
+                        examples: [45.5]
+            constraints:
+              - assert: addr.geo.lat BETWEEN -90 AND 90
+    "});
+}
+
+// S20: a field access naming a field the struct doesn't declare.
+#[test]
+fn constraints_s20_unknown_field() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+            constraints:
+              - assert: LENGTH(addr.zpi) = 5
+    "});
+    diagnostic.assert_contains(&["S20", "no field `zpi`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S21: a list's elements can't be reached with dot access.
+#[test]
+fn constraints_s21_field_access_through_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: items
+                type: list(struct)
+                fields:
+                  - name: qty
+                    type: number(quantity)
+                    units: units
+                    range: [1, 10]
+            constraints:
+              - assert: items.qty > 0
+    "});
+    diagnostic.assert_contains(&["S21", "a list's elements can't be reached"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }

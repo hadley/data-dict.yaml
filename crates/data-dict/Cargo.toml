@@ -19,5 +19,8 @@ regex.workspace = true
 [dev-dependencies]
 insta = "1"
 indoc = "2"
-parquet.workspace = true
+parquet = { workspace = true, features = ["arrow"] }
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
 serde_json.workspace = true

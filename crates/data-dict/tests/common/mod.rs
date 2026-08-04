@@ -66,6 +66,58 @@ pub fn write_parquet(path: &Path) {
     writer.close().unwrap();
 }
 
+/// Write a parquet file with nested columns, for the struct/list checks:
+///
+/// | row | `name` (string) | `addr` (struct{zip, country})   | `tags` (list of string) |
+/// |-----|-----------------|---------------------------------|-------------------------|
+/// | 1   | otter           | {zip: "97201", country: "US"}   | [a, b]                  |
+/// | 2   | seal            | {zip: "78701", country: "XX"}   | [a, zz]                 |
+/// | 3   | mink            | null                            | null                    |
+pub fn write_nested_parquet(path: &Path) {
+    use arrow_array::builder::{ListBuilder, StringBuilder};
+    use arrow_array::{ArrayRef, RecordBatch, StringArray, StructArray};
+    use arrow_buffer::NullBuffer;
+    use arrow_schema::{DataType, Field, Fields};
+    use parquet::arrow::ArrowWriter;
+
+    let name = StringArray::from(vec!["otter", "seal", "mink"]);
+
+    let zip = StringArray::from(vec![Some("97201"), Some("78701"), None]);
+    let country = StringArray::from(vec![Some("US"), Some("XX"), None]);
+    let addr_fields: Fields = vec![
+        Arc::new(Field::new("zip", DataType::Utf8, true)),
+        Arc::new(Field::new("country", DataType::Utf8, true)),
+    ]
+    .into();
+    let addr = StructArray::new(
+        addr_fields,
+        vec![Arc::new(zip) as ArrayRef, Arc::new(country) as ArrayRef],
+        Some(NullBuffer::from(vec![true, true, false])),
+    );
+
+    let mut tags = ListBuilder::new(StringBuilder::new());
+    tags.values().append_value("a");
+    tags.values().append_value("b");
+    tags.append(true);
+    tags.values().append_value("a");
+    tags.values().append_value("zz");
+    tags.append(true);
+    tags.append(false);
+    let tags = tags.finish();
+
+    let batch = RecordBatch::try_from_iter(vec![
+        ("name", Arc::new(name) as ArrayRef),
+        ("addr", Arc::new(addr) as ArrayRef),
+        ("tags", Arc::new(tags) as ArrayRef),
+    ])
+    .unwrap();
+
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
 /// Write `yaml` to `<dir>/dict.yaml` and return the path.
 pub fn write_yaml(dir: &Path, yaml: &str) -> PathBuf {
     let path = dir.join("dict.yaml");

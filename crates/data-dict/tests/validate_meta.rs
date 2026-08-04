@@ -367,3 +367,187 @@ fn missing_source_reported() {
         problems.items
     );
 }
+
+// --- nested columns (struct fields and lists) -------------------------------
+
+/// A fresh temp dir with the nested fixture (`name`, `addr` struct, `tags`
+/// list — see `write_nested_parquet`) written to `data.parquet`.
+fn dir_with_nested_parquet() -> PathBuf {
+    let dir = temp_dir();
+    common::write_nested_parquet(&dir.join("data.parquet"));
+    dir
+}
+
+/// The `addr` struct column matching the nested fixture.
+const ADDR: &str = indoc! {"
+    - name: addr
+      type: struct
+      fields:
+        - name: zip
+          type: string
+          examples: ['97201']
+        - name: country
+          type: enum
+          values: [US, CA, XX]
+"};
+
+/// The `tags` list column matching the nested fixture.
+const TAGS: &str = indoc! {"
+    - name: tags
+      type: list(enum)
+      values: [a, b, zz]
+"};
+
+#[test]
+fn matching_nested_dict_and_parquet() {
+    let dir = dir_with_nested_parquet();
+    let yaml = animals_dict(&dir, "data.parquet", &format!("{NAME}{ADDR}{TAGS}"));
+
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Ok, "got {:?}", problems.items);
+}
+
+#[test]
+fn struct_field_type_mismatch_reported() {
+    let dir = dir_with_nested_parquet();
+    // `zip` is a string in the data but declared as a number here.
+    let columns = format!(
+        "{NAME}{}{TAGS}",
+        indoc! {"
+            - name: addr
+              type: struct
+              fields:
+                - name: zip
+                  type: number(id)
+                  examples: [97201]
+                - name: country
+                  type: enum
+                  values: [US, CA, XX]
+        "}
+    );
+    let yaml = animals_dict(&dir, "data.parquet", &columns);
+
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Error);
+    assert!(
+        problems.items.iter().any(|p| p.code == Some("M01")),
+        "expected an M01, got {:?}",
+        problems.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &problems.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+#[test]
+fn missing_struct_field_reported() {
+    let dir = dir_with_nested_parquet();
+    // `addr.street` is declared but the data's struct has no such field; its
+    // real fields stay documented so this is the only finding.
+    let columns = format!(
+        "{NAME}{}{TAGS}",
+        indoc! {"
+            - name: addr
+              type: struct
+              fields:
+                - name: street
+                  type: string
+                  examples: [123 Main St]
+                - name: zip
+                  type: string
+                  examples: ['97201']
+                - name: country
+                  type: enum
+                  values: [US, CA, XX]
+        "}
+    );
+    let yaml = animals_dict(&dir, "data.parquet", &columns);
+
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Error);
+    assert!(
+        problems
+            .items
+            .iter()
+            .any(|p| p.code == Some("M02") && p.message.contains("`addr` struct")),
+        "expected an M02 for the missing field, got {:?}",
+        problems.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &problems.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+#[test]
+fn undocumented_struct_field_is_warning() {
+    let dir = dir_with_nested_parquet();
+    // The dictionary documents `addr.zip` but not `addr.country`.
+    let columns = format!(
+        "{NAME}{}{TAGS}",
+        indoc! {"
+            - name: addr
+              type: struct
+              fields:
+                - name: zip
+                  type: string
+                  examples: ['97201']
+        "}
+    );
+    let yaml = animals_dict(&dir, "data.parquet", &columns);
+
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(
+        problems.status(),
+        Status::Warning,
+        "got {:?}",
+        problems.items
+    );
+    assert!(
+        problems
+            .items
+            .iter()
+            .any(|p| p.code == Some("M03") && p.column.as_deref() == Some("addr.country")),
+        "expected an M03 naming `addr.country`, got {:?}",
+        problems.items
+    );
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &problems.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+#[test]
+fn list_element_type_mismatch_reported() {
+    let dir = dir_with_nested_parquet();
+    // `tags` holds strings in the data but is declared as numbers here.
+    let columns = format!(
+        "{NAME}{ADDR}{}",
+        indoc! {"
+            - name: tags
+              type: list(number)
+              examples: [1, 2]
+        "}
+    );
+    let yaml = animals_dict(&dir, "data.parquet", &columns);
+
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Error);
+    assert!(
+        problems.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::TypeMismatch { declared, actual }
+                if declared == "list(number)" && actual == "list(string)"
+        )),
+        "expected an M01 for the list element type, got {:?}",
+        problems.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &problems.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}

@@ -8,7 +8,7 @@ The repo contains:
 - `README.md`: project overview, CLI install/build instructions, and a pointer to the site.
 - `site/`: the [Quarto](https://quarto.org) website published to data-dict.tidyverse.org. Holds the spec and design docs (`spec.md`, `semantic-models.md`), as well as example data dictionaries downloaded from other repos (see `download-examples.R`). Built and deployed by `.github/workflows/publish-site.yaml`.
 - `crates/`: Rust workspace (see crate architecture below)
-- `schema.yaml`: JSON Schema for structural validation of data dictionary files
+- `schema.yaml`: JSON Schema for structural validation of data dictionary files (`schema-field.yaml` holds the recursive struct-field descriptor it references)
 
 ## Code principles
 

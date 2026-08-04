@@ -1,0 +1,49 @@
+# Schema for a struct field descriptor (see site/spec.md, "Struct fields").
+#
+# Registered as `field` in the schema registry so `schema.yaml` (and this
+# schema itself, for nested structs) can reference it with `ref: field`.
+#
+# A field is a reduced column descriptor: it names, types, and documents the
+# field, but can't carry the properties that state facts about a whole column
+# of a table — `label`, `display`, and `constraints` are rejected here.
+object:
+  closed: true
+  required: [name]
+  properties:
+    # `anyOf: [string, null]` lets an empty/null name through to the semantic
+    # layer, where S11 reports it with a clear message; the YAML parser
+    # collapses `""` to null.
+    name:
+      anyOf:
+        - string
+        - null
+    description: string
+    details: string
+    units: string
+    # Shape (S15) and placement (S14) are checked semantically
+    time_zone: string
+    # Valid types: the fixed scalars, "struct", and "list(element_type)"
+    # where element_type is any of the above. Semantic validation (S28)
+    # catches unknown strings.
+    type: string
+    values:
+      anyOf:
+        - arrayOf:                  # [M, F, U]
+            anyOf:
+              - string
+              - number
+              - boolean
+        - object:                   # {M: Male, F: Female, ...}
+            additionalProperties: string
+    range:
+      arrayOf:
+        schema:
+          anyOf:
+            - number
+            - string
+        length: 2
+    examples:
+      arrayOf: any
+    fields:
+      arrayOf:
+        ref: field

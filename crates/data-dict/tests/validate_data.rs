@@ -1607,3 +1607,170 @@ fn foreign_key_incomparable_type_not_verified() {
         &result.render(common::SNAPSHOT_STYLE).join("\n")
     ));
 }
+
+// --- nested columns (struct fields and lists) -------------------------------
+
+/// Build a dictionary over the nested fixture (see `write_nested_parquet`)
+/// with the given `columns:` entries, returning the dictionary path.
+fn nested_dict(columns: &str) -> PathBuf {
+    let dir = temp_dir();
+    common::write_nested_parquet(&dir.join("data.parquet"));
+    let columns = columns
+        .trim_end()
+        .lines()
+        .map(|line| format!("      {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: animals
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: name
+                    type: string
+                    examples: [otter, seal]
+            {columns}
+        "},
+    )
+}
+
+// D01: `required` on a nested column is about the container itself — the null
+// struct and null list on row 3 each count once.
+#[test]
+fn null_containers_violate_required() {
+    let yaml = nested_dict(indoc! {"
+        - name: addr
+          type: struct
+          constraints: [required]
+          fields:
+            - name: zip
+              type: string
+              examples: ['97201']
+            - name: country
+              type: enum
+              values: [US, CA, XX]
+        - name: tags
+          type: list(enum)
+          constraints: [required]
+          values: [a, b, zz]
+    "});
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Error);
+    let d01s: Vec<_> = result
+        .items
+        .iter()
+        .filter(|p| p.code == Some("D01"))
+        .collect();
+    assert_eq!(d01s.len(), 2, "got {:?}", result.items);
+    assert!(
+        d01s.iter().all(|p| matches!(
+            &p.kind,
+            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+        )),
+        "got {:?}",
+        result.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &result.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+// D04 checks the elements of a `list(enum)`: row 2 holds the undeclared `zz`.
+#[test]
+fn list_enum_membership_checked() {
+    let yaml = nested_dict(indoc! {"
+        - name: addr
+          type: struct
+          fields:
+            - name: zip
+              type: string
+              examples: ['97201']
+            - name: country
+              type: enum
+              values: [US, CA, XX]
+        - name: tags
+          type: list(enum)
+          values: [a, b]
+    "});
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
+                if rows == &vec![2] && values == &vec!["zz".to_string()]
+        )),
+        "got {:?}",
+        result.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &result.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+// D04 checks `enum` fields inside a struct: row 2's `addr.country` is `XX`.
+#[test]
+fn struct_enum_field_membership_checked() {
+    let yaml = nested_dict(indoc! {"
+        - name: addr
+          type: struct
+          fields:
+            - name: zip
+              type: string
+              examples: ['97201']
+            - name: country
+              type: enum
+              values: [US, CA]
+        - name: tags
+          type: list(enum)
+          values: [a, b, zz]
+    "});
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
+                if rows == &vec![2] && values == &vec!["XX".to_string()]
+        )),
+        "got {:?}",
+        result.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &result.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+// A nested dictionary whose data conforms raises nothing at the data level.
+#[test]
+fn conforming_nested_data_is_clean() {
+    let yaml = nested_dict(indoc! {"
+        - name: addr
+          type: struct
+          fields:
+            - name: zip
+              type: string
+              examples: ['97201']
+            - name: country
+              type: enum
+              values: [US, CA, XX]
+        - name: tags
+          type: list(enum)
+          values: [a, b, zz]
+    "});
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
+}

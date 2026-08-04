@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
 use arrow_array::Array;
 use arrow_array::cast::AsArray;
+use arrow_buffer::OffsetBuffer;
 use parquet::file::reader::SerializedFileReader;
 
 use crate::ParquetError;
@@ -11,7 +12,9 @@ use crate::reader::FileContext;
 /// What a column's data must be inspected for.
 #[derive(Default, Clone)]
 pub struct ColumnNeeds {
-    /// Count nulls and sample the row numbers where they occur.
+    /// Count nulls and sample the row numbers where they occur. Nulls are
+    /// counted on the top-level column itself — for a nested column that is
+    /// the container, so an empty list doesn't count.
     pub nulls: bool,
     /// The set of allowed values (D04). When present, non-null values not in
     /// the set are counted and sampled. Membership is string equality: the
@@ -32,6 +35,15 @@ impl ColumnNeeds {
     }
 }
 
+/// One column (or nested field) to inspect: where it is, and what for. The
+/// path is a top-level column name followed by struct field names; values
+/// inside lists are reached automatically (`list(enum)` needs no extra
+/// segment).
+pub struct ColumnRequest {
+    pub path: Vec<String>,
+    pub needs: ColumnNeeds,
+}
+
 /// Statistics gathered by scanning a column's values.
 #[derive(Default)]
 pub struct ColumnStats {
@@ -41,6 +53,7 @@ pub struct ColumnStats {
     /// Non-null values found outside the [`ColumnNeeds::allowed`] set.
     pub outside_count: usize,
     /// 1-based row numbers of outside values, capped by the caller's limit.
+    /// A value inside a list or struct is attributed to the row holding it.
     pub outside_rows: Vec<usize>,
     /// Distinct offending values, capped by the caller's limit, in first-seen
     /// order.
@@ -48,64 +61,66 @@ pub struct ColumnStats {
 }
 
 /// Gather requested statistics in one projected, streaming pass over the file.
+/// Returns one [`ColumnStats`] per request, in request order; a request whose
+/// path doesn't resolve in the file comes back untouched (all zeros).
 pub fn column_stats(
     path: &Path,
-    needs: &HashMap<String, ColumnNeeds>,
+    requests: &[ColumnRequest],
     limit: usize,
-) -> Result<HashMap<String, ColumnStats>, ParquetError> {
+) -> Result<Vec<ColumnStats>, ParquetError> {
     let ctx = FileContext::open(path)?;
 
-    let requested: Vec<(String, usize, &ColumnNeeds)> = needs
-        .iter()
-        .filter(|(_, need)| need.any())
-        .filter_map(|(name, need)| ctx.leaf(name).map(|leaf| (name.clone(), leaf, need)))
-        .collect();
+    let mut stats: Vec<ColumnStats> = requests.iter().map(|_| ColumnStats::default()).collect();
 
-    let mut stats: HashMap<String, ColumnStats> = requested
+    let requested: Vec<(usize, usize)> = requests
         .iter()
-        .map(|(name, _, _)| (name.clone(), ColumnStats::default()))
+        .enumerate()
+        .filter(|(_, r)| r.needs.any())
+        .filter_map(|(i, r)| ctx.leaf_path(&r.path).map(|leaf| (i, leaf)))
         .collect();
 
     // Fast path: settle the enum-membership need (D04) from dictionary pages
     // where the data conforms, sparing those columns the value scan. A column
     // still scanned for its nulls skips the redundant dictionary read.
-    let candidates: Vec<&(String, usize, &ColumnNeeds)> = requested
+    let mut proven: HashSet<usize> = HashSet::new();
+    let candidates: Vec<&(usize, usize)> = requested
         .iter()
-        .filter(|(_, _, need)| need.allowed.is_some() && !need.nulls)
+        .filter(|(i, _)| requests[*i].needs.allowed.is_some() && !requests[*i].needs.nulls)
         .collect();
-    let mut proven: HashSet<&str> = HashSet::new();
     if !candidates.is_empty() {
         let page_reader = SerializedFileReader::new(ctx.file()?)?;
-        for (name, leaf, need) in candidates {
-            let allowed = need.allowed.as_ref().expect("filtered on allowed");
+        for (i, leaf) in candidates {
+            let allowed = requests[*i].needs.allowed.as_ref().expect("filtered");
             if crate::dictionary::dictionary_conforms(&page_reader, *leaf, allowed)
                 .is_ok_and(|conforms| conforms)
             {
-                proven.insert(name.as_str());
+                proven.insert(*i);
             }
         }
     }
 
-    let scanned: Vec<&(String, usize, &ColumnNeeds)> = requested
+    let scanned: Vec<&(usize, usize)> = requested
         .iter()
-        .filter(|(name, _, need)| {
-            need.nulls || (need.allowed.is_some() && !proven.contains(name.as_str()))
+        .filter(|(i, _)| {
+            let need = &requests[*i].needs;
+            need.nulls || (need.allowed.is_some() && !proven.contains(i))
         })
         .collect();
     if scanned.is_empty() {
         return Ok(stats);
     }
 
-    let reader = ctx.reader(scanned.iter().map(|(_, leaf, _)| *leaf))?;
+    let reader = ctx.reader(scanned.iter().map(|(_, leaf)| *leaf))?;
     let mut row_offset = 0usize;
     for batch in reader {
         let batch = batch?;
-        for (name, _, need) in &scanned {
-            let Some(array) = batch.column_by_name(name) else {
+        for (i, _) in &scanned {
+            let request = &requests[*i];
+            let Some(array) = batch.column_by_name(&request.path[0]) else {
                 continue;
             };
-            let stat = stats.get_mut(name).expect("stats entry per request");
-            if need.nulls
+            let stat = &mut stats[*i];
+            if request.needs.nulls
                 && array.null_count() > 0
                 && let Some(validity) = array.nulls()
             {
@@ -118,16 +133,18 @@ pub fn column_stats(
                     }
                 }
             }
-            if let Some(allowed) = &need.allowed
-                && !proven.contains(name.as_str())
+            if let Some(allowed) = &request.needs.allowed
+                && !proven.contains(i)
+                && let Some((values, offsets)) = navigate(array.as_ref(), &request.path[1..])
             {
+                let row_of = |index: usize| row_of(&offsets, index);
                 // A string-like column decodes as strings, or — for a true
                 // parquet ENUM — as binary; both hold UTF-8 values.
-                if let Some(strings) = array.as_string_opt::<i32>() {
+                if let Some(strings) = values.as_string_opt::<i32>() {
                     let values = strings.iter().map(|value| value.map(str::as_bytes));
-                    check_membership(values, allowed, stat, row_offset, limit);
-                } else if let Some(bytes) = array.as_binary_opt::<i32>() {
-                    check_membership(bytes.iter(), allowed, stat, row_offset, limit);
+                    check_membership(values, allowed, stat, row_offset, &row_of, limit);
+                } else if let Some(bytes) = values.as_binary_opt::<i32>() {
+                    check_membership(bytes.iter(), allowed, stat, row_offset, &row_of, limit);
                 }
             }
         }
@@ -135,6 +152,42 @@ pub fn column_stats(
     }
 
     Ok(stats)
+}
+
+/// Descend from a decoded top-level column to the values at `fields` (struct
+/// field names), unwrapping list layers wherever they appear — so `list(enum)`
+/// yields its elements, and a field of `list(struct)` its per-element values.
+/// Returns the flat values array with the offset layers crossed, which
+/// [`row_of`] uses to attribute a flat element back to its row.
+fn navigate<'a>(
+    root: &'a dyn Array,
+    fields: &[String],
+) -> Option<(&'a dyn Array, Vec<OffsetBuffer<i32>>)> {
+    let mut current = root;
+    let mut offsets = Vec::new();
+    let mut fields = fields.iter();
+    loop {
+        if let Some(list) = current.as_list_opt::<i32>() {
+            offsets.push(list.offsets().clone());
+            current = list.values().as_ref();
+            continue;
+        }
+        match fields.next() {
+            None => return Some((current, offsets)),
+            Some(field) => current = current.as_struct_opt()?.column_by_name(field)?.as_ref(),
+        }
+    }
+}
+
+/// The batch row holding flat element `index`, mapped up through the list
+/// offset layers [`navigate`] crossed (identity when it crossed none).
+fn row_of(offsets: &[OffsetBuffer<i32>], mut index: usize) -> usize {
+    for layer in offsets.iter().rev() {
+        // The slot whose [start, end) range contains `index`; empty slots
+        // share their start with the next, and the partition point skips them.
+        index = layer.partition_point(|&end| (end as usize) <= index) - 1;
+    }
+    index
 }
 
 /// Test each non-null value's membership in `allowed`, recording the outsiders.
@@ -145,9 +198,10 @@ fn check_membership<'a>(
     allowed: &HashSet<String>,
     stat: &mut ColumnStats,
     row_offset: usize,
+    row_of: &dyn Fn(usize) -> usize,
     limit: usize,
 ) {
-    for (row, value) in values.enumerate() {
+    for (index, value) in values.enumerate() {
         let Some(bytes) = value else {
             continue;
         };
@@ -157,7 +211,7 @@ fn check_membership<'a>(
         }
         stat.outside_count += 1;
         if stat.outside_rows.len() < limit {
-            stat.outside_rows.push(row_offset + row + 1);
+            stat.outside_rows.push(row_offset + row_of(index) + 1);
         }
         if stat.outside_values.len() < limit {
             let rendered = match value {

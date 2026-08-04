@@ -1,0 +1,35 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: name
+        type: string
+        examples: [otter, seal]
+      - name: addr
+        type: struct
+        fields:
+          - name: zip
+            type: string
+            examples: ['97201']
+          - name: country
+            type: enum
+            values: [US, CA]
+      - name: tags
+        type: list(enum)
+        values: [a, b, zz]
+────────────────────────────────────────
+error[D04]: An enum column's values must all be among its declared `values`.
+  --> dict.yaml:19:21
+   |
+LL |   - name: animals
+...
+LL |           - name: country
+LL |             type: enum
+LL |             values: [US, CA]
+   |                     ^^^^^^^ has 1 value outside the allowed set (`XX`; row: 2)

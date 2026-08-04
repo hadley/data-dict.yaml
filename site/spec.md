@@ -210,7 +210,9 @@ The element type in `list(element_type)` may be any type: `string`, `number`, `n
 
 #### Struct fields
 
-A `struct` column may include a `fields` property — an ordered list of field descriptors. Each field descriptor uses the same schema as a column descriptor. A field may itself be `list(...)` or `struct` (with its own `fields`), allowing deep nesting.
+A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, etc). It doesn't yet support: `label`, `display`, and `constraints`. 
+
+A field may itself be `list(...)` or `struct` (with its own `fields`), allowing deep nesting.
 
 ```yaml
 - name: address
@@ -228,6 +230,16 @@ A `struct` column may include a `fields` property — an ordered list of field d
     - name: country
       type: enum
       values: [US, CA, MX]
+```
+
+A rule about a field's values is written as an assertion on the enclosing column (or table), using [field access](expressions.md#field-access):
+
+```yaml
+- name: address
+  type: struct
+  constraints:
+    - assert: LENGTH(address.zip) = 5
+  fields: ...
 ```
 
 #### Representative values
@@ -271,10 +283,12 @@ The `constraints` property is a list of constraints. Each entry is either a **st
 
 The structural constraints are:
 
-* `primary_key`: the set of columns with the `primary_key` constraint uniquely identifies each row. Implies `required` and `unique`. Not valid on `list` or `struct` columns, or on fields within a `struct`.
-* `foreign_key`: the column references a primary key in another table (or in the current table, if a self-join). The specific relationship is defined in [`relationships`](#relationships). Validating the data checks that every value appears in the referenced primary key (see D05/D06 in [validation](validation.md)). Not valid on `list` or `struct` columns, or on fields within a `struct`.
-* `required`: the column does not contain null/missing values.
+* `primary_key`: the set of columns with the `primary_key` constraint uniquely identifies each row. Implies `required` and `unique`.
+* `foreign_key`: the column references a primary key in another table (or in the current table, if a self-join). The specific relationship is defined in [`relationships`](#relationships). Validating the data checks that every value appears in the referenced primary key (see D05/D06 in [validation](validation.md)).
+* `required`: the column does not contain null/missing values. On a `list` element this only implies non-null, not non-empty.
 * `unique`: the column's values are distinct (no duplicates). Null/missing values are exempt — a `unique` column may contain multiple nulls, and nulls are never treated as duplicates.
+
+`unique`, `primary_key`, `foreign_key` are not valid on `list` or `struct` columns, and constraints belong to columns; fields within a `struct` can't carry them (see [Struct fields](#struct-fields)).
 
 An assertion is a map with an `assert` key holding a boolean expression that must be true for every row, plus an optional `description`:
 
@@ -287,7 +301,7 @@ columns:
       - assert: LENGTH(postcode) <= 10
 ```
 
-Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
+Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
 
 Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
 

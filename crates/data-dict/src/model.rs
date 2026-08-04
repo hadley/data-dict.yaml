@@ -202,8 +202,17 @@ impl Column {
         self.has(Constraint::Required) || self.has(Constraint::PrimaryKey)
     }
 
+    /// Whether the column's values are enum categories: an `enum` column, or a
+    /// `list(enum)` whose elements are.
     pub fn is_enum(&self) -> bool {
-        self.col_type.as_ref().is_some_and(|t| t.value == "enum")
+        self.col_type.as_ref().is_some_and(|t| {
+            let effective = t
+                .value
+                .strip_prefix("list(")
+                .and_then(|s| s.strip_suffix(")"))
+                .unwrap_or(&t.value);
+            effective == "enum"
+        })
     }
 }
 

@@ -125,12 +125,13 @@ object:
                                 description: string
                     examples:
                       arrayOf: any
-                    # Struct fields: same shape as columns. Type-specific rules
-                    # (struct requires fields; fields banned on other types)
-                    # are enforced semantically (S07). arrayOf: any lets the
-                    # recursive structure through; S07/S11/etc. validate it.
+                    # Struct fields: reduced column descriptors, defined in
+                    # schema-field.yaml (registered as `field`) so they can
+                    # recurse. Type-specific rules (struct requires fields;
+                    # fields banned on other types) stay semantic (S07).
                     fields:
-                      arrayOf: any
+                      arrayOf:
+                        ref: field
 
             constraints:
               arrayOf:

@@ -36,6 +36,7 @@ pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 pub const SPEC_VERSION: &str = "0.1.0";
 
 const SCHEMA_YAML: &str = include_str!("../../../schema.yaml");
+const FIELD_SCHEMA_YAML: &str = include_str!("../../../schema-field.yaml");
 
 fn schema() -> &'static Schema {
     static SCHEMA: OnceLock<Schema> = OnceLock::new();
@@ -43,6 +44,21 @@ fn schema() -> &'static Schema {
         let yaml =
             quarto_yaml::parse(SCHEMA_YAML).expect("embedded schema.yaml must be parseable YAML");
         Schema::from_yaml(&yaml).expect("embedded schema.yaml must compile to a valid schema")
+    })
+}
+
+/// The registry holding the `field` schema, which `schema.yaml` (and the field
+/// schema itself, for nested structs) references lazily via `ref: field`.
+fn registry() -> &'static SchemaRegistry {
+    static REGISTRY: OnceLock<SchemaRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let yaml = quarto_yaml::parse(FIELD_SCHEMA_YAML)
+            .expect("embedded schema-field.yaml must be parseable YAML");
+        let schema = Schema::from_yaml(&yaml)
+            .expect("embedded schema-field.yaml must compile to a valid schema");
+        let mut registry = SchemaRegistry::new();
+        registry.register("field".to_string(), schema);
+        registry
     })
 }
 
@@ -107,8 +123,7 @@ pub(crate) fn load_str(
     let file_id = quarto_yaml::file_id_for_filename(filename);
     source.add_file_with_id(file_id, filename.to_string(), Some(content.to_string()));
 
-    let registry = SchemaRegistry::new();
-    if let Err(err) = quarto_yaml_validation::validate(&doc, schema(), &registry, &source) {
+    if let Err(err) = quarto_yaml_validation::validate(&doc, schema(), registry(), &source) {
         // Lift the structural error into our own vocabulary so it renders through
         // the annotate-snippets pipeline like every other diagnostic, rather than
         // the validator's own (ariadne) text.
@@ -226,8 +241,9 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
 }
 
 /// Run all column-level checks for a slice of columns. `in_struct` is `true`
-/// when the columns are fields inside a `struct`, which changes S01 (skipped)
-/// and S29 (always fires for primary_key/foreign_key).
+/// when the columns are fields inside a `struct`, which skips the checks that
+/// only make sense for table columns (S01, assertions, S29 — fields carry no
+/// `constraints` at all, which the schema enforces).
 fn check_columns(
     dict: &DataDict,
     table: &Table,
@@ -240,11 +256,11 @@ fn check_columns(
         if !in_struct {
             validate_s01_foreign_key(dict, table, col, out);
             validate_column_assertions(table, col, out);
+            validate_s29_key_constraints(table, col, out);
         }
         validate_s08_units(table, col, out);
         validate_s14_time_zone(table, col, out);
         validate_s15_time_zone_format(table, col, out);
-        validate_s29_key_constraints(table, col, in_struct, out);
         if validate_s11_column_name(table, col, out) {
             validate_s10_unique_name(table, col, &mut seen, out);
         }
@@ -282,6 +298,8 @@ impl TableEnv<'_> {
             Some("datetime") => ColumnKind::Datetime,
             // An enum's values are its categories, and those are always strings.
             Some("enum") => ColumnKind::String,
+            Some("struct") => ColumnKind::Struct,
+            Some(t) if list_element_type(t).is_some() => ColumnKind::List,
             _ => ColumnKind::Untyped,
         }
     }
@@ -290,6 +308,18 @@ impl TableEnv<'_> {
 impl CheckEnv for TableEnv<'_> {
     fn column(&self, name: &str) -> Option<ColumnKind> {
         self.table.column(name).map(Self::kind_of)
+    }
+
+    fn field(&self, path: &[String]) -> Option<ColumnKind> {
+        let mut col = self.table.column(&path[0])?;
+        for segment in &path[1..] {
+            col = col
+                .fields
+                .as_deref()?
+                .iter()
+                .find(|f| f.name.value == *segment)?;
+        }
+        Some(Self::kind_of(col))
     }
 
     fn columns(&self) -> Vec<(String, ColumnKind)> {
@@ -788,46 +818,35 @@ fn validate_s28_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool 
 
 // --- S29 --------------------------------------------------------------
 
-/// Error when `primary_key` or `foreign_key` appears on a `list` or `struct`
-/// column, or on any field inside a `struct`.
-fn validate_s29_key_constraints(
-    table: &Table,
-    col: &Column,
-    in_struct: bool,
-    out: &mut ProblemSet,
-) {
+/// Error when `primary_key`, `foreign_key`, or `unique` appears on a `list` or
+/// `struct` column. Fields inside a `struct` can't carry `constraints` at all;
+/// the schema rejects them structurally.
+fn validate_s29_key_constraints(table: &Table, col: &Column, out: &mut ProblemSet) {
     let type_name = col
         .col_type
         .as_ref()
         .map(|t| t.value.as_str())
         .unwrap_or("");
-    let is_list_or_struct = list_element_type(type_name).is_some() || type_name == "struct";
-    if !in_struct && !is_list_or_struct {
+    if list_element_type(type_name).is_none() && type_name != "struct" {
         return;
     }
     for c in &col.constraints {
-        if matches!(c.value, Constraint::PrimaryKey | Constraint::ForeignKey) {
-            let constraint_name = match c.value {
-                Constraint::PrimaryKey => "primary_key",
-                Constraint::ForeignKey => "foreign_key",
-                _ => unreachable!(),
-            };
-            let context = if in_struct {
-                "struct fields".to_string()
-            } else {
-                format!("`{type_name}` columns")
-            };
-            out.push_spec_error(
-                "S29",
-                format!("`{constraint_name}` is not valid on {context}."),
-                format!("has `{constraint_name}`"),
-                [
-                    table.name.span.clone(),
-                    col.name.span.clone(),
-                    c.span.clone(),
-                ],
-            );
-        }
+        let constraint_name = match c.value {
+            Constraint::PrimaryKey => "primary_key",
+            Constraint::ForeignKey => "foreign_key",
+            Constraint::Unique => "unique",
+            _ => continue,
+        };
+        out.push_spec_error(
+            "S29",
+            format!("`{constraint_name}` is not valid on `{type_name}` columns."),
+            format!("has `{constraint_name}`"),
+            [
+                table.name.span.clone(),
+                col.name.span.clone(),
+                c.span.clone(),
+            ],
+        );
     }
 }
 
@@ -1314,7 +1333,12 @@ fn expected_noun(type_name: &str, tz_present: bool) -> &'static str {
 /// each must be a string. Both forms reach here the same way: the map form's
 /// keys are lowered as its values.
 fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
-    let Some(col_type) = col.col_type.as_ref().filter(|t| t.value == "enum") else {
+    // `list(enum)` carries `values` exactly like a scalar enum (see S07).
+    let Some(col_type) = col
+        .col_type
+        .as_ref()
+        .filter(|t| list_element_type(&t.value).unwrap_or(&t.value) == "enum")
+    else {
         return;
     };
     // A missing `values` is S07's to report.

@@ -14,12 +14,10 @@ tables:
             constraints: [primary_key]
             examples: [1, 2, 3]
 ────────────────────────────────────────
-error[S29]: `primary_key` is not valid on struct fields.
-  --> dict.yaml:11:27
+error[Q-1-18]: An object may only contain the properties its schema defines.
+  --> dict.yaml:11:13
    |
-LL |   - name: t
-...
-LL |           - name: id
-LL |             type: number(id)
 LL |             constraints: [primary_key]
-   |                           ^^^^^^^^^^^ has `primary_key`
+   |             ^^^^^^^^^^^ Unknown property 'constraints'
+   |
+   = help: Check for typos in property names or remove unrecognized properties?

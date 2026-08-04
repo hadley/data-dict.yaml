@@ -36,12 +36,12 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S04 | Invalid join | E | A `join` expression fails to parse, or references more than two tables. |
 | S05 | Unresolved conflict column | E | A name in `conflicts` is not a column on both sides of the join. |
 | S06 | Inconsistent cardinality | E | The declared cardinality is inconsistent with the constraints on the joined columns (e.g. `one-to-many` whose "one" side is not `primary_key` or `unique`). |
-| S07 | Wrong representation key | E | A column's data representation key is absent or wrong for its type (`enum` → `values`; `number(ordinal)`, `number(quantity)`, `date`, `datetime` → `range`; otherwise → `examples`). A `boolean` column must carry none of `values`, `range`, or `examples`. |
+| S07 | Wrong representation key | E | A column's data representation key is absent or wrong for its type (`enum` → `values`; `number(ordinal)`, `number(quantity)`, `date`, `datetime` → `range`; otherwise → `examples`). A `boolean` column must carry none of `values`, `range`, or `examples`. For `list(element_type)` the element type picks the key; a `struct` or `list(struct)` column instead requires `fields` and takes no representation key, and `fields` is invalid on any other type. |
 | S08 | Units without quantity | E | A column has `units` but its type is not `number(quantity)`. |
 | S09 | Missing `$learn_more` | W | The document omits the recommended `$learn_more` key. |
 | S10 | Duplicate name | E | Two column descriptors within the same table share a `name`, or two table descriptors within the dictionary share a `name`. |
 | S11 | Empty name | E | A table name or a column `name` is empty. |
-| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings, so a value that reads as a number or a boolean counts only if quoted; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. |
+| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings, so a value that reads as a number or a boolean counts only if quoted; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. For a `list(element_type)` column the values must match the element type. |
 | S13 | Descending range | E | A `range`'s minimum is greater than its maximum. An open bound counts as ordered only in its own place — `-.inf` as the minimum and `.inf` as the maximum; `.inf` as a minimum or `-.inf` as a maximum runs backwards. |
 | S14 | Time zone without datetime | E | A column has `time_zone` but its type is not `datetime`. |
 | S15 | Malformed time zone | E | A `time_zone` is not `naive`, `UTC`, or an IANA `Area/Location` name with a known area. The shape is checked, not the full tz database, so the accepted set doesn't go stale as zones are added or renamed. |
@@ -49,16 +49,16 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S17 | Malformed version | E | The top-level `version` does not give exactly one of `number`, `date`, or `hash`; its `number` is not three dot-separated numeric components (`MAJOR.MINOR.PATCH`) with an optional pre-release/build suffix; or its `date` is not a valid ISO 8601 date (`YYYY-MM-DD`). |
 | S18 | Missing `$version` | E | The document omits the required top-level `$version` key. |
 | S19 | Malformed assertion | E | An `assert` expression fails to parse (a syntax error in the [expression language](expressions.md)). |
-| S20 | Unknown assertion column | E | An `assert` expression, or a `COLUMNS([...])` list, references a column not present on the table. |
-| S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, or a malformed `SIMILAR TO` / `COLUMNS('...')` regex. |
+| S20 | Unknown assertion column | E | An `assert` expression, or a `COLUMNS([...])` list, references a column not present on the table, or a field access names a field not declared on its `struct`. |
+| S21 | Ill-typed assertion | E | An `assert` expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects), a wrong function arity, a non-boolean top-level expression, more than one `COLUMNS(...)`, a malformed `SIMILAR TO` / `COLUMNS('...')` regex, a field access on anything but a `struct` (including through a `list`), or a bare `struct` or `list` column used where a value is needed (anywhere but `IS [NOT] NULL`). |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an `assert` expression matches no columns on the table (likely a typo — the assertion would hold vacuously). |
-| S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only, with no declared `type`, somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
+| S23 | Untyped column in an expression | E | An `assert` expression uses a column listed by name only (or a `struct` field with no declared `type`) somewhere its type matters, so the expression can't be checked. Declaring the column's `type` fixes it. Operands whose type is never consulted (`IS NULL`, `IS NOT NULL`) are exempt. |
 | S24 | Invalid enum values | E | An `enum`'s `values` are not a non-empty set of strings: they are empty (`[]` or `{}`), so nothing is permitted, or a value is not a string — a number, a boolean, null, or a nested list/map. A category that reads as a number or a boolean has to be quoted to be a string (`'1'`, `'-9'`, `'true'`). Both forms are checked: the list items, and the keys of the map form. |
 | S25 | Unaliased self-join | E | Both sides of a `join` denote the same rows: the same name appears on both sides, or both sides resolve to the same table without each being a distinct alias. A self-join must name each side with its own `aliases` entry. |
 | S26 | Alias shadows table | E | An `aliases` key has the same name as a table in `tables`, so a name in the `join` could be read either way. |
 | S27 | Unused alias | W | An `aliases` entry is declared but never referenced by the relationship's `join`. |
 | S28 | Invalid type | E | A column's `type` is not a recognised type string. Valid types are the fixed scalars (`string`, `number`, `number(id)`, `number(ordinal)`, `number(quantity)`, `boolean`, `date`, `datetime`), `enum`, `struct`, and `list(element_type)` where the element type is any of the above. |
-| S29 | Key constraint on list or struct | E | A `primary_key` or `foreign_key` constraint appears on a `list` or `struct` column, or on any field inside a `struct`. |
+| S29 | Invalid constraint on list or struct | E | A `primary_key`, `foreign_key`, or `unique` constraint appears on a `list` or `struct` column. (There is no such check for fields: a field can't carry `constraints` at all, which the schema enforces structurally.) |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
@@ -68,7 +68,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
-| M01 | Type mismatch | E | A column's declared type is incompatible with the data. |
+| M01 | Type mismatch | E | A column's declared type is incompatible with the data. A `list(element_type)` column requires list-shaped data whose element type is compatible; a `struct` column requires struct-shaped data. |
 | M02 | Missing column | E | A column the dictionary describes is absent from the data. This applies even to columns listed by name only — listing a column that doesn't exist is an error. |
 | M03 | Undocumented column | W | A column present in the data that the dictionary does not describe. This is a warning, not an error: if a production pipeline adds a column, validation should not fail, but you should document it (or at least list it by name) next time you touch the dictionary. |
 | M04 | Missing source | E | A table validated against data does not declare a `source`. `source` is optional at the spec level but required here, so a validated dictionary always records where its data comes from. |
@@ -76,20 +76,32 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 
 : {tbl-colwidths="[7,23,5,65]"}
 
+M01–M03 descend into `struct` fields, recursively and through `list(struct)`: each declared field is checked like a column against the corresponding child of the data's struct type — its type must be compatible (M01), a declared field must exist in the data (M02, error), and a child the dictionary doesn't describe is reported (M03, warning).
+
+### Nested Parquet types {#nested-parquet-types}
+
+How Parquet's nested shapes read as data-dict types, for the M01 comparison:
+
+* A `LIST`-annotated group reads as `list(element_type)`. So does a legacy repeated field (the pre-`LIST` two-level encoding): a `repeated int32 xs` outside a `LIST` wrapper means the same thing, a list of values per row.
+* A plain group reads as `struct`.
+* A `MAP`-annotated group reads as none of the data-dict types: its keys are data, not schema, so no `fields` can describe it. A documented map column always reports M01; an undocumented one is reported by M03 like any other column.
+
 ## Data-validation checks
 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
-| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. |
+| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. On a `list` or `struct` column, `required` is about the container itself: a null list counts, an empty one does not. |
 | D02 | Duplicate values | E | A `unique` column contains duplicate values, or the combination of all `primary_key` columns does not uniquely identify every row. Only [comparable types](#comparable-types) are checked. Null/missing values are never counted as duplicates; for a composite primary key, a row with a null in any key column is not compared. |
 | D03 | Uniqueness not verified | W | A `unique` column or `primary_key` uses a type whose values can't be reliably compared, so its uniqueness was not checked. |
-| D04 | Value outside enum | E | An `enum` column contains a (non-null) value that is not one of its declared `values`. |
+| D04 | Value outside enum | E | An `enum` column contains a (non-null) value that is not one of its declared `values`. Applies inside nested types too: the elements of a `list(enum)` column, and every `enum` field reachable through `struct` fields (recursively, including through `list(struct)`), are checked against their declared `values`. |
 | D05 | Foreign key not found | E | A `foreign_key` column contains a (non-null) value that does not appear in the `primary_key` column it references. Only [comparable types](#comparable-types) are checked; null/missing values are exempt (a null foreign key references nothing). Only single-column foreign keys are checked. |
 | D06 | Referential integrity not verified | W | A `foreign_key` column, or the `primary_key` it references, uses a type whose values can't be reliably compared, so the reference was not checked. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
 ### Comparable types {#comparable-types}
+
+Lists and structs never reach the comparison checks at all: `unique`, `primary_key`, and `foreign_key` are invalid on them at the spec level (S29), so D02, D03, D05, and D06 only ever see scalar columns.
 
 The uniqueness check (D02) compares values directly, so it only runs on types whose equality is unambiguous. Which types those are depends on the data source, since each source stores values differently. Today the only source is Parquet.
 
