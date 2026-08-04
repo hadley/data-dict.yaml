@@ -721,7 +721,8 @@ fn wrap_comment(out: &mut String, indent: &str, text: &str) {
 // --- paths ---------------------------------------------------------------
 
 /// `path` relative to `dir`, computed lexically (no filesystem access beyond
-/// making both absolute against the current directory).
+/// making both absolute against the current directory). Always joined with
+/// `/`, whatever the platform, so the dictionary stays portable.
 fn relative_to(path: &Path, dir: &Path) -> Result<String, std::io::Error> {
     let path = std::path::absolute(path)?;
     let dir = std::path::absolute(if dir.as_os_str().is_empty() {
@@ -735,14 +736,14 @@ fn relative_to(path: &Path, dir: &Path) -> Result<String, std::io::Error> {
         path_components.next();
         dir_components.next();
     }
-    let mut rel = PathBuf::new();
+    let mut segments: Vec<String> = Vec::new();
     for _ in dir_components {
-        rel.push("..");
+        segments.push("..".to_string());
     }
     for component in path_components {
-        rel.push(component);
+        segments.push(component.as_os_str().to_string_lossy().into_owned());
     }
-    Ok(rel.display().to_string())
+    Ok(segments.join("/"))
 }
 
 // --- append mode -----------------------------------------------------------
