@@ -1844,3 +1844,60 @@ fn conforming_nested_list_data_is_clean() {
     let result = validate_data(&yaml, None);
     assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
 }
+
+// Alternating nesting — struct → list(struct) → struct → list(enum) — reaches
+// the data level too: the container's null trips `required`, and an element
+// four levels down is attributed to its row through both list layers.
+#[test]
+fn deep_alternating_nesting_checks_values() {
+    let dir = temp_dir();
+    common::write_deep_parquet(&dir.join("data.parquet"));
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: orders
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: order
+                    type: struct
+                    constraints: [required]
+                    fields:
+                      - name: shipments
+                        type: list(struct)
+                        fields:
+                          - name: origin
+                            type: struct
+                            fields:
+                              - name: statuses
+                                type: list(enum)
+                                values: [ok, late]
+        "},
+    );
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+        )),
+        "got {:?}",
+        result.items
+    );
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
+                if rows == &vec![2] && values == &vec!["bogus".to_string()]
+        )),
+        "got {:?}",
+        result.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &result.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}

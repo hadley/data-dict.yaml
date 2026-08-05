@@ -1,0 +1,42 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    source:
+      parquet: data.parquet
+    columns:
+      - name: order
+        type: struct
+        constraints: [required]
+        fields:
+          - name: shipments
+            type: list(struct)
+            fields:
+              - name: origin
+                type: struct
+                fields:
+                  - name: statuses
+                    type: list(enum)
+                    values: [ok, late]
+────────────────────────────────────────
+error[D01]: A required column must not contain nulls.
+  --> dict.yaml:10:23
+   |
+LL |   - name: orders
+...
+LL |       - name: order
+LL |         type: struct
+LL |         constraints: [required]
+   |                       ^^^^^^^^ has 1 null value (row: 3)
+error[D04]: An enum column's values must all be among its declared `values`.
+  --> dict.yaml:20:29
+   |
+LL |   - name: orders
+...
+LL |                   - name: statuses
+LL |                     type: list(enum)
+LL |                     values: [ok, late]
+   |                             ^^^^^^^^^ has 1 value outside the allowed set (`bogus`; row: 2)

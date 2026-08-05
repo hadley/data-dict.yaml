@@ -551,3 +551,57 @@ fn list_element_type_mismatch_reported() {
         &problems.render(common::SNAPSHOT_STYLE).join("\n")
     ));
 }
+
+// Alternating nesting — struct → list(struct) → struct → list(enum) — is
+// checked at every level: a matching dictionary is clean, and M02/M03 name
+// deep fields by their dotted path.
+#[test]
+fn deep_alternating_nesting_checked_at_every_level() {
+    let dir = temp_dir();
+    common::write_deep_parquet(&dir.join("data.parquet"));
+    let yaml = animals_dict(&dir, "data.parquet", common::DEEP_ORDER);
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Ok, "got {:?}", problems.items);
+
+    // `eta` is declared three levels down but absent from the data; `statuses`
+    // is left undocumented at the same depth.
+    let dir = temp_dir();
+    common::write_deep_parquet(&dir.join("data.parquet"));
+    let yaml = animals_dict(
+        &dir,
+        "data.parquet",
+        indoc! {"
+            - name: order
+              type: struct
+              fields:
+                - name: shipments
+                  type: list(struct)
+                  fields:
+                    - name: origin
+                      type: struct
+                      fields:
+                        - name: eta
+                          type: date
+                          range: [2024-01-01, 2024-12-31]
+        "},
+    );
+    let problems = validate_meta(&yaml, None);
+    assert_eq!(problems.status(), Status::Error);
+    assert!(
+        problems.items.iter().any(|p| p.code == Some("M02")
+            && p.message.contains("`order.shipments.origin` struct")),
+        "expected a deep M02, got {:?}",
+        problems.items
+    );
+    assert!(
+        problems.items.iter().any(|p| p.code == Some("M03")
+            && p.column.as_deref() == Some("order.shipments.origin.statuses")),
+        "expected a deep M03, got {:?}",
+        problems.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &problems.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
