@@ -1,0 +1,22 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: tags
+        type: list(string)
+        constraints: [unique]
+        examples: [a, b, c]
+────────────────────────────────────────
+error[S29]: `unique` is not valid on `list(string)` columns.
+  --> dict.yaml:8:23
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: tags
+LL |         type: list(string)
+LL |         constraints: [unique]
+   |                       ^^^^^^ has `unique`

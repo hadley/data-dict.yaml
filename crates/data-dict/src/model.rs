@@ -126,6 +126,10 @@ pub struct Column {
     pub examples: Option<Representation>,
     pub units: Option<Spanned<String>>,
     pub time_zone: Option<Spanned<String>>,
+    /// Fields for `struct` and `list(struct)` columns. `None` means the
+    /// `fields` key was absent; `Some` means it was present (possibly empty,
+    /// which S07 rejects).
+    pub fields: Option<Vec<Column>>,
 }
 
 #[derive(Debug, Clone)]
@@ -201,8 +205,19 @@ impl Column {
         self.has(Constraint::Required) || self.has(Constraint::PrimaryKey)
     }
 
+    /// Whether the column's values are enum categories: an `enum` column, or a
+    /// list (nested to any depth) whose innermost elements are.
     pub fn is_enum(&self) -> bool {
-        self.col_type.as_ref().is_some_and(|t| t.value == "enum")
+        self.col_type.as_ref().is_some_and(|t| {
+            let mut effective = t.value.as_str();
+            while let Some(elem) = effective
+                .strip_prefix("list(")
+                .and_then(|s| s.strip_suffix(")"))
+            {
+                effective = elem;
+            }
+            effective == "enum"
+        })
     }
 }
 

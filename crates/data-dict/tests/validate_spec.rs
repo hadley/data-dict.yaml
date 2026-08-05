@@ -460,6 +460,13 @@ fn s06_self_join_one_to_many() {
     assert_snapshot!(failing_diagnostic("spec/s06-self-join-one-to-many.yaml"));
 }
 
+// Names that aren't plain identifiers are referenced from a `join` in
+// backticks, so S02/S03 resolve them like any other name.
+#[test]
+fn quoted_names_ok() {
+    assert_valid(fixture("spec/quoted-names-ok.yaml"));
+}
+
 // --- aliases (S25/S26/S27) -----------------------------------------------
 
 #[test]
@@ -906,6 +913,22 @@ fn s24_numeric_codes_ok() {
     "#});
 }
 
+// S24 applies to `list(enum)` exactly as to a scalar enum.
+#[test]
+fn s24_empty_values_on_list_enum() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: categories
+                type: list(enum)
+                values: []
+    "});
+    diagnostic.assert_contains(&["S24", "is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // S24: written unquoted, the same codes are numbers, and the hint says so.
 #[test]
 fn s24_unquoted_numeric_codes() {
@@ -1162,6 +1185,395 @@ fn s15_bad_time_zone() {
     assert_snapshot!(diagnostic);
 }
 
+// --- list and struct types (S07, S28, S29) --------------------------------
+
+#[test]
+fn struct_with_fields_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: deliveries
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: address
+                type: struct
+                fields:
+                  - name: street
+                    type: string
+                    examples: [123 Main St, 456 Oak Ave]
+                  - name: zip
+                    type: string
+                    examples: ['97201', '78701']
+    "});
+}
+
+#[test]
+fn list_string_with_examples_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: posts
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: tags
+                type: list(string)
+                examples: [nature, outdoor, urban]
+    "});
+}
+
+#[test]
+fn list_enum_with_values_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: products
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: categories
+                type: list(enum)
+                values: [food, drink, dessert]
+    "});
+}
+
+#[test]
+fn list_quantity_with_range_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: prices
+                type: list(number(quantity))
+                units: USD
+                range: [0.99, 999.99]
+    "});
+}
+
+// Lists nest to any depth; the properties follow the innermost element type —
+// `units` and `range` for quantities, `time_zone` for datetimes.
+#[test]
+fn nested_list_properties_follow_innermost_type() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: sensors
+            columns:
+              - name: temperature_grid
+                type: list(list(number(quantity)))
+                units: °C
+                range: [-40, 60]
+              - name: reading_batches
+                type: list(list(datetime))
+                time_zone: UTC
+                range: [2020-01-01T00:00:00, 2024-12-31T23:59:59]
+              - name: label_matrix
+                type: list(list(enum))
+                values: [hot, cold]
+              - name: cell_groups
+                type: list(list(struct))
+                fields:
+                  - name: value
+                    type: number
+                    examples: [1.5, 2.5]
+    "});
+}
+
+// S28: the innermost element type is what must be recognised.
+#[test]
+fn s28_invalid_nested_list_element_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(foo))
+                examples: [a, b]
+    "});
+    diagnostic.assert_contains(&["S28", "`foo` is not a recognised list element type"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: a nested list of quantities still wants `range`, not `examples`.
+#[test]
+fn s07_nested_list_wrong_representation() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(number(quantity)))
+                units: kg
+                examples: [1, 2]
+    "});
+    diagnostic.assert_contains(&["S07", "list(list(number(quantity)))", "range"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S12: values are typed against the innermost element type.
+#[test]
+fn s12_nested_list_wrong_value_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(number(quantity)))
+                units: kg
+                range: [0, top]
+    "});
+    diagnostic.assert_contains(&["S12", "list(list(number(quantity)))"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn list_struct_with_fields_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: line_items
+                type: list(struct)
+                fields:
+                  - name: product_id
+                    type: number(id)
+                    examples: [101, 204, 389]
+                  - name: quantity
+                    type: number(quantity)
+                    units: units
+                    range: [1, 100]
+    "});
+}
+
+#[test]
+fn list_boolean_no_representation_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: flags
+                type: list(boolean)
+    "});
+}
+
+// S28: list(foo) names the bad element type, not the whole list type.
+#[test]
+fn s28_invalid_list_element_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: c
+                type: list(foo)
+                examples: [a, b, c]
+    "});
+    diagnostic.assert_contains(&["S28", "foo", "element type"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S28: an unrecognised type string is rejected.
+#[test]
+fn s28_invalid_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: c
+                type: foobar
+                examples: [1, 2, 3]
+    "});
+    diagnostic.assert_contains(&["S28", "foobar"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: a struct column without fields is an error.
+#[test]
+fn s07_struct_without_fields() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+    "});
+    diagnostic.assert_contains(&["S07", "struct", "fields"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: `fields` on a non-struct column is an error.
+#[test]
+fn s07_fields_on_non_struct() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: tags
+                type: list(string)
+                examples: [a, b, c]
+                fields:
+                  - name: x
+                    type: string
+                    examples: [a]
+    "});
+    diagnostic.assert_contains(&["S07", "list(string)", "fields"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: a list(string) column without examples is an error.
+#[test]
+fn s07_list_missing_representation() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: tags
+                type: list(string)
+    "});
+    diagnostic.assert_contains(&["S07", "list(string)", "examples"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S29: primary_key on a struct column is an error.
+#[test]
+fn s29_primary_key_on_struct() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                constraints: [primary_key]
+                fields:
+                  - name: street
+                    type: string
+                    examples: [123 Main St]
+    "});
+    diagnostic.assert_contains(&["S29", "primary_key", "struct"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S29: foreign_key on a list column is an error.
+#[test]
+fn s29_foreign_key_on_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: tags
+                type: list(string)
+                constraints: [foreign_key]
+                examples: [a, b, c]
+    "});
+    diagnostic.assert_contains(&["S29", "foreign_key", "list(string)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S29: unique on a list column is an error.
+#[test]
+fn s29_unique_on_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: tags
+                type: list(string)
+                constraints: [unique]
+                examples: [a, b, c]
+    "});
+    diagnostic.assert_contains(&["S29", "unique", "list(string)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Fields are reduced column descriptors: `constraints` (like `label` and
+// `display`) is rejected structurally by the schema.
+#[test]
+fn constraints_banned_on_struct_field() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [1, 2, 3]
+    "});
+    diagnostic.assert_contains(&["Unknown property 'constraints'"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Deep nesting stays structurally checked: the field schema recurses, so a
+// banned property is caught on a field of a field.
+#[test]
+fn display_banned_on_nested_struct_field() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: geo
+                    type: struct
+                    fields:
+                      - name: lat
+                        type: number
+                        display: restricted
+                        examples: [45.5]
+    "});
+    diagnostic.assert_contains(&["Unknown property 'display'"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Struct fields are themselves validated (e.g. S12 catches wrong value types).
+#[test]
+fn struct_field_s12_wrong_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: zip
+                    type: number(id)
+                    examples: [not-a-number]
+    "});
+    diagnostic.assert_contains(&["S12"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // --- constraints (column & table assertions) -----------------------------
 //
 // The schema fixes only the *shape* of constraints: a column entry is either a
@@ -1245,6 +1657,75 @@ fn constraints_s20_unknown_column() {
     assert_snapshot!(diagnostic);
 }
 
+// An assertion may reach a struct's fields with dot access, at any depth.
+#[test]
+fn constraints_field_access_ok() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                constraints:
+                  - assert: LENGTH(addr.zip) = 5
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+                  - name: geo
+                    type: struct
+                    fields:
+                      - name: lat
+                        type: number
+                        examples: [45.5]
+            constraints:
+              - assert: addr.geo.lat BETWEEN -90 AND 90
+    "});
+}
+
+// S20: a field access naming a field the struct doesn't declare.
+#[test]
+fn constraints_s20_unknown_field() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: addr
+                type: struct
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+            constraints:
+              - assert: LENGTH(addr.zpi) = 5
+    "});
+    diagnostic.assert_contains(&["S20", "no field `zpi`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S21: a list's elements can't be reached with dot access.
+#[test]
+fn constraints_s21_field_access_through_list() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: items
+                type: list(struct)
+                fields:
+                  - name: qty
+                    type: number(quantity)
+                    units: units
+                    range: [1, 10]
+            constraints:
+              - assert: items.qty > 0
+    "});
+    diagnostic.assert_contains(&["S21", "a list's elements can't be reached"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // S20: a `COLUMNS([...])` list naming a column that does not exist.
 #[test]
 fn constraints_s20_unknown_column_in_columns_list() {
@@ -1259,6 +1740,55 @@ fn constraints_s20_unknown_column_in_columns_list() {
               - assert: COLUMNS([a, missing]) IS NOT NULL
     "});
     diagnostic.assert_contains(&["S20", "`missing`"]);
+}
+
+// Backticks are optional on a name that doesn't need them: a quoted name is
+// matched exactly like a bare one.
+#[test]
+fn constraints_quoting_does_not_change_matching() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+                constraints:
+                  - assert: '`qty` > 0'
+    "});
+}
+
+// S20: a quoted name resolves against the table like any other, so one that
+// isn't there is still unknown.
+#[test]
+fn constraints_s20_unknown_quoted_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`no such column` IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S20", "`no such column`", "not on this table"]);
+}
+
+// S19: a backtick left unclosed is a syntax error like any other.
+#[test]
+fn constraints_s19_unterminated_quoted_name() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: '`a IS NOT NULL'
+    "});
+    diagnostic.assert_contains(&["S19", "unterminated quoted name"]);
 }
 
 // S21: a type mismatch — a numeric length compared as if the column were a

@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use data_dict_parquet::ColumnMeta;
+use data_dict_parquet::{ColumnMeta, DataColumn};
 
 use crate::model::{Column, Constraint, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
@@ -39,11 +39,44 @@ pub fn validate_meta(dict_path: &Path, table: Option<&str>) -> ProblemSet {
 
 /// Compare the dictionary's `table` against the actual column types read from
 /// the data, pushing the metadata-level problems into `out`. Reused by the data
-/// level, which appends its value-level problems to the same set.
-pub(crate) fn meta_issues(table: &Table, actual: &[(String, String)], out: &mut ProblemSet) {
-    validate_m01_column_types(table, actual, out);
-    validate_m02_missing_columns(table, actual, out);
-    validate_m03_extra_columns(table, actual, out);
+/// level, which appends its value-level problems to the same set. The M01–M03
+/// checks descend into `struct` fields (including through `list(struct)`),
+/// each declared field checked against the corresponding child of the data.
+pub(crate) fn meta_issues(table: &Table, actual: &[DataColumn], out: &mut ProblemSet) {
+    check_columns(table, &table.columns, actual, &[], out);
+}
+
+/// Run M01–M03 for one level of the column tree: `declared` against `actual`,
+/// where `path` holds the enclosing struct columns' names (empty at the top
+/// level, so problems name fields by their dotted path).
+fn check_columns(
+    table: &Table,
+    declared: &[Column],
+    actual: &[DataColumn],
+    path: &[&str],
+    out: &mut ProblemSet,
+) {
+    for col in declared {
+        // An absent column is M02's concern; a column with no `type` makes no
+        // claims, but its declared fields (if any) are still checked.
+        let Some(data) = actual.iter().find(|c| c.name == col.name.value) else {
+            validate_m02_missing(table, col, path, out);
+            continue;
+        };
+        // A type mismatch is the root cause; don't cascade into per-field
+        // reports against data of the wrong shape.
+        if validate_m01_column_type(table, col, data, out)
+            && let Some(fields) = &col.fields
+        {
+            let path: Vec<&str> = path
+                .iter()
+                .copied()
+                .chain([col.name.value.as_str()])
+                .collect();
+            check_columns(table, fields, &data.children, &path, out);
+        }
+    }
+    validate_m03_extra_columns(declared, actual, path, out);
 }
 
 /// Attempt D01 from Parquet footer metadata. Although this reads only metadata,
@@ -171,54 +204,77 @@ fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
     }
 }
 
-fn validate_m01_column_types(table: &Table, actual: &[(String, String)], out: &mut ProblemSet) {
-    for col in &table.columns {
-        // Only described columns present in the data are type-checked; an absent
-        // column is M02's concern, and a column with no `type` makes no claims.
-        let Some((_, actual_type)) = actual.iter().find(|(n, _)| n == &col.name.value) else {
-            continue;
-        };
-        if let Some(declared) = &col.col_type
-            && !types_compatible(&declared.value, actual_type)
-        {
-            out.push_located(
-                ProblemKind::TypeMismatch {
-                    declared: declared.value.clone(),
-                    actual: actual_type.to_string(),
-                },
-                Severity::Error,
-                "A column's data must match its declared type.",
-                format!("the data is `{actual_type}`"),
-                [
-                    table.name.span.clone(),
-                    col.name.span.clone(),
-                    declared.span.clone(),
-                ],
-            );
-        }
+/// M01 for one column or field. Returns whether the declared type made no
+/// claim or was compatible, so the caller knows the data is the declared shape
+/// and any declared fields can be checked against its children.
+fn validate_m01_column_type(
+    table: &Table,
+    col: &Column,
+    data: &DataColumn,
+    out: &mut ProblemSet,
+) -> bool {
+    let Some(declared) = &col.col_type else {
+        return true;
+    };
+    if types_compatible(&declared.value, &data.dict_type) {
+        return true;
     }
+    out.push_located(
+        ProblemKind::TypeMismatch {
+            declared: declared.value.clone(),
+            actual: data.dict_type.clone(),
+        },
+        Severity::Error,
+        "A column's data must match its declared type.",
+        format!("the data is `{}`", data.dict_type),
+        [
+            table.name.span.clone(),
+            col.name.span.clone(),
+            declared.span.clone(),
+        ],
+    );
+    false
 }
 
-fn validate_m02_missing_columns(table: &Table, actual: &[(String, String)], out: &mut ProblemSet) {
-    for col in &table.columns {
-        if !actual.iter().any(|(n, _)| n == &col.name.value) {
-            out.push_located(
-                ProblemKind::MissingInData,
-                Severity::Error,
-                "Every column in the dictionary must be present in the data.",
-                "is missing from the data",
-                [table.name.span.clone(), col.name.span.clone()],
-            );
-        }
-    }
+fn validate_m02_missing(table: &Table, col: &Column, path: &[&str], out: &mut ProblemSet) {
+    let (expected, message) = if path.is_empty() {
+        (
+            "Every column in the dictionary must be present in the data.",
+            "is missing from the data".to_string(),
+        )
+    } else {
+        (
+            "Every field in the dictionary must be present in the data's struct.",
+            format!("is missing from the data's `{}` struct", path.join(".")),
+        )
+    };
+    out.push_located(
+        ProblemKind::MissingInData,
+        Severity::Error,
+        expected,
+        message,
+        [table.name.span.clone(), col.name.span.clone()],
+    );
 }
 
-fn validate_m03_extra_columns(table: &Table, actual: &[(String, String)], out: &mut ProblemSet) {
-    for (name, actual_type) in actual {
-        if table.column(name).is_none() {
+fn validate_m03_extra_columns(
+    declared: &[Column],
+    actual: &[DataColumn],
+    path: &[&str],
+    out: &mut ProblemSet,
+) {
+    for data in actual {
+        if !declared.iter().any(|c| c.name.value == data.name) {
             // The column exists only in the data, so there is no dictionary node
-            // to point at; it is named in the message instead.
-            out.push(Problem::undocumented_column(name, actual_type.clone()));
+            // to point at; it is named in the message instead, by its dotted
+            // path when it is a field.
+            let name = path
+                .iter()
+                .copied()
+                .chain([data.name.as_str()])
+                .collect::<Vec<_>>()
+                .join(".");
+            out.push(Problem::undocumented_column(&name, data.dict_type.clone()));
         }
     }
 }
@@ -232,13 +288,24 @@ fn normalize_dict_type(dict_type: &str) -> &str {
     }
 }
 
+/// The element type of a `list(...)` type string, from either side of the
+/// comparison.
+fn list_element(type_name: &str) -> Option<&str> {
+    type_name.strip_prefix("list(")?.strip_suffix(")")
+}
+
 /// Whether a declared dictionary type is compatible with a type read from the
-/// data (one of `boolean`, `string`, `enum`, `date`, `datetime`, `number`).
+/// data (one of `boolean`, `string`, `enum`, `date`, `datetime`, `number`,
+/// `struct`, `list(...)`, or a shape with no data-dict type such as `map`).
 ///
 /// Dictionary types are coarser/richer than physical types, so the match is by
 /// category rather than exact string. An `enum` must be backed by string-like
-/// data — a string column or a true parquet enum — never a number.
+/// data — a string column or a true parquet enum — never a number. A list
+/// matches list-shaped data whose element type is compatible.
 fn types_compatible(dict_type: &str, actual: &str) -> bool {
+    if let Some(elem) = list_element(dict_type) {
+        return list_element(actual).is_some_and(|actual_elem| types_compatible(elem, actual_elem));
+    }
     match normalize_dict_type(dict_type) {
         "number" => actual == "number",
         "string" => actual == "string",
@@ -246,6 +313,7 @@ fn types_compatible(dict_type: &str, actual: &str) -> bool {
         "date" => actual == "date",
         "datetime" => actual == "datetime",
         "enum" => matches!(actual, "string" | "enum"),
+        "struct" => actual == "struct",
         _ => false,
     }
 }
@@ -272,5 +340,35 @@ mod tests {
         assert!(!types_compatible("number", "string"));
         assert!(!types_compatible("date", "datetime"));
         assert!(!types_compatible("boolean", "number"));
+    }
+
+    #[test]
+    fn nested_compatibility() {
+        assert!(types_compatible("struct", "struct"));
+        assert!(!types_compatible("struct", "number"));
+        assert!(types_compatible("list(string)", "list(string)"));
+        assert!(types_compatible("list(enum)", "list(string)"));
+        assert!(types_compatible("list(number(quantity))", "list(number)"));
+        assert!(types_compatible("list(struct)", "list(struct)"));
+        assert!(!types_compatible("list(string)", "string"));
+        assert!(!types_compatible("string", "list(string)"));
+        assert!(!types_compatible("list(number)", "list(string)"));
+        // A map has no data-dict type, so nothing declared matches it.
+        assert!(!types_compatible("struct", "map"));
+        assert!(!types_compatible("list(struct)", "map"));
+    }
+
+    #[test]
+    fn nested_list_compatibility() {
+        assert!(types_compatible("list(list(string))", "list(list(string))"));
+        assert!(types_compatible("list(list(enum))", "list(list(string))"));
+        assert!(types_compatible(
+            "list(list(number(quantity)))",
+            "list(list(number))"
+        ));
+        assert!(types_compatible("list(list(struct))", "list(list(struct))"));
+        // Depths must agree.
+        assert!(!types_compatible("list(string)", "list(list(string))"));
+        assert!(!types_compatible("list(list(string))", "list(string)"));
     }
 }

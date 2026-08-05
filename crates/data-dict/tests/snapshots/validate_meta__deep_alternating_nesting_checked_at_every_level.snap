@@ -1,0 +1,32 @@
+---
+source: crates/data-dict/tests/validate_meta.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: order
+        type: struct
+        fields:
+          - name: shipments
+            type: list(struct)
+            fields:
+              - name: origin
+                type: struct
+                fields:
+                  - name: eta
+                    type: date
+                    range: [2024-01-01, 2024-12-31]
+────────────────────────────────────────
+error[M02]: Every field in the dictionary must be present in the data's struct.
+  --> dict.yaml:17:27
+   |
+LL |   - name: animals
+...
+LL |                   - name: eta
+   |                           ^^^ is missing from the data's `order.shipments.origin` struct
+warning [M03]: Every column in the data should be described in the dictionary.
+  `order.shipments.origin.statuses` is in the data (`list(string)`) but not the dictionary

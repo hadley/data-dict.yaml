@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: tags
+        type: list(string)
+        examples: [a, b, c]
+        fields:
+          - name: x
+            type: string
+            examples: [a]
+────────────────────────────────────────
+error[S07]: A `list(string)` column must not use `fields`.
+  --> dict.yaml:10:19
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: tags
+...
+LL |           - name: x
+   |                   ^ has type `list(string)` but uses `fields`

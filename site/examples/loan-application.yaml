@@ -2,13 +2,16 @@
 
 $version: "0.1.0"
 $learn_more: http://data-dict.tidyverse.org/
+
+origin: R/clean.R
+
 tables:
   - name: account
     description: >
       Static characteristics of bank accounts. Each account belongs to a
       branch in a district and has a statement issuance frequency.
     source:
-      parquet: raw-data/account.parquet
+      parquet: data/account.parquet
     columns:
       - name: account_id
         type: number(id)
@@ -40,7 +43,7 @@ tables:
       encoded together in a "birth number"; they have been split into
       separate fields in this version.
     source:
-      parquet: raw-data/client.parquet
+      parquet: data/client.parquet
     columns:
       - name: client_id
         type: number(id)
@@ -69,7 +72,7 @@ tables:
       clients to operate accounts. Only owners can issue permanent orders
       and apply for loans.
     source:
-      parquet: raw-data/disp.parquet
+      parquet: data/disp.parquet
     columns:
       - name: disp_id
         type: number(id)
@@ -99,7 +102,7 @@ tables:
       Permanent (standing) payment orders on accounts. These are recurring
       debits set up by account owners.
     source:
-      parquet: raw-data/order.parquet
+      parquet: data/order.parquet
     columns:
       - name: order_id
         type: number(id)
@@ -133,14 +136,17 @@ tables:
           SIPO: Household payment
           LEASING: Leasing
           UVER: Loan payment
-        description: Characterization of the payment. Empty string if not specified.
+          "": Not specified
+        description: >
+          Characterization of the payment. Never null; unspecified payments
+          carry an empty string rather than a null (1379 of 6471 rows).
 
   - name: trans
     description: >
       Individual transactions on accounts, including credits and debits
       from various sources.
     source:
-      parquet: raw-data/trans.parquet
+      parquet: data/trans.parquet
     columns:
       - name: trans_id
         type: number(id)
@@ -194,7 +200,11 @@ tables:
           SIPO: Household payment
           DUCHOD: Old-age pension
           UVER: Loan payment
-        description: Characterization of the transaction. Empty string if not specified.
+          " ": Not specified
+        description: >
+          Characterization of the transaction. Has two distinct kinds of
+          missingness: a single space `" "` (53,433 rows) and a true null
+          (481,881 rows). Treat both as "not specified".
       - name: bank
         type: string
         description: Two-letter code identifying the partner's bank.
@@ -208,9 +218,12 @@ tables:
     description: >
       Loans granted for accounts. At most one loan can be granted per
       account. This is the primary target table for the PKDD'99 discovery
-      challenge.
+      challenge. 682 rows.
+    details: >
+      The raw export carries a 683rd row that is null in every column;
+      `R/clean.R` drops it. See the dataset `origin` for details.
     source:
-      parquet: raw-data/loan.parquet
+      parquet: data/loan.parquet
     columns:
       - name: loan_id
         type: number(id)
@@ -257,7 +270,7 @@ tables:
       Credit cards issued to account holders via their dispositions.
       Multiple cards can be issued per account.
     source:
-      parquet: raw-data/card.parquet
+      parquet: data/card.parquet
     columns:
       - name: card_id
         type: number(id)
@@ -282,10 +295,16 @@ tables:
 
   - name: district
     description: >
-      Demographic data for Czech districts. Column names A2–A16 are
-      the original anonymized names from the PKDD'99 challenge.
+      Demographic data for Czech districts. One row per district, 77 in
+      all. Column names A2–A16 are the original anonymized names from the
+      PKDD'99 challenge.
+    details: >
+      The raw export carries a 78th row whose `district_id` is the literal
+      text `sdasdf` and whose every other column is null — junk written into
+      the public source database. `R/clean.R` drops it. A12 and A15 each have
+      one genuine null, which is why neither is marked `required`.
     source:
-      parquet: raw-data/district.parquet
+      parquet: data/district.parquet
     columns:
       - name: district_id
         type: number(id)

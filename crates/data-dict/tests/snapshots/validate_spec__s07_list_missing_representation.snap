@@ -1,0 +1,19 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: tags
+        type: list(string)
+────────────────────────────────────────
+error[S07]: A `list(string)` column must describe its data with `examples`.
+  --> dict.yaml:7:15
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: tags
+LL |         type: list(string)
+   |               ^^^^^^^^^^^^ has type `list(string)` but is missing `examples`

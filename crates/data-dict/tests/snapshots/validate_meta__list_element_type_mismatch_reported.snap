@@ -1,0 +1,34 @@
+---
+source: crates/data-dict/tests/validate_meta.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: name
+        type: string
+        examples: [otter, seal]
+      - name: addr
+        type: struct
+        fields:
+          - name: zip
+            type: string
+            examples: ['97201']
+          - name: country
+            type: enum
+            values: [US, CA, XX]
+      - name: tags
+        type: list(number)
+        examples: [1, 2]
+────────────────────────────────────────
+error[M01]: A column's data must match its declared type.
+  --> dict.yaml:21:15
+   |
+LL |   - name: animals
+...
+LL |       - name: tags
+LL |         type: list(number)
+   |               ^^^^^^^^^^^^ the data is `list(string)`

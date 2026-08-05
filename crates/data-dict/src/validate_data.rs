@@ -3,12 +3,12 @@
 //! [`validate_data`] is the entry point; `value_issues` is the value-checking
 //! core it runs after the metadata checks ([`crate::validate_meta`]).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
 use data_dict_parquet::{
-    ColumnMeta, ColumnNeeds, ColumnStats, ForeignKeyCheck, ForeignKeyResult, ForeignKeyStats,
-    UniquenessCheck, UniquenessStats,
+    ColumnMeta, ColumnNeeds, ColumnRequest, ColumnStats, DataColumn, ForeignKeyCheck,
+    ForeignKeyResult, ForeignKeyStats, UniquenessCheck, UniquenessStats,
 };
 
 use crate::ReadTables;
@@ -47,58 +47,69 @@ pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
 fn value_issues(
     table: &Table,
     parquet_path: &Path,
-    actual: &[(String, String)],
+    actual: &[DataColumn],
     out: &mut ProblemSet,
 ) -> Result<(), data_dict_parquet::ParquetError> {
-    let present = |name: &str| actual.iter().any(|(an, _)| an == name);
+    let present = |name: &str| actual.iter().any(|c| c.name == name);
     let metadata = data_dict_parquet::column_meta(parquet_path)?;
 
     // Phase 1 — check the footer. A data-level rule remains D## even when
     // Parquet metadata is sufficient to prove its result. Only inconclusive
     // checks are allowed to request a value scan.
-    let mut needs: HashMap<String, ColumnNeeds> = HashMap::new();
-    let mut pending: HashMap<String, Vec<&dyn ColumnCheck>> = HashMap::new();
+    let mut plan: Vec<(ColumnRequest, &Column, Vec<&dyn ColumnCheck>)> = Vec::new();
     for col in &table.columns {
-        let Some(actual_type) = actual
-            .iter()
-            .find(|(name, _)| name == &col.name.value)
-            .map(|(_, actual_type)| actual_type.as_str())
-        else {
+        let Some(data) = actual.iter().find(|c| c.name == col.name.value) else {
             continue;
         };
         let Some(meta) = metadata.get(&col.name.value) else {
             continue;
         };
         let mut merged = ColumnNeeds::default();
+        let mut pending: Vec<&dyn ColumnCheck> = Vec::new();
         for check in VALUE_CHECKS {
             match check.check_meta(table, col, meta) {
                 CheckResult::Pass => {}
                 CheckResult::Inconclusive => {
-                    merged = merged.merge(check.needs(col, actual_type));
-                    pending
-                        .entry(col.name.value.clone())
-                        .or_default()
-                        .push(*check);
+                    merged = merged.merge(check.needs(col, &data.dict_type));
+                    pending.push(*check);
                 }
                 CheckResult::Fail(problem) => out.push(*problem),
             }
         }
         if merged.any() {
-            needs.insert(col.name.value.clone(), merged);
+            plan.push((
+                ColumnRequest {
+                    path: vec![col.name.value.clone()],
+                    needs: merged,
+                },
+                col,
+                pending,
+            ));
+        }
+        // Fields carry no constraints, so of the value checks only enum
+        // membership (D04) applies below the top level; register it for
+        // every enum field reachable through structs (and their lists).
+        if let Some(fields) = &col.fields {
+            plan_enum_fields(fields, data, &mut vec![col.name.value.clone()], &mut plan);
         }
     }
 
     // Phase 2 — scan. Gather exactly those statistics, in one pass, reading only
     // the columns and pages the plan implies.
-    let stats = data_dict_parquet::column_stats(parquet_path, &needs, SAMPLE_LIMIT)?;
+    let requests: Vec<ColumnRequest> = plan
+        .iter()
+        .map(|(request, _, _)| ColumnRequest {
+            path: request.path.clone(),
+            needs: request.needs.clone(),
+        })
+        .collect();
+    let stats = data_dict_parquet::column_stats(parquet_path, &requests, SAMPLE_LIMIT)?;
 
-    // Phase 3 — check. Per column with gathered stats, run the value-level checks.
-    for col in &table.columns {
-        if let Some(stat) = stats.get(&col.name.value) {
-            for check in pending.get(&col.name.value).into_iter().flatten() {
-                if let Some(problem) = check.check_data(table, col, stat) {
-                    out.push(problem);
-                }
+    // Phase 3 — check. Per planned column, draw verdicts from the gathered stats.
+    for ((_, col, pending), stat) in plan.iter().zip(&stats) {
+        for check in pending {
+            if let Some(problem) = check.check_data(table, col, stat) {
+                out.push(problem);
             }
         }
     }
@@ -171,6 +182,44 @@ fn value_issues(
     Ok(())
 }
 
+/// Register a D04 request for every enum field under `fields` (recursively,
+/// through nested structs and their lists), pairing each with the
+/// [`EnumMembership`] check so phase 3 reports through the field's own node.
+/// `path` holds the segments down to the enclosing column/field.
+fn plan_enum_fields<'a>(
+    fields: &'a [Column],
+    data: &data_dict_parquet::DataColumn,
+    path: &mut Vec<String>,
+    plan: &mut Vec<(ColumnRequest, &'a Column, Vec<&'static dyn ColumnCheck>)>,
+) {
+    for field in fields {
+        let Some(child) = data.children.iter().find(|c| c.name == field.name.value) else {
+            continue;
+        };
+        path.push(field.name.value.clone());
+        if matches!(
+            crate::validate_meta::validate_d04_enum_membership(field),
+            CheckResult::Inconclusive
+        ) {
+            let needs = EnumMembership.needs(field, &child.dict_type);
+            if needs.any() {
+                plan.push((
+                    ColumnRequest {
+                        path: path.clone(),
+                        needs,
+                    },
+                    field,
+                    vec![&EnumMembership as &dyn ColumnCheck],
+                ));
+            }
+        }
+        if let Some(nested) = &field.fields {
+            plan_enum_fields(nested, child, path, plan);
+        }
+        path.pop();
+    }
+}
+
 /// A value-level column check, split into the data it needs and the verdict it
 /// draws from that data. Keeping the two together (rather than in the
 /// orchestrator) lets the scanner compute the union of all checks' needs in a
@@ -237,9 +286,18 @@ impl ColumnCheck for EnumMembership {
 
     fn needs(&self, col: &Column, actual: &str) -> ColumnNeeds {
         // Membership is string equality on a string-like column; a numeric
-        // backing is already an M01, so its values are not scanned.
+        // backing is already an M01, so its values are not scanned. For a
+        // list (nested to any depth) the innermost elements are what must be
+        // string-like.
+        let mut element = actual;
+        while let Some(elem) = element
+            .strip_prefix("list(")
+            .and_then(|s| s.strip_suffix(")"))
+        {
+            element = elem;
+        }
         ColumnNeeds {
-            allowed: matches!(actual, "string" | "enum")
+            allowed: matches!(element, "string" | "enum")
                 .then(|| enum_allowed(col))
                 .flatten(),
             ..ColumnNeeds::default()

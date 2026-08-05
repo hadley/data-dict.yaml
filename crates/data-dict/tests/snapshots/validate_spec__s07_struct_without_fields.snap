@@ -1,0 +1,19 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: addr
+        type: struct
+────────────────────────────────────────
+error[S07]: A `struct` column must document its fields with `fields`.
+  --> dict.yaml:7:15
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: addr
+LL |         type: struct
+   |               ^^^^^^ has type `struct` but is missing `fields`

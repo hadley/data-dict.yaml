@@ -21,14 +21,19 @@
 //! cmp         := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 //! literal     := number | string | "TRUE" | "FALSE" | "NULL"
 //! funcall     := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
-//! columns     := "COLUMNS" "(" ("*" | string | "[" IDENT ("," IDENT)* "]") ")"
+//! columns     := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
 //! case        := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
+//! column      := IDENT | QUOTED
 //! IDENT       := [A-Za-z_][A-Za-z0-9_]*
+//! QUOTED      := "`" ( [^`] | "``" )+ "`"
 //! ```
 //!
 //! Keywords and function names are matched case-insensitively; column
 //! identifiers are preserved verbatim (case-sensitive, matched against the
-//! table). String literals are single-quoted, doubling a quote to embed one.
+//! table). A column whose name isn't an `IDENT`, or which collides with a
+//! reserved word, is written in backticks, doubling a backtick to embed one;
+//! quoting affects only how the name is read, never how it is matched. String
+//! literals are single-quoted, doubling a quote to embed one.
 //! Every node records the byte offsets it spans within the input so diagnostics
 //! can point at the failing token, exactly as [`crate::join_expr`] does.
 //!
@@ -58,7 +63,9 @@ pub enum ExprKind {
     Str(String),
     Bool(bool),
     Null,
-    Column(String),
+    /// A column reference, or a field of a `struct` column reached with dots:
+    /// one segment per name, so `address.zip` is `["address", "zip"]`.
+    Column(Vec<String>),
     Neg(Box<Expr>),
     Not(Box<Expr>),
     Arith {
@@ -156,12 +163,7 @@ pub enum CmpOp {
     Ge,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub message: String,
-    /// Byte offset of the failing token (or end-of-string) within the input.
-    pub at: usize,
-}
+pub use crate::expr_lex::ParseError;
 
 impl AssertExpr {
     pub fn parse(input: &str) -> Result<AssertExpr, ParseError> {
@@ -464,6 +466,11 @@ impl<'a> Parser<'a> {
                 })
             }
             Some(b'\'') => self.parse_string(),
+            Some(b'`') => {
+                let name = crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?;
+                let path = self.parse_field_segments(name)?;
+                Ok(self.node(ExprKind::Column(path), start))
+            }
             Some(b) if b.is_ascii_digit() => self.parse_number(),
             Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.parse_word_expr(),
             _ => Err(self.err("expected an expression")),
@@ -490,7 +497,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(_) => {
                     let ch_start = self.pos;
-                    self.advance_char();
+                    crate::expr_lex::advance_char(self.src, &mut self.pos);
                     value.push_str(
                         std::str::from_utf8(&self.src[ch_start..self.pos])
                             .expect("input is valid utf-8"),
@@ -503,18 +510,6 @@ impl<'a> Parser<'a> {
             start,
             end: self.pos,
         })
-    }
-
-    fn advance_char(&mut self) {
-        // Step over one whole UTF-8 code point.
-        self.pos += 1;
-        while let Some(&b) = self.src.get(self.pos) {
-            if b & 0xC0 == 0x80 {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
     }
 
     fn parse_number(&mut self) -> Result<Expr, ParseError> {
@@ -574,11 +569,8 @@ impl<'a> Parser<'a> {
                     Ok(self.node(ExprKind::Call { name: word, args }, start))
                 } else {
                     self.pos = after;
-                    Ok(Expr {
-                        kind: ExprKind::Column(word),
-                        start,
-                        end: after,
-                    })
+                    let path = self.parse_field_segments(word)?;
+                    Ok(self.node(ExprKind::Column(path), start))
                 }
             }
         }
@@ -659,13 +651,11 @@ impl<'a> Parser<'a> {
                 loop {
                     self.skip_ws();
                     let n_start = self.pos;
-                    if !self
-                        .peek()
-                        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-                    {
-                        return Err(self.err("expected a column name"));
-                    }
-                    let name = self.read_word();
+                    let name = match self.peek() {
+                        Some(b'`') => crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?,
+                        Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.read_word(),
+                        _ => return Err(self.err("expected a column name")),
+                    };
                     names.push(Named {
                         name,
                         start: n_start,
@@ -705,6 +695,34 @@ impl<'a> Parser<'a> {
         };
         self.expect_keyword("end")?;
         Ok(self.node(ExprKind::Case { whens, els }, start))
+    }
+
+    /// Extend a just-parsed column name into a field path: each `.` that
+    /// immediately follows (no whitespace, like the name itself) must be
+    /// followed by another name — bare and unreserved, or backtick-quoted.
+    fn parse_field_segments(&mut self, first: String) -> Result<Vec<String>, ParseError> {
+        let mut path = vec![first];
+        while self.peek() == Some(b'.') {
+            self.pos += 1;
+            match self.peek() {
+                Some(b'`') => {
+                    path.push(crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?);
+                }
+                Some(b) if b.is_ascii_alphabetic() || b == b'_' => {
+                    let at = self.pos;
+                    let word = self.read_word();
+                    if RESERVED.contains(&word.to_ascii_lowercase().as_str()) {
+                        return Err(ParseError {
+                            message: format!("unexpected keyword `{}`", word.to_uppercase()),
+                            at,
+                        });
+                    }
+                    path.push(word);
+                }
+                _ => return Err(self.err("expected a field name after `.`")),
+            }
+        }
+        Ok(path)
     }
 
     // --- token helpers ---
@@ -811,6 +829,12 @@ pub enum ColumnKind {
     Bool,
     Date,
     Datetime,
+    /// A `struct` column or field: no scalar value of its own, but its fields
+    /// are reachable with dot access.
+    Struct,
+    /// A `list(...)` column or field: no scalar value, and its elements can't
+    /// be reached in a per-row expression.
+    List,
     Untyped,
 }
 
@@ -818,6 +842,11 @@ pub enum ColumnKind {
 pub trait CheckEnv {
     /// The kind of column `name`, or `None` if the table has no such column.
     fn column(&self, name: &str) -> Option<ColumnKind>;
+    /// The kind of the field reached by `path` — a column name followed by one
+    /// or more field names — or `None` if any segment doesn't exist. The env
+    /// only looks names up; that each intermediate segment is a `struct` is the
+    /// checker's to enforce.
+    fn field(&self, path: &[String]) -> Option<ColumnKind>;
     /// Every column on the table, in declaration order, with its kind. Used to
     /// resolve a `COLUMNS(...)` selection to the columns it matches.
     fn columns(&self) -> Vec<(String, ColumnKind)>;
@@ -859,6 +888,11 @@ enum Ty {
     Date,
     Datetime,
     Interval,
+    /// A `struct` or `list` column has no scalar value: it may stand bare only
+    /// where no type is needed (`IS [NOT] NULL`), so these two satisfy no
+    /// requirement and compare with nothing.
+    Struct,
+    List,
     Any,
     Unknown,
 }
@@ -872,6 +906,8 @@ impl Ty {
             Ty::Date => "a date",
             Ty::Datetime => "a datetime",
             Ty::Interval => "an interval",
+            Ty::Struct => "a struct",
+            Ty::List => "a list",
             Ty::Any => "a value",
             Ty::Unknown => "a value of unknown type",
         }
@@ -885,6 +921,8 @@ fn kind_to_ty(kind: ColumnKind) -> Ty {
         ColumnKind::Bool => Ty::Bool,
         ColumnKind::Date => Ty::Date,
         ColumnKind::Datetime => Ty::Datetime,
+        ColumnKind::Struct => Ty::Struct,
+        ColumnKind::List => Ty::List,
         ColumnKind::Untyped => Ty::Unknown,
     }
 }
@@ -960,7 +998,10 @@ impl Checker<'_> {
     /// Report the S23 for a value used where its type matters but isn't known.
     fn report_unknown(&mut self, e: &Expr) {
         let message = match &e.kind {
-            ExprKind::Column(name) => format!("column `{name}` has no declared type"),
+            ExprKind::Column(path) if path.len() > 1 => {
+                format!("field `{}` has no declared type", path.join("."))
+            }
+            ExprKind::Column(path) => format!("column `{}` has no declared type", path[0]),
             _ => "this value's type is unknown".to_string(),
         };
         self.report("S23", message, e);
@@ -1014,13 +1055,7 @@ impl Checker<'_> {
             ExprKind::Str(_) => Ty::String,
             ExprKind::Bool(_) => Ty::Bool,
             ExprKind::Null => Ty::Any,
-            ExprKind::Column(name) => match self.env.column(name) {
-                Some(kind) => kind_to_ty(kind),
-                None => {
-                    self.report("S20", format!("column `{name}` is not on this table"), e);
-                    Ty::Any
-                }
-            },
+            ExprKind::Column(path) => self.infer_column_path(path, e),
             ExprKind::Neg(inner) => {
                 self.require(inner, &[Ty::Number], "negation");
                 Ty::Number
@@ -1137,6 +1172,52 @@ impl Checker<'_> {
 
     /// Check that `a` and `b` may be compared. When one side is a `COLUMNS(...)`
     /// selection, each selected column must be comparable with the other side.
+    /// Resolve a column path to its type, walking one field per dot. Each
+    /// resolution failure has its own report: an unknown column or field is
+    /// S20, a dot applied to anything that isn't a `struct` is S21. `Any` comes
+    /// back after a report so the one root cause yields one diagnostic.
+    fn infer_column_path(&mut self, path: &[String], e: &Expr) -> Ty {
+        let mut kind = match self.env.column(&path[0]) {
+            Some(kind) => kind,
+            None => {
+                let name = &path[0];
+                self.report("S20", format!("column `{name}` is not on this table"), e);
+                return Ty::Any;
+            }
+        };
+        for (i, segment) in path.iter().enumerate().skip(1) {
+            let prefix = path[..i].join(".");
+            match kind {
+                ColumnKind::Struct => {}
+                ColumnKind::List => {
+                    self.report(
+                        "S21",
+                        format!("`{prefix}` is a list, and a list's elements can't be reached"),
+                        e,
+                    );
+                    return Ty::Any;
+                }
+                other => {
+                    let noun = kind_to_ty(other).noun();
+                    self.report("S21", format!("`{prefix}` is {noun}, not a struct"), e);
+                    return Ty::Any;
+                }
+            }
+            kind = match self.env.field(&path[..=i]) {
+                Some(kind) => kind,
+                None => {
+                    self.report(
+                        "S20",
+                        format!("struct `{prefix}` has no field `{segment}`"),
+                        e,
+                    );
+                    return Ty::Any;
+                }
+            };
+        }
+        kind_to_ty(kind)
+    }
+
     fn check_comparable(&mut self, a: &Expr, b: &Expr) {
         if let ExprKind::Columns(sel) = &a.kind {
             self.infer(a);
@@ -1197,6 +1278,11 @@ impl Checker<'_> {
     /// temporal (a `date` against `NOW()`), or one operand is a string literal
     /// naming the date/datetime the other side is.
     fn types_comparable(&self, at: Ty, a: &Expr, bt: Ty, b: &Expr) -> bool {
+        // A struct or list has no scalar value, so it compares with nothing —
+        // not even another struct. `IS [NOT] NULL` is the only test it takes.
+        if matches!(at, Ty::Struct | Ty::List) || matches!(bt, Ty::Struct | Ty::List) {
+            return false;
+        }
         at == Ty::Any
             || bt == Ty::Any
             || at == bt
@@ -1399,6 +1485,16 @@ mod tests {
             ("end_date", ColumnKind::Date),
             ("ts", ColumnKind::Datetime),
             ("u", ColumnKind::Untyped),
+            ("addr", ColumnKind::Struct),
+            ("tags", ColumnKind::List),
+        ];
+        /// Dotted field paths on the struct columns above; `addr.geo` nests.
+        const FIELDS: &[(&str, ColumnKind)] = &[
+            ("addr.zip", ColumnKind::String),
+            ("addr.geo", ColumnKind::Struct),
+            ("addr.geo.lat", ColumnKind::Number),
+            ("addr.nick names", ColumnKind::String),
+            ("addr.untyped", ColumnKind::Untyped),
         ];
     }
     impl CheckEnv for TestEnv {
@@ -1406,6 +1502,13 @@ mod tests {
             Self::COLUMNS
                 .iter()
                 .find(|(n, _)| *n == name)
+                .map(|(_, k)| *k)
+        }
+        fn field(&self, path: &[String]) -> Option<ColumnKind> {
+            let joined = path.join(".");
+            Self::FIELDS
+                .iter()
+                .find(|(p, _)| *p == joined)
                 .map(|(_, k)| *k)
         }
         fn columns(&self) -> Vec<(String, ColumnKind)> {
@@ -1561,6 +1664,82 @@ mod tests {
     }
 
     #[test]
+    fn quoted_column_names() {
+        let e = parse("`creation date` IS NOT NULL");
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert!(matches!(&operand.kind, ExprKind::Column(c) if c[..] == ["creation date"]));
+    }
+
+    #[test]
+    fn quoted_column_name_may_be_a_reserved_word() {
+        let e = parse("`end` >= `start`");
+        let ExprKind::Compare { lhs, rhs, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert!(matches!(&lhs.kind, ExprKind::Column(c) if c[..] == ["end"]));
+        assert!(matches!(&rhs.kind, ExprKind::Column(c) if c[..] == ["start"]));
+    }
+
+    #[test]
+    fn quoted_column_name_holds_any_character() {
+        for (src, name) in [
+            ("`a``b` IS NULL", "a`b"),
+            ("`a.b` IS NULL", "a.b"),
+            ("`café` IS NULL", "café"),
+            ("`LENGTH(x)` IS NULL", "LENGTH(x)"),
+        ] {
+            let e = parse(src);
+            let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+                panic!("{src}")
+            };
+            assert!(
+                matches!(&operand.kind, ExprKind::Column(c) if c[..] == [name]),
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn quoted_column_span_covers_the_backticks() {
+        let src = "`a b` IS NULL";
+        let e = parse(src);
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        assert_eq!(&src[operand.start..operand.end], "`a b`");
+    }
+
+    #[test]
+    fn quoted_column_in_columns_list() {
+        let e = parse("COLUMNS([`creation date`, b]) IS NOT NULL");
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!()
+        };
+        let ExprKind::Columns(ColumnsSelector::List(names)) = &operand.kind else {
+            panic!("expected a list selector")
+        };
+        assert_eq!(
+            names.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(),
+            ["creation date", "b"]
+        );
+    }
+
+    #[test]
+    fn rejects_unterminated_quoted_name() {
+        let err = AssertExpr::parse("`a b IS NULL").unwrap_err();
+        assert!(err.message.contains("unterminated"));
+        assert_eq!(err.at, 0);
+    }
+
+    #[test]
+    fn rejects_empty_quoted_name() {
+        let err = AssertExpr::parse("`` IS NULL").unwrap_err();
+        assert!(err.message.contains("empty"));
+    }
+
+    #[test]
     fn keyword_case_insensitive() {
         parse("qty > 0 and s is not null");
     }
@@ -1572,7 +1751,7 @@ mod tests {
         let ExprKind::Compare { lhs, .. } = &e.root.kind else {
             panic!()
         };
-        assert!(matches!(&lhs.kind, ExprKind::Column(c) if c == "intervals"));
+        assert!(matches!(&lhs.kind, ExprKind::Column(c) if c[..] == ["intervals"]));
     }
 
     #[test]
@@ -1792,5 +1971,87 @@ mod tests {
         );
         // A bare COLUMNS of booleans is a fine assertion.
         assert!(check_str("COLUMNS([q3, q4])").is_empty());
+    }
+
+    // --- struct fields (dot access) ---
+
+    #[test]
+    fn field_access_parses_to_path() {
+        let e = parse("addr.geo.lat > 0");
+        let ExprKind::Compare { lhs, .. } = &e.root.kind else {
+            panic!("expected comparison at the root");
+        };
+        assert!(matches!(&lhs.kind, ExprKind::Column(c) if c[..] == ["addr", "geo", "lat"]));
+    }
+
+    #[test]
+    fn field_segments_quote_independently() {
+        let e = parse("LENGTH(`addr`.`nick names`) > 0 AND LENGTH(addr.`nick names`) > 0");
+        assert!(check(&e, &TestEnv).is_empty());
+    }
+
+    #[test]
+    fn dot_needs_a_field_name() {
+        let err = AssertExpr::parse("addr. > 0").unwrap_err();
+        assert!(err.message.contains("field name"));
+        let err = AssertExpr::parse("addr.end IS NULL").unwrap_err();
+        assert!(err.message.contains("keyword"));
+    }
+
+    #[test]
+    fn field_access_typechecks_as_field_type() {
+        assert!(check_str("LENGTH(addr.zip) <= 10").is_empty());
+        assert!(check_str("addr.geo.lat BETWEEN -90 AND 90").is_empty());
+        let f = check_str("addr.zip > 0");
+        assert!(f.iter().any(|f| f.code == "S21"));
+    }
+
+    #[test]
+    fn unknown_field_is_s20() {
+        let f = check_str("addr.zpi IS NOT NULL");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S20" && f.message.contains("no field `zpi`"))
+        );
+    }
+
+    #[test]
+    fn field_access_through_non_struct_is_s21() {
+        let f = check_str("postcode.x = 'a'");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("not a struct"))
+        );
+        let f = check_str("tags.x = 'a'");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("list"))
+        );
+    }
+
+    #[test]
+    fn untyped_field_is_s23_where_type_matters() {
+        assert!(check_str("addr.untyped IS NOT NULL").is_empty());
+        let f = check_str("LENGTH(addr.untyped) > 0");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S23" && f.message.contains("addr.untyped"))
+        );
+    }
+
+    #[test]
+    fn bare_struct_and_list_take_only_is_null() {
+        assert!(check_str("addr IS NOT NULL").is_empty());
+        assert!(check_str("tags IS NULL OR flag").is_empty());
+        let f = check_str("addr = addr");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("struct"))
+        );
+        let f = check_str("tags");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("a list, not a boolean"))
+        );
     }
 }

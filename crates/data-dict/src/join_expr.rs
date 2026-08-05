@@ -6,13 +6,16 @@
 //! ```text
 //! join     := conjunct ("AND" conjunct)*
 //! conjunct := qcol op qcol
-//! qcol     := IDENT "." IDENT
+//! qcol     := name "." name
 //! op       := "=" | "==" | ">=" | "<=" | ">" | "<"
+//! name     := IDENT | QUOTED
 //! IDENT    := [A-Za-z_][A-Za-z0-9_]*
+//! QUOTED   := "`" ( [^`] | "``" )+ "`"
 //! ```
 //!
 //! `AND` is matched case-insensitively. Whitespace is permitted between
-//! tokens. The parser tracks byte offsets within the input string so we can
+//! tokens. Each side of the `.` is quoted independently, so a name that isn't
+//! an `IDENT` stays referenceable; a `.` inside backticks is part of the name. The parser tracks byte offsets within the input string so we can
 //! point diagnostics at the failing token.
 
 #[derive(Debug, Clone)]
@@ -45,13 +48,7 @@ pub enum JoinOp {
     Lt,
 }
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub message: String,
-    /// Byte offset of the failing token (or end-of-string) within the join
-    /// expression.
-    pub at: usize,
-}
+pub use crate::expr_lex::ParseError;
 
 impl JoinExpr {
     pub fn parse(input: &str) -> Result<JoinExpr, ParseError> {
@@ -158,6 +155,7 @@ impl<'a> Parser<'a> {
     fn parse_ident(&mut self) -> Result<String, ParseError> {
         let start = self.pos;
         match self.peek() {
+            Some(b'`') => return crate::expr_lex::parse_quoted_name(self.src, &mut self.pos),
             Some(b) if b.is_ascii_alphabetic() || b == b'_' => self.pos += 1,
             _ => return Err(self.err("expected identifier")),
         }
@@ -267,6 +265,41 @@ mod tests {
         let j = parse("food.fdc_id == food_nutrient.fdc_id");
         assert_eq!(j.conjuncts.len(), 1);
         assert_eq!(j.conjuncts[0].op, JoinOp::Eq);
+    }
+
+    #[test]
+    fn quoted_names() {
+        let j = parse("`other studies`.`creation date` = study.id");
+        assert_eq!(j.conjuncts[0].lhs.table, "other studies");
+        assert_eq!(j.conjuncts[0].lhs.column, "creation date");
+        assert_eq!(j.conjuncts[0].rhs.table, "study");
+    }
+
+    #[test]
+    fn quoted_name_holds_dots_and_backticks() {
+        let j = parse("`a.b`.`c``d` = t.x");
+        assert_eq!(j.conjuncts[0].lhs.table, "a.b");
+        assert_eq!(j.conjuncts[0].lhs.column, "c`d");
+    }
+
+    #[test]
+    fn quoted_name_spans_cover_the_backticks() {
+        let j = parse("`a b`.c = t.x");
+        let lhs = &j.conjuncts[0].lhs;
+        assert_eq!(&"`a b`.c = t.x"[lhs.start..lhs.end], "`a b`.c");
+    }
+
+    #[test]
+    fn rejects_unterminated_quoted_name() {
+        let err = JoinExpr::parse("`a b.c = t.x").unwrap_err();
+        assert!(err.message.contains("unterminated"));
+        assert_eq!(err.at, 0);
+    }
+
+    #[test]
+    fn rejects_empty_quoted_name() {
+        let err = JoinExpr::parse("t.`` = t.x").unwrap_err();
+        assert!(err.message.contains("empty"));
     }
 
     #[test]

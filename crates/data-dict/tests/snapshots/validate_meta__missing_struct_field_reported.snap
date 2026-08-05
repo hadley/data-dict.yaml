@@ -1,0 +1,36 @@
+---
+source: crates/data-dict/tests/validate_meta.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: name
+        type: string
+        examples: [otter, seal]
+      - name: addr
+        type: struct
+        fields:
+          - name: street
+            type: string
+            examples: [123 Main St]
+          - name: zip
+            type: string
+            examples: ['97201']
+          - name: country
+            type: enum
+            values: [US, CA, XX]
+      - name: tags
+        type: list(enum)
+        values: [a, b, zz]
+────────────────────────────────────────
+error[M02]: Every field in the dictionary must be present in the data's struct.
+  --> dict.yaml:14:19
+   |
+LL |   - name: animals
+...
+LL |           - name: street
+   |                   ^^^^^^ is missing from the data's `addr` struct

@@ -1,0 +1,20 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: grid
+        type: list(list(foo))
+        examples: [a, b]
+────────────────────────────────────────
+error[S28]: A column's `type` must be a known type.
+  --> dict.yaml:7:15
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: grid
+LL |         type: list(list(foo))
+   |               ^^^^^^^^^^^^^^^ `foo` is not a recognised list element type
