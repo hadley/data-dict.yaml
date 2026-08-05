@@ -287,11 +287,15 @@ impl ColumnCheck for EnumMembership {
     fn needs(&self, col: &Column, actual: &str) -> ColumnNeeds {
         // Membership is string equality on a string-like column; a numeric
         // backing is already an M01, so its values are not scanned. For a
-        // `list(enum)` the elements are what must be string-like.
-        let element = actual
+        // list (nested to any depth) the innermost elements are what must be
+        // string-like.
+        let mut element = actual;
+        while let Some(elem) = element
             .strip_prefix("list(")
             .and_then(|s| s.strip_suffix(")"))
-            .unwrap_or(actual);
+        {
+            element = elem;
+        }
         ColumnNeeds {
             allowed: matches!(element, "string" | "enum")
                 .then(|| enum_allowed(col))

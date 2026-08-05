@@ -394,21 +394,27 @@ fn data_column(field: &Type) -> DataColumn {
 }
 
 /// The group holding this column's struct fields: the column itself for
-/// `struct`, the element for `list(struct)` (which, in the legacy repeated
-/// encoding, is again the column itself).
+/// `struct`, the element group for a list of structs — crossing one list
+/// layer per `list(...)` wrapper in `dict_type`, however deep. In the legacy
+/// repeated encoding the repeated field is its own element, so that layer
+/// crosses nowhere.
 fn struct_group<'a>(field: &'a Type, dict_type: &str) -> Option<&'a Type> {
-    match dict_type {
-        "struct" => Some(field),
-        "list(struct)" => {
-            let info = field.get_basic_info();
-            if info.has_repetition() && info.repetition() == Repetition::REPEATED {
-                Some(field)
-            } else {
-                parquet_list_element(field)
-            }
+    let mut node = field;
+    let mut inner = dict_type;
+    while let Some(elem) = inner
+        .strip_prefix("list(")
+        .and_then(|s| s.strip_suffix(")"))
+    {
+        inner = elem;
+        let info = node.get_basic_info();
+        let legacy_repeated = info.has_repetition()
+            && info.repetition() == Repetition::REPEATED
+            && !matches!(info.logical_type(), Some(LogicalType::List));
+        if !legacy_repeated {
+            node = parquet_list_element(node)?;
         }
-        _ => None,
     }
+    (inner == "struct").then_some(node)
 }
 
 #[cfg(test)]
@@ -456,10 +462,34 @@ mod tests {
                 "message schema { OPTIONAL group m (MAP) { REPEATED group key_value { REQUIRED BYTE_ARRAY key (STRING); OPTIONAL INT32 value; } } }",
                 "map",
             ),
+            (
+                "message schema { OPTIONAL group grid (LIST) { REPEATED group list { OPTIONAL group element (LIST) { REPEATED group list { OPTIONAL BYTE_ARRAY element (STRING); } } } } }",
+                "list(list(string))",
+            ),
         ] {
             let schema = parse_message_type(message).unwrap();
             assert_eq!(parquet_type_to_dict_type(&schema.get_fields()[0]), expected);
         }
+    }
+
+    #[test]
+    fn column_tree_descends_through_nested_lists() {
+        let message = "message schema {
+            OPTIONAL group cells (LIST) {
+                REPEATED group list {
+                    OPTIONAL group element (LIST) {
+                        REPEATED group list {
+                            OPTIONAL group element { REQUIRED INT64 qty; }
+                        }
+                    }
+                }
+            }
+        }";
+        let schema = parse_message_type(message).unwrap();
+        let cells = super::data_column(&schema.get_fields()[0]);
+        assert_eq!(cells.dict_type, "list(list(struct))");
+        assert_eq!(cells.children[0].name, "qty");
+        assert_eq!(cells.children[0].dict_type, "number");
     }
 
     #[test]

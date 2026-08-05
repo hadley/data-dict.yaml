@@ -1258,6 +1258,84 @@ fn list_quantity_with_range_ok() {
     "});
 }
 
+// Lists nest to any depth; the properties follow the innermost element type —
+// `units` and `range` for quantities, `time_zone` for datetimes.
+#[test]
+fn nested_list_properties_follow_innermost_type() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: sensors
+            columns:
+              - name: temperature_grid
+                type: list(list(number(quantity)))
+                units: °C
+                range: [-40, 60]
+              - name: reading_batches
+                type: list(list(datetime))
+                time_zone: UTC
+                range: [2020-01-01T00:00:00, 2024-12-31T23:59:59]
+              - name: label_matrix
+                type: list(list(enum))
+                values: [hot, cold]
+              - name: cell_groups
+                type: list(list(struct))
+                fields:
+                  - name: value
+                    type: number
+                    examples: [1.5, 2.5]
+    "});
+}
+
+// S28: the innermost element type is what must be recognised.
+#[test]
+fn s28_invalid_nested_list_element_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(foo))
+                examples: [a, b]
+    "});
+    diagnostic.assert_contains(&["S28", "`foo` is not a recognised list element type"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: a nested list of quantities still wants `range`, not `examples`.
+#[test]
+fn s07_nested_list_wrong_representation() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(number(quantity)))
+                units: kg
+                examples: [1, 2]
+    "});
+    diagnostic.assert_contains(&["S07", "list(list(number(quantity)))", "range"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S12: values are typed against the innermost element type.
+#[test]
+fn s12_nested_list_wrong_value_type() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: grid
+                type: list(list(number(quantity)))
+                units: kg
+                range: [0, top]
+    "});
+    diagnostic.assert_contains(&["S12", "list(list(number(quantity)))"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn list_struct_with_fields_ok() {
     assert_clean_dict(indoc! {"

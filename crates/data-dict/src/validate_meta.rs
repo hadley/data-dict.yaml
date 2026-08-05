@@ -357,4 +357,18 @@ mod tests {
         assert!(!types_compatible("struct", "map"));
         assert!(!types_compatible("list(struct)", "map"));
     }
+
+    #[test]
+    fn nested_list_compatibility() {
+        assert!(types_compatible("list(list(string))", "list(list(string))"));
+        assert!(types_compatible("list(list(enum))", "list(list(string))"));
+        assert!(types_compatible(
+            "list(list(number(quantity)))",
+            "list(list(number))"
+        ));
+        assert!(types_compatible("list(list(struct))", "list(list(struct))"));
+        // Depths must agree.
+        assert!(!types_compatible("list(string)", "list(list(string))"));
+        assert!(!types_compatible("list(list(string))", "list(string)"));
+    }
 }

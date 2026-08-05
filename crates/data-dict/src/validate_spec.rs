@@ -774,16 +774,21 @@ fn list_element_type(type_name: &str) -> Option<&str> {
     type_name.strip_prefix("list(")?.strip_suffix(")")
 }
 
-/// Whether `type_name` is a recognised type string (fixed scalar, `struct`, or
-/// `list(element_type)` where the element type is itself a known fixed type).
+/// The innermost element type of `type_name`: list wrappers stripped to any
+/// depth, or the type itself when it isn't a list. The type whose rules a
+/// column's properties follow (S07/S08/S12/S14/S24).
+fn innermost_element_type(type_name: &str) -> &str {
+    let mut inner = type_name;
+    while let Some(elem) = list_element_type(inner) {
+        inner = elem;
+    }
+    inner
+}
+
+/// Whether `type_name` is a recognised type string: a fixed scalar, `struct`,
+/// or `list(element_type)` nested to any depth around one of those.
 fn is_valid_type(type_name: &str) -> bool {
-    if KNOWN_TYPES.contains(&type_name) {
-        return true;
-    }
-    if let Some(elem) = list_element_type(type_name) {
-        return KNOWN_TYPES.contains(&elem);
-    }
-    false
+    KNOWN_TYPES.contains(&innermost_element_type(type_name))
 }
 
 // --- S28 --------------------------------------------------------------
@@ -798,10 +803,11 @@ fn validate_s28_type(table: &Table, col: &Column, out: &mut ProblemSet) -> bool 
     if is_valid_type(&col_type.value) {
         return true;
     }
-    let message = if let Some(elem) = list_element_type(&col_type.value) {
-        format!("`{elem}` is not a recognised list element type")
+    let inner = innermost_element_type(&col_type.value);
+    let message = if inner == col_type.value {
+        format!("`{inner}` is not a recognised type")
     } else {
-        format!("`{}` is not a recognised type", col_type.value)
+        format!("`{inner}` is not a recognised list element type")
     };
     out.push_spec_error(
         "S28",
@@ -884,7 +890,7 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
 
     // For list types, delegate representation rules to the element type and
     // check fields only for list(struct).
-    let effective_type = list_element_type(type_name).unwrap_or(type_name);
+    let effective_type = innermost_element_type(type_name);
 
     let art = article(type_name);
 
@@ -1029,10 +1035,10 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
 
 fn validate_s08_units(table: &Table, col: &Column, out: &mut ProblemSet) {
     let Some(units) = &col.units else { return };
-    let is_quantity = col.col_type.as_ref().is_some_and(|t| {
-        let effective = list_element_type(&t.value).unwrap_or(&t.value);
-        effective == "number(quantity)"
-    });
+    let is_quantity = col
+        .col_type
+        .as_ref()
+        .is_some_and(|t| innermost_element_type(&t.value) == "number(quantity)");
     if is_quantity {
         return;
     }
@@ -1058,7 +1064,10 @@ fn validate_s14_time_zone(table: &Table, col: &Column, out: &mut ProblemSet) {
     let Some(time_zone) = &col.time_zone else {
         return;
     };
-    let is_datetime = col.col_type.as_ref().is_some_and(|t| t.value == "datetime");
+    let is_datetime = col
+        .col_type
+        .as_ref()
+        .is_some_and(|t| innermost_element_type(&t.value) == "datetime");
     if is_datetime {
         return;
     }
@@ -1218,7 +1227,7 @@ fn validate_s11_column_name(table: &Table, col: &Column, out: &mut ProblemSet) -
 /// expected value kind.
 fn typed_representation(col: &Column) -> Option<(&'static str, &str, &Representation)> {
     let type_name = col.col_type.as_ref()?.value.as_str();
-    let effective = list_element_type(type_name).unwrap_or(type_name);
+    let effective = innermost_element_type(type_name);
     match effective {
         "number(ordinal)" | "number(quantity)" | "date" | "datetime" => {
             Some(("range", effective, col.range.as_ref()?))
@@ -1337,7 +1346,7 @@ fn validate_enum_values(table: &Table, col: &Column, out: &mut ProblemSet) {
     let Some(col_type) = col
         .col_type
         .as_ref()
-        .filter(|t| list_element_type(&t.value).unwrap_or(&t.value) == "enum")
+        .filter(|t| innermost_element_type(&t.value) == "enum")
     else {
         return;
     };
@@ -1401,7 +1410,7 @@ fn validate_s13_range_order(table: &Table, col: &Column, out: &mut ProblemSet) {
         return;
     };
     let Some(range) = &col.range else { return };
-    let effective = list_element_type(type_name).unwrap_or(type_name);
+    let effective = innermost_element_type(type_name);
     if !RANGE_TYPES.contains(&effective) || range.items.len() != 2 {
         return;
     }

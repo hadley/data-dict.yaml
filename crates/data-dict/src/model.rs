@@ -203,14 +203,16 @@ impl Column {
     }
 
     /// Whether the column's values are enum categories: an `enum` column, or a
-    /// `list(enum)` whose elements are.
+    /// list (nested to any depth) whose innermost elements are.
     pub fn is_enum(&self) -> bool {
         self.col_type.as_ref().is_some_and(|t| {
-            let effective = t
-                .value
+            let mut effective = t.value.as_str();
+            while let Some(elem) = effective
                 .strip_prefix("list(")
                 .and_then(|s| s.strip_suffix(")"))
-                .unwrap_or(&t.value);
+            {
+                effective = elem;
+            }
             effective == "enum"
         })
     }

@@ -1774,3 +1774,73 @@ fn conforming_nested_data_is_clean() {
     let result = validate_data(&yaml, None);
     assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
 }
+
+// D01 and D04 compose through nested lists: the container's null counts as
+// missing, and an element two list layers down is attributed to its row.
+#[test]
+fn nested_list_checks_compose() {
+    let dir = temp_dir();
+    common::write_matrix_parquet(&dir.join("matrix.parquet"));
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: matrix
+                source:
+                  parquet: matrix.parquet
+                columns:
+                  - name: grid
+                    type: list(list(enum))
+                    constraints: [required]
+                    values: [a, b]
+        "},
+    );
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+        )),
+        "got {:?}",
+        result.items
+    );
+    assert!(
+        result.items.iter().any(|p| matches!(
+            &p.kind,
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
+                if rows == &vec![2] && values == &vec!["zz".to_string()]
+        )),
+        "got {:?}",
+        result.items
+    );
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(
+        &yaml,
+        &result.render(common::SNAPSHOT_STYLE).join("\n")
+    ));
+}
+
+// The same dictionary is clean once the declared values cover the data.
+#[test]
+fn conforming_nested_list_data_is_clean() {
+    let dir = temp_dir();
+    common::write_matrix_parquet(&dir.join("matrix.parquet"));
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: matrix
+                source:
+                  parquet: matrix.parquet
+                columns:
+                  - name: grid
+                    type: list(list(enum))
+                    values: [a, b, zz]
+        "},
+    );
+
+    let result = validate_data(&yaml, None);
+    assert_eq!(result.status(), Status::Ok, "got {:?}", result.items);
+}

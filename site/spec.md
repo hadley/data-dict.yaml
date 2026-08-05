@@ -181,7 +181,7 @@ A `number(quantity)` column can also declare its `units`: a free-text string nam
 
 #### List element types
 
-The element type in `list(element_type)` may be any type: `string`, `number`, `number(id)`, `number(ordinal)`, `number(quantity)`, `boolean`, `date`, `datetime`, `enum`, or `struct`. The same properties that apply to a column of that type apply when it is used as a list element type — `values` for `enum`, `fields` for `struct`, and so on.
+The element type in `list(element_type)` may be any type: `string`, `number`, `number(id)`, `number(ordinal)`, `number(quantity)`, `boolean`, `date`, `datetime`, `enum`, `struct`, or another `list(...)`, nested to any depth. The same properties that apply to a column of that type apply when it is used as a list element type — `values` for `enum`, `fields` for `struct`, `units` for `number(quantity)`, `time_zone` for `datetime`, and so on. For nested lists those properties follow the *innermost* element type: a `list(list(number(quantity)))` declares `units` and a `range`, and they describe the innermost values.
 
 ```yaml
 - name: tags
@@ -191,6 +191,11 @@ The element type in `list(element_type)` may be any type: `string`, `number`, `n
 - name: categories
   type: list(enum)
   values: [food, drink, dessert]
+
+- name: temperature_grid
+  type: list(list(number(quantity)))
+  units: °C
+  range: [-40, 60]
 
 - name: line_items
   type: list(struct)
@@ -254,7 +259,7 @@ Most typed columns carry exactly one of the following three properties to repres
 
 `boolean` columns are the exception to this rule because they can only contain `true`, `false`, and (if not required) `null`.
 
-For `list(element_type)` columns, the same properties apply but describe the element values, not the lists themselves. The mapping follows the element type: `values` for `list(enum)`, `range` for `list(number(ordinal))`, `list(number(quantity))`, `list(date)`, and `list(datetime)`, `examples` for `list(string)`, `list(number)`, and `list(number(id))`, and no representative values for `list(boolean)` or `list(struct)` (same as their scalar counterparts). Each property means the same thing it would for a scalar column of the element type — for instance, `range` on a `list(number(quantity))` column gives the minimum and maximum element value observed across all lists.
+For `list(element_type)` columns, the same properties apply but describe the element values, not the lists themselves. The mapping follows the element type — the innermost one, for nested lists: `values` for `list(enum)`, `range` for `list(number(ordinal))`, `list(number(quantity))`, `list(date)`, and `list(datetime)`, `examples` for `list(string)`, `list(number)`, and `list(number(id))`, and no representative values for `list(boolean)` or `list(struct)` (same as their scalar counterparts). Each property means the same thing it would for a scalar column of the element type — for instance, `range` on a `list(number(quantity))` column gives the minimum and maximum element value observed across all lists.
 
 #### Time zones
 

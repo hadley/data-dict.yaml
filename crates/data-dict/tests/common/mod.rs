@@ -118,6 +118,38 @@ pub fn write_nested_parquet(path: &Path) {
     writer.close().unwrap();
 }
 
+/// Write a parquet file with one `grid` column of type list-of-list-of-string:
+///
+/// | row | `grid`             |
+/// |-----|--------------------|
+/// | 1   | [[a, b]]           |
+/// | 2   | [[a], [zz]]        |
+/// | 3   | null               |
+pub fn write_matrix_parquet(path: &Path) {
+    use arrow_array::builder::{ListBuilder, StringBuilder};
+    use arrow_array::{ArrayRef, RecordBatch};
+    use parquet::arrow::ArrowWriter;
+
+    let mut grid = ListBuilder::new(ListBuilder::new(StringBuilder::new()));
+    grid.values().values().append_value("a");
+    grid.values().values().append_value("b");
+    grid.values().append(true);
+    grid.append(true);
+    grid.values().values().append_value("a");
+    grid.values().append(true);
+    grid.values().values().append_value("zz");
+    grid.values().append(true);
+    grid.append(true);
+    grid.append(false);
+    let grid = grid.finish();
+
+    let batch = RecordBatch::try_from_iter(vec![("grid", Arc::new(grid) as ArrayRef)]).unwrap();
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
 /// Write `yaml` to `<dir>/dict.yaml` and return the path.
 pub fn write_yaml(dir: &Path, yaml: &str) -> PathBuf {
     let path = dir.join("dict.yaml");
