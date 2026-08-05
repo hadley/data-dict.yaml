@@ -53,6 +53,8 @@ Every expression has a type. These are the language's own types, close to but no
 
 An **`enum`** is a `string`, because [its values are always strings](spec.md#representative-values). It behaves like any other string column: `sex` declared as `values: [M, F, U]` can be measured with `LENGTH` and matched with `LIKE`. The *look* of the values doesn't change that — `values: [2024-01-01, 2024-01-02]` is still a `string`, not a `date`, so it can't be compared with `NOW()`, and `values: [1, 2, 3]` can't be compared with `<`.
 
+A **`struct`** or **`list`** column carries no scalar value of its own, so its bare name may stand only where no type is needed: `address IS NOT NULL` is fine, and any other use is ill-typed. A `struct`'s fields are reached with [dot access](#field-access), and a field reference has the field's declared type.
+
 A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error (S23): nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
 
 An unknown type is only a problem where a type is actually needed. `IS NULL` and `IS NOT NULL` ask nothing of their operand, so `u IS NOT NULL` — and `COLUMNS(*) IS NOT NULL` on a table with undocumented columns — is fine; `LENGTH(u)` and `u > 5` are not.
@@ -78,6 +80,14 @@ The first expression is quoted in YAML and the second isn't, because a backtick 
 A backtick-quoted name may contain any character; double a backtick to include one, so ``` `a``b` ``` refers to the column named ``a`b``. An empty or unterminated quoted name is a syntax error.
 
 Quoting changes how a name is *read*, never how it is *matched*: `` `postcode` `` and `postcode` are the same column, and both are matched exactly against the column names in the data, [case included](#evaluation). Quote whenever you like — a name that doesn't need backticks is free to have them.
+
+### Struct fields {#field-access}
+
+A field of a [`struct`](spec.md#struct-fields) column is reached with a dot: `address.zip` is the `zip` field of the `address` column. Dots chain through nested structs (`customer.address.zip`), and each segment is a name in its own right, backtick-quoted independently when its shape requires it (`` `shipping address`.zip ``).
+
+A field reference behaves exactly like a column of the field's declared type: `LENGTH(address.zip) <= 10` type-checks against `zip`'s type, and a field with no declared `type` has an unknown type like any name-only column. When the struct itself is null, every field access on it is null — so, as always, an assertion on a field says nothing about rows where the struct is missing.
+
+Dot access needs a `struct` to its left. A `list` cannot be reached into — `list(struct)` holds many structs per row, and a per-row expression has no way to speak about each element — so a field access through a `list`, or on any non-`struct` operand, is ill-typed, and a field name not declared on its struct is reported like an unknown column. A `COLUMNS(...)` selection is over the table's columns only; a field path can't appear in its list.
 
 The same rules apply to a qualified name in a relationship's [`join`](spec.md#relationships), where each side of the `.` is quoted on its own — `` `other studies`.`creation date` ``, `` food.`category id` ``. A `.` between backticks is part of the name rather than a separator.
 
@@ -377,9 +387,10 @@ primary        := literal | column | funcall | columns | case | "(" expr ")"
 cmp            := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 literal        := number | string | "TRUE" | "FALSE" | "NULL"
 funcall        := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
-columns        := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
+columns        := "COLUMNS" "(" ("*" | string | "[" name ("," name)* "]") ")"
 case           := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
-column         := IDENT | QUOTED
+column         := name ("." name)*
+name           := IDENT | QUOTED
 IDENT          := [A-Za-z_][A-Za-z0-9_]*
 QUOTED         := "`" ( [^`] | "``" )+ "`"
 ```

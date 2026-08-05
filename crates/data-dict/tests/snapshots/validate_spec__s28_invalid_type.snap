@@ -1,0 +1,20 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: c
+        type: foobar
+        examples: [1, 2, 3]
+────────────────────────────────────────
+error[S28]: A column's `type` must be a known type.
+  --> dict.yaml:7:15
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: c
+LL |         type: foobar
+   |               ^^^^^^ `foobar` is not a recognised type

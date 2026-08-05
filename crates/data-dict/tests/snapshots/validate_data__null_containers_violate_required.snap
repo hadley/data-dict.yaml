@@ -1,0 +1,46 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: name
+        type: string
+        examples: [otter, seal]
+      - name: addr
+        type: struct
+        constraints: [required]
+        fields:
+          - name: zip
+            type: string
+            examples: ['97201']
+          - name: country
+            type: enum
+            values: [US, CA, XX]
+      - name: tags
+        type: list(enum)
+        constraints: [required]
+        values: [a, b, zz]
+────────────────────────────────────────
+error[D01]: A required column must not contain nulls.
+  --> dict.yaml:13:23
+   |
+LL |   - name: animals
+...
+LL |       - name: addr
+LL |         type: struct
+LL |         constraints: [required]
+   |                       ^^^^^^^^ has 1 null value (row: 3)
+error[D01]: A required column must not contain nulls.
+  --> dict.yaml:23:23
+   |
+LL |   - name: animals
+...
+LL |       - name: tags
+LL |         type: list(enum)
+LL |         constraints: [required]
+   |                       ^^^^^^^^ has 1 null value (row: 3)

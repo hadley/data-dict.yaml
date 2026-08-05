@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: addr
+        type: struct
+        fields:
+          - name: zip
+            type: number(id)
+            examples: [not-a-number]
+────────────────────────────────────────
+error[S12]: Each `examples` value of a `number(id)` column must be a number.
+  --> dict.yaml:11:24
+   |
+LL |   - name: t
+...
+LL |           - name: zip
+LL |             type: number(id)
+LL |             examples: [not-a-number]
+   |                        ^^^^^^^^^^^^ is a string

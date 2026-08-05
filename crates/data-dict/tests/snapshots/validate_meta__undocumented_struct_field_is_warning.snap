@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_meta.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: name
+        type: string
+        examples: [otter, seal]
+      - name: addr
+        type: struct
+        fields:
+          - name: zip
+            type: string
+            examples: ['97201']
+      - name: tags
+        type: list(enum)
+        values: [a, b, zz]
+────────────────────────────────────────
+warning [M03]: Every column in the data should be described in the dictionary.
+  `addr.country` is in the data (`string`) but not the dictionary

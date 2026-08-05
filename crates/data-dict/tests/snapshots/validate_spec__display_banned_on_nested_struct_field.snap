@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: addr
+        type: struct
+        fields:
+          - name: geo
+            type: struct
+            fields:
+              - name: lat
+                type: number
+                display: restricted
+                examples: [45.5]
+────────────────────────────────────────
+error[Q-1-18]: An object may only contain the properties its schema defines.
+  --> dict.yaml:14:17
+   |
+LL |                 display: restricted
+   |                 ^^^^^^^ Unknown property 'display'
+   |
+   = help: Check for typos in property names or remove unrecognized properties?

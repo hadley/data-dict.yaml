@@ -66,6 +66,173 @@ pub fn write_parquet(path: &Path) {
     writer.close().unwrap();
 }
 
+/// Write a parquet file with nested columns, for the struct/list checks:
+///
+/// | row | `name` (string) | `addr` (struct{zip, country})   | `tags` (list of string) |
+/// |-----|-----------------|---------------------------------|-------------------------|
+/// | 1   | otter           | {zip: "97201", country: "US"}   | [a, b]                  |
+/// | 2   | seal            | {zip: "78701", country: "XX"}   | [a, zz]                 |
+/// | 3   | mink            | null                            | null                    |
+pub fn write_nested_parquet(path: &Path) {
+    use arrow_array::builder::{ListBuilder, StringBuilder};
+    use arrow_array::{ArrayRef, RecordBatch, StringArray, StructArray};
+    use arrow_buffer::NullBuffer;
+    use arrow_schema::{DataType, Field, Fields};
+    use parquet::arrow::ArrowWriter;
+
+    let name = StringArray::from(vec!["otter", "seal", "mink"]);
+
+    let zip = StringArray::from(vec![Some("97201"), Some("78701"), None]);
+    let country = StringArray::from(vec![Some("US"), Some("XX"), None]);
+    let addr_fields: Fields = vec![
+        Arc::new(Field::new("zip", DataType::Utf8, true)),
+        Arc::new(Field::new("country", DataType::Utf8, true)),
+    ]
+    .into();
+    let addr = StructArray::new(
+        addr_fields,
+        vec![Arc::new(zip) as ArrayRef, Arc::new(country) as ArrayRef],
+        Some(NullBuffer::from(vec![true, true, false])),
+    );
+
+    let mut tags = ListBuilder::new(StringBuilder::new());
+    tags.values().append_value("a");
+    tags.values().append_value("b");
+    tags.append(true);
+    tags.values().append_value("a");
+    tags.values().append_value("zz");
+    tags.append(true);
+    tags.append(false);
+    let tags = tags.finish();
+
+    let batch = RecordBatch::try_from_iter(vec![
+        ("name", Arc::new(name) as ArrayRef),
+        ("addr", Arc::new(addr) as ArrayRef),
+        ("tags", Arc::new(tags) as ArrayRef),
+    ])
+    .unwrap();
+
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
+/// Write a parquet file with one `grid` column of type list-of-list-of-string:
+///
+/// | row | `grid`             |
+/// |-----|--------------------|
+/// | 1   | [[a, b]]           |
+/// | 2   | [[a], [zz]]        |
+/// | 3   | null               |
+pub fn write_matrix_parquet(path: &Path) {
+    use arrow_array::builder::{ListBuilder, StringBuilder};
+    use arrow_array::{ArrayRef, RecordBatch};
+    use parquet::arrow::ArrowWriter;
+
+    let mut grid = ListBuilder::new(ListBuilder::new(StringBuilder::new()));
+    grid.values().values().append_value("a");
+    grid.values().values().append_value("b");
+    grid.values().append(true);
+    grid.append(true);
+    grid.values().values().append_value("a");
+    grid.values().append(true);
+    grid.values().values().append_value("zz");
+    grid.values().append(true);
+    grid.append(true);
+    grid.append(false);
+    let grid = grid.finish();
+
+    let batch = RecordBatch::try_from_iter(vec![("grid", Arc::new(grid) as ArrayRef)]).unwrap();
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
+/// Write a parquet file with one `order` column alternating structs and lists
+/// four levels deep — struct → list(struct) → struct → list(string) — to
+/// exercise every recursive path at once:
+///
+/// | row | `order`                                                        |
+/// |-----|----------------------------------------------------------------|
+/// | 1   | {shipments: [{origin: {statuses: [ok]}}]}                      |
+/// | 2   | {shipments: [{origin: {statuses: [ok, bogus]}}, {origin: {statuses: []}}]} |
+/// | 3   | null                                                           |
+pub fn write_deep_parquet(path: &Path) {
+    use arrow_array::{Array, ArrayRef, ListArray, RecordBatch, StringArray, StructArray};
+    use arrow_buffer::{NullBuffer, OffsetBuffer};
+    use arrow_schema::{Field, Fields};
+    use parquet::arrow::ArrowWriter;
+
+    // Innermost list(string): one flat value list per shipment element.
+    let status_values = StringArray::from(vec!["ok", "ok", "bogus"]);
+    let statuses = ListArray::new(
+        Arc::new(Field::new("element", arrow_schema::DataType::Utf8, true)),
+        OffsetBuffer::new(vec![0i32, 1, 3, 3].into()),
+        Arc::new(status_values),
+        None,
+    );
+
+    let origin_fields: Fields = vec![Arc::new(Field::new(
+        "statuses",
+        statuses.data_type().clone(),
+        true,
+    ))]
+    .into();
+    let origin = StructArray::new(origin_fields, vec![Arc::new(statuses) as ArrayRef], None);
+
+    let shipment_fields: Fields = vec![Arc::new(Field::new(
+        "origin",
+        origin.data_type().clone(),
+        true,
+    ))]
+    .into();
+    let shipment = StructArray::new(shipment_fields, vec![Arc::new(origin) as ArrayRef], None);
+
+    let shipments = ListArray::new(
+        Arc::new(Field::new("element", shipment.data_type().clone(), true)),
+        OffsetBuffer::new(vec![0i32, 1, 3, 3].into()),
+        Arc::new(shipment),
+        Some(NullBuffer::from(vec![true, true, false])),
+    );
+
+    let order_fields: Fields = vec![Arc::new(Field::new(
+        "shipments",
+        shipments.data_type().clone(),
+        true,
+    ))]
+    .into();
+    let order = StructArray::new(
+        order_fields,
+        vec![Arc::new(shipments) as ArrayRef],
+        Some(NullBuffer::from(vec![true, true, false])),
+    );
+
+    let batch = RecordBatch::try_from_iter(vec![("order", Arc::new(order) as ArrayRef)]).unwrap();
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
+/// The dictionary `columns:` entry matching [`write_deep_parquet`]'s `order`
+/// column exactly.
+pub const DEEP_ORDER: &str = indoc! {"
+    - name: order
+      type: struct
+      fields:
+        - name: shipments
+          type: list(struct)
+          fields:
+            - name: origin
+              type: struct
+              fields:
+                - name: statuses
+                  type: list(enum)
+                  values: [ok, late, bogus]
+"};
+
 /// Write `yaml` to `<dir>/dict.yaml` and return the path.
 pub fn write_yaml(dir: &Path, yaml: &str) -> PathBuf {
     let path = dir.join("dict.yaml");

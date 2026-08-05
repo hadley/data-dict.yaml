@@ -90,9 +90,11 @@ object:
                     units: string
                     # Shape (S15) and placement (S14) are checked semantically
                     time_zone: string
-                    type:
-                      enum: ["enum", "number(ordinal)", "number(quantity)", "date",
-                             "datetime", "number", "number(id)", "string", "boolean"]
+                    # Valid types: the fixed scalars, "struct", and "list(element_type)"
+                    # where element_type is any of the above. Semantic validation
+                    # (S28) catches unknown strings; the schema accepts any string
+                    # so that list(...) variants don't require enumeration here.
+                    type: string
                     values:
                       anyOf:
                         - arrayOf:                  # [M, F, U]
@@ -123,6 +125,13 @@ object:
                                 description: string
                     examples:
                       arrayOf: any
+                    # Struct fields: reduced column descriptors, defined in
+                    # schema-field.yaml (registered as `field`) so they can
+                    # recurse. Type-specific rules (struct requires fields;
+                    # fields banned on other types) stay semantic (S07).
+                    fields:
+                      arrayOf:
+                        ref: field
 
             constraints:
               arrayOf:

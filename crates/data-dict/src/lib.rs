@@ -32,6 +32,7 @@ pub use validate_meta::validate_meta;
 pub(crate) use validate_spec::{load, validate_and_lower};
 pub use validate_spec::{validate_spec, validate_spec_str};
 
+use data_dict_parquet::DataColumn;
 use model::{DataDict, Table};
 
 pub const SPEC_MD: &str = include_str!("../../../site/spec.md");
@@ -63,7 +64,7 @@ pub(crate) type ReadTables = HashMap<String, (PathBuf, Vec<String>)>;
 pub(crate) fn compare_dataset(
     dict_path: &Path,
     table: Option<&str>,
-    checks: impl Fn(&Table, &Path, &[(String, String)], &mut ProblemSet),
+    checks: impl Fn(&Table, &Path, &[DataColumn], &mut ProblemSet),
     cross: impl Fn(&DataDict, &ReadTables, &mut ProblemSet),
 ) -> ProblemSet {
     let (mut problems, doc) = match load(dict_path) {
@@ -81,7 +82,7 @@ pub(crate) fn compare_dataset(
     for table in tables {
         if let Some((parquet_path, actual)) = read_parquet(table, base_dir, &mut problems) {
             checks(table, &parquet_path, &actual, &mut problems);
-            let columns = actual.iter().map(|(name, _)| name.clone()).collect();
+            let columns = actual.iter().map(|col| col.name.clone()).collect();
             readable.insert(table.name.value.clone(), (parquet_path, columns));
         }
     }
@@ -97,7 +98,7 @@ fn read_parquet(
     table: &Table,
     base_dir: &Path,
     out: &mut ProblemSet,
-) -> Option<(PathBuf, Vec<(String, String)>)> {
+) -> Option<(PathBuf, Vec<DataColumn>)> {
     let Some(source) = &table.source else {
         out.push_located(
             ProblemKind::MissingSource,
@@ -109,7 +110,7 @@ fn read_parquet(
         return None;
     };
     let parquet_path = base_dir.join(&source.parquet.value);
-    match data_dict_parquet::column_types(&parquet_path) {
+    match data_dict_parquet::column_tree(&parquet_path) {
         Ok(actual) => Some((parquet_path, actual)),
         Err(e) => {
             out.push_located(

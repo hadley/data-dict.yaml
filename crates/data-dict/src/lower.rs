@@ -109,6 +109,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
     let mut examples: Option<Representation> = None;
     let mut units: Option<Spanned<String>> = None;
     let mut time_zone: Option<Spanned<String>> = None;
+    let mut fields: Option<Vec<Column>> = None;
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
             continue;
@@ -171,6 +172,17 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     }
                 }
             }
+            "fields" => {
+                if let Some(items) = entry.value.as_array() {
+                    let mut fs = Vec::new();
+                    for f in items {
+                        if let Some(col) = lower_column(f, problems) {
+                            fs.push(col);
+                        }
+                    }
+                    fields = Some(fs);
+                }
+            }
             _ => {}
         }
     }
@@ -184,6 +196,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
         examples,
         units,
         time_zone,
+        fields,
     })
 }
 

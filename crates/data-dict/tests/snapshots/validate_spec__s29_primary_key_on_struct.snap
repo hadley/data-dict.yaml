@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: addr
+        type: struct
+        constraints: [primary_key]
+        fields:
+          - name: street
+            type: string
+            examples: [123 Main St]
+────────────────────────────────────────
+error[S29]: `primary_key` is not valid on `struct` columns.
+  --> dict.yaml:8:23
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: addr
+LL |         type: struct
+LL |         constraints: [primary_key]
+   |                       ^^^^^^^^^^^ has `primary_key`

@@ -8,7 +8,7 @@ The repo contains:
 - `README.md`: project overview, CLI install/build instructions, and a pointer to the site.
 - `site/`: the [Quarto](https://quarto.org) website published to data-dict.tidyverse.org. Holds the spec and design docs (`spec.md`, `semantic-models.md`), as well as example data dictionaries downloaded from other repos (see `download-examples.R`). Built and deployed by `.github/workflows/publish-site.yaml`.
 - `crates/`: Rust workspace (see crate architecture below)
-- `schema.yaml`: JSON Schema for structural validation of data dictionary files
+- `schema.yaml`: JSON Schema for structural validation of data dictionary files (`schema-field.yaml` holds the recursive struct-field descriptor it references)
 
 ## Code principles
 
@@ -74,6 +74,16 @@ Implementation, one module per level (entry points re-exported at the crate root
 Every level reports through one vocabulary in `problem.rs`: a `Problem` (a `code`, `severity`, `message`, optional `expected`/`column`/`hint`/`span`, and a flattened `ProblemKind` tag covering pre-flight, spec, metadata, and data findings alike) and a `ProblemSet` (one vector of them plus the `SourceContext` for rendering). `serde` derives the JSON wire format directly; there is no separate error type. "Fatal" is not a field — a level pushes its problems and returns early to stop the run, and the meta/data levels descend only while `ProblemSet::has_errors()` is false. `Level`, the `select_tables` helper, and the `compare_dataset`/`read_parquet` driver live in `lib.rs`. Each level's entry point drives its own flow (no central dispatcher).
 
 Test fixtures for the spec rules are in `crates/data-dict/tests/fixtures/{valid,invalid,spec}/`. Each fixture has a `# expected: ...` header documenting the intended outcome. Integration tests mirror the levels: `tests/validate_spec.rs` / `validate_meta.rs` / `validate_data.rs`.
+
+Every test that asserts a diagnostic error or warning must also include a snapshot assertion:
+
+```rust
+diagnostic.assert_contains(&["S07", "expected phrase"]);
+#[cfg(unix)]
+assert_snapshot!(diagnostic);
+```
+
+After adding new snapshot assertions, generate them with `cargo insta test -p data-dict --test validate_spec`, inspect the `.snap.new` files to confirm they look right, then accept with `cargo insta accept --workspace`.
 
 ### Problem reporting
 

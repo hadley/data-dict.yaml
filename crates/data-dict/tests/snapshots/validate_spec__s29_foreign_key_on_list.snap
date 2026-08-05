@@ -1,0 +1,31 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: tags
+        type: list(string)
+        constraints: [foreign_key]
+        examples: [a, b, c]
+────────────────────────────────────────
+error[S01]: Every `foreign_key` column must have a matching relationship to a `primary_key`.
+  --> dict.yaml:8:23
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: tags
+LL |         type: list(string)
+LL |         constraints: [foreign_key]
+   |                       ^^^^^^^^^^^ is `foreign_key` but no relationship points it at a `primary_key`
+error[S29]: `foreign_key` is not valid on `list(string)` columns.
+  --> dict.yaml:8:23
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: tags
+LL |         type: list(string)
+LL |         constraints: [foreign_key]
+   |                       ^^^^^^^^^^^ has `foreign_key`

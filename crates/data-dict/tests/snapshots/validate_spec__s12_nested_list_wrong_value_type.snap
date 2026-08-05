@@ -1,0 +1,23 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: grid
+        type: list(list(number(quantity)))
+        units: kg
+        range: [0, top]
+────────────────────────────────────────
+error[S12]: Each `range` value of a `list(list(number(quantity)))` column must be a number.
+  --> dict.yaml:9:20
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: grid
+LL |         type: list(list(number(quantity)))
+LL |         units: kg
+LL |         range: [0, top]
+   |                    ^^^ is a string

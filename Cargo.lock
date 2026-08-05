@@ -588,6 +588,9 @@ name = "data-dict"
 version = "0.0.1"
 dependencies = [
  "annotate-snippets",
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
  "chrono",
  "data-dict-parquet",
  "indoc",

@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: items
+        type: list(struct)
+        fields:
+          - name: qty
+            type: number(quantity)
+            units: units
+            range: [1, 10]
+    constraints:
+      - assert: items.qty > 0
+────────────────────────────────────────
+error[S21]: An assertion must be a well-typed boolean expression.
+  --> dict.yaml:14:17
+   |
+LL |   - name: t
+...
+LL |       - assert: items.qty > 0
+   |                 ^^^^^^^^^ `items` is a list, and a list's elements can't be reached
