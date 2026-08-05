@@ -18,16 +18,20 @@ tables:
   - name: pups
     source:
       parquet: pups.parquet
-    description: >
-      TODO: what's the grain? what's the population? how was the data collected?
+    todo: |
+      - Write the table's `description`. What's the grain? What's the
+        population? How was the data collected?
+      - Record a `primary_key`, if present.
     columns:
       - name: pup_count
         type: number
-        # TODO: no missing values observed — uncomment or delete:
-        # constraints: [required]
-        description: >
-          TODO: what does this column mean?
         examples: [0, 1, 2]
+        todo: |
+          - Add a `description`.
+          - Specify the `number` more precisely: `number(id)`,
+            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
 
 glossary:
   pup: An otter younger than one year.

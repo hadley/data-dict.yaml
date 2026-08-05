@@ -1009,6 +1009,110 @@ fn s24_empty_enum_values_map_form() {
     );
 }
 
+// --- todo (S30) ------------------------------------------------------------
+
+// Every remaining `todo` warns, wherever it sits: the dataset, a table, a
+// column, a struct field, and a relationship — one warning per note.
+#[test]
+fn s30_todo_at_every_level() {
+    let diagnostic = warning_dict(indoc! {"
+        todo: Describe the dataset as a whole.
+        tables:
+          - name: food
+            todo: Confirm the grain with the data team.
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: status
+                type: string
+                examples: [active, closed]
+                todo: Looks like an enum — confirm the full set of values.
+              - name: addr
+                type: struct
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+                    todo: Is this always 5 digits?
+          - name: category
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2]
+              - name: food_id
+                type: number(id)
+                constraints: [foreign_key]
+                examples: [1, 2]
+        relationships:
+          - join: category.food_id = food.id
+            cardinality: many-to-one
+            todo: Check whether this is really many-to-one.
+    "});
+    diagnostic.assert_contains(&["S30", "unresolved todo"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A multi-task todo is one string: a literal block scalar keeps a bulleted
+// list readable, and it still warns once per key.
+#[test]
+fn s30_block_todo_with_bullets() {
+    let diagnostic = warning_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x, y]
+                todo: |
+                  - Add a `description`.
+                  - Specify `constraints`. Some options suggested by the data:
+                    - constraints: [required] # all values present
+    "});
+    diagnostic.assert_contains(&["S30", "unresolved todo"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A `todo` is a single string; the list form is rejected structurally.
+#[test]
+fn todo_list_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x, y]
+                todo:
+                  - Write the description.
+                  - Check whether nulls are allowed.
+    "});
+    diagnostic.assert_contains(&["Expected string"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A `todo`'s notes are strings; anything else is rejected structurally.
+#[test]
+fn todo_non_string_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+                todo: 42
+    "});
+    diagnostic.assert_contains(&["Expected"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // --- version (S17) -------------------------------------------------------
 
 // The three valid forms of the optional top-level `version`: a date, a

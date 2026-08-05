@@ -59,6 +59,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S27 | Unused alias | W | An `aliases` entry is declared but never referenced by the relationship's `join`. |
 | S28 | Invalid type | E | A column's `type` is not a recognised type string. Valid types are the fixed scalars (`string`, `number`, `number(id)`, `number(ordinal)`, `number(quantity)`, `boolean`, `date`, `datetime`), `enum`, `struct`, and `list(element_type)` where the element type is any of the above — including another `list(...)`, nested to any depth. |
 | S29 | Invalid constraint on list or struct | E | A `primary_key`, `foreign_key`, or `unique` constraint appears on a `list` or `struct` column. (There is no such check for fields: a field can't carry `constraints` at all, which the schema enforces structurally.) |
+| S30 | Unresolved todo | W | A `todo` key remains in the dictionary. Each one is reported at its location. Delete the key once the work it records is done. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 

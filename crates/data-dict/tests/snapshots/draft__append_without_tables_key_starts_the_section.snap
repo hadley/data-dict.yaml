@@ -9,11 +9,15 @@ tables:
   - name: pups
     source:
       parquet: pups.parquet
+    todo: |
+      - Record a `primary_key`, if present.
     columns:
       - name: pup_count
         type: number
-        # TODO: no missing values observed — uncomment or delete:
-        # constraints: [required]
-        description: >
-          TODO: what does this column mean?
         examples: [0, 1, 2]
+        todo: |
+          - Add a `description`.
+          - Specify the `number` more precisely: `number(id)`,
+            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present

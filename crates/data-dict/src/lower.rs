@@ -5,6 +5,7 @@
 //! arrays where arrays are expected). Unexpected shapes are silently dropped
 //! rather than panicking — they should be unreachable.
 
+use quarto_source_map::SourceInfo;
 use quarto_yaml::YamlWithSourceInfo;
 
 use crate::assert_expr::AssertExpr;
@@ -38,10 +39,26 @@ pub fn lower(root: &YamlWithSourceInfo, problems: &mut ProblemSet) -> DataDict {
         }
     }
 
+    let todo = root.as_hash().and_then(|entries| {
+        entries
+            .iter()
+            .find(|e| e.key.yaml.as_str() == Some("todo"))
+            .and_then(|e| lower_todo(&e.value, e.value_span.clone()))
+    });
+
     DataDict {
         tables,
         relationships,
+        todo,
     }
+}
+
+/// Lower a `todo` value — a single string — with its span.
+fn lower_todo(value: &YamlWithSourceInfo, value_span: SourceInfo) -> Option<Spanned<String>> {
+    value
+        .yaml
+        .as_str()
+        .map(|s| Spanned::new(s.to_string(), value_span))
 }
 
 fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<Table> {
@@ -87,6 +104,10 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
             .find(|e| e.key.yaml.as_str() == Some(key))
             .map(|e| e.key_span.clone())
     };
+    let todo = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("todo"))
+        .and_then(|e| lower_todo(&e.value, e.value_span.clone()));
     Some(Table {
         span: node.source_info.clone(),
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
@@ -96,6 +117,7 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
         label: key_span("label"),
         description: key_span("description"),
         details: key_span("details"),
+        todo,
     })
 }
 
@@ -111,6 +133,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
     let mut units: Option<Spanned<String>> = None;
     let mut time_zone: Option<Spanned<String>> = None;
     let mut fields: Option<Vec<Column>> = None;
+    let mut todo: Option<Spanned<String>> = None;
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
             continue;
@@ -184,6 +207,9 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     fields = Some(fs);
                 }
             }
+            "todo" => {
+                todo = lower_todo(&entry.value, entry.value_span.clone());
+            }
             _ => {}
         }
     }
@@ -198,6 +224,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
         units,
         time_zone,
         fields,
+        todo,
     })
 }
 
@@ -289,6 +316,7 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
     let mut join_text: Option<Spanned<String>> = None;
     let mut conflicts: Vec<Spanned<String>> = Vec::new();
     let mut aliases: Vec<Alias> = Vec::new();
+    let mut todo: Option<Spanned<String>> = None;
 
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
@@ -331,6 +359,9 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
                     }
                 }
             }
+            "todo" => {
+                todo = lower_todo(&entry.value, entry.value_span.clone());
+            }
             _ => {}
         }
     }
@@ -360,5 +391,6 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
         join,
         conflicts,
         aliases,
+        todo,
     }
 }

@@ -2,10 +2,10 @@
 //!
 //! [`draft`] profiles each input file (see [`data_dict_parquet::profile`]) and
 //! generates one table entry per file: inferred types, observed ranges and
-//! examples, and a `# TODO:` comment for everything only a human can decide —
-//! descriptions, enum candidates, constraints, the primary key. The output is
-//! always spec-valid, so the TODOs can be worked through incrementally under
-//! `validate-spec`.
+//! examples, and a `todo` note for everything only a human can decide —
+//! descriptions, enum candidates, constraints, the primary key. The output has
+//! no spec errors (each remaining `todo` is an S30 warning), so the notes can
+//! be worked through incrementally under `validate-spec`.
 //!
 //! With no existing dictionary a complete file is generated; with one, new
 //! tables are appended after the last entry in `tables` and every existing
@@ -33,13 +33,13 @@ const APPROX_TOLERANCE: f64 = 0.02;
 /// at most 12 distinct values, each value appearing at least twice on average.
 const ENUM_MAX_VALUES: usize = 12;
 
-/// The placeholder descriptions. They are real `description:` keys, not
-/// comments, so the questions travel with the file until answered; the `TODO:`
-/// prefix keeps them greppable.
-const DATASET_DESCRIPTION_TODO: &str = "TODO: describe the dataset as a whole.";
-const TABLE_DESCRIPTION_TODO: &str =
-    "TODO: what's the grain? what's the population? how was the data collected?";
-const COLUMN_DESCRIPTION_TODO: &str = "TODO: what does this column mean?";
+/// The notes for the work only a human can do. They are `todo` keys, so
+/// they travel with the file — and keep S30 reporting them — until done.
+const DATASET_TODO: &str = "Write a `description` of the dataset.";
+const TABLE_TODO: &str = "Write the table's `description`. What's the grain? \
+     What's the population? How was the data collected?";
+const TABLE_PK_TODO: &str = "Record a `primary_key`, if present.";
+const COLUMN_TODO: &str = "Add a `description`.";
 
 #[derive(Debug)]
 pub struct DraftOutcome {
@@ -192,32 +192,18 @@ struct DraftColumn {
     /// `None` leaves the column name-only: the profiler couldn't read it, so
     /// the draft acknowledges it without claiming anything.
     dict_type: Option<&'static str>,
-    /// The one combined `constraints:` recommendation, placed right after
-    /// `type:` — where a real `constraints` key would go. Its stub lines are
-    /// the literal YAML to uncomment when the observation checks out.
-    constraints_todo: Option<Todo>,
     time_zone: Option<&'static str>,
     /// Pre-rendered YAML scalars for `range: [min, max]`.
     range: Option<[String; 2]>,
     /// Pre-rendered YAML scalars for `examples:`.
     examples: Option<Vec<String>>,
-    todos: Vec<Todo>,
-}
-
-/// One `# TODO:` annotation: the prose, plus commented-out YAML lines
-/// suggesting what to write (e.g. an enum's `values`).
-struct Todo {
-    text: String,
-    stub: Vec<String>,
-}
-
-impl Todo {
-    fn new(text: impl Into<String>) -> Self {
-        Todo {
-            text: text.into(),
-            stub: Vec::new(),
-        }
-    }
+    /// The column's `todo` bullets — the decisions only a human can make.
+    /// The constraints menu, when present, is the last bullet, with its
+    /// options nested beneath it (`constraint_options`).
+    todos: Vec<String>,
+    /// The `constraints:` options the data suggests, nested as sub-bullets
+    /// under the todo's "Specify `constraints`" bullet.
+    constraint_options: Vec<String>,
 }
 
 fn infer_table(name: String, source: &str, file: &data_dict_parquet::FileProfile) -> DraftTable {
@@ -251,59 +237,78 @@ fn distinctness(col: &ColumnProfile, rows: usize) -> Option<bool> {
 
 fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
     let dict_type = dict_type(&col.kind, &col.name);
-    let mut todos = Vec::new();
+    let mut sentences = Vec::new();
 
     if let ValueKind::Unsupported(reason) = col.kind {
-        todos.push(Todo::new(format!(
-            "this column could not be profiled ({reason}); describe it and add a type."
-        )));
+        sentences.push(format!(
+            "This column could not be profiled ({reason}). Describe it and add a `type`."
+        ));
+    } else {
+        sentences.push(COLUMN_TODO.to_string());
     }
 
-    if let Some(values) = enum_candidate(col, rows) {
-        // Accepting this one isn't a pure uncomment: an enum column swaps its
-        // `examples` for `values` (spec rule S07), so the comment spells that
-        // out.
-        let mut todo = Todo::new(format!(
-            "only {} distinct values — if this is an enum, set type: enum and \
-             replace examples with:",
+    if dict_type == Some("number") {
+        sentences.push(
+            "Specify the `number` more precisely: `number(id)`, \
+             `number(ordinal)`, or `number(quantity)` (with `units`)."
+                .to_string(),
+        );
+    }
+
+    if matches!(col.kind, ValueKind::Timestamp { .. }) {
+        sentences.push("Needs a `time_zone`?".to_string());
+    }
+
+    let enum_values = enum_candidate(col, rows);
+    if let Some(values) = &enum_values {
+        sentences.push(format!(
+            "Only {} distinct values. Is this an enum? If so change `string` \
+             to `enum` and `examples` to `values`.",
             values.len()
         ));
-        let rendered: Vec<String> = values.iter().map(|v| yaml_scalar(v)).collect();
-        todo.stub = stub_list("values", &rendered);
-        todos.push(todo);
     }
 
-    // One combined recommendation per column: what was observed, then the
-    // literal `constraints:` line(s) to uncomment (or delete, if the
-    // observation doesn't hold beyond this file). A column whose values are
-    // all distinct necessarily has no nulls, so the all-distinct case offers
-    // the unique/primary-key pair rather than a bare `required`.
-    let constraints_todo = match distinctness(col, rows) {
+    // The constraints bullet: the options the observations support,
+    // strongest first, nested beneath a "Specify `constraints`" bullet. A
+    // column whose values are all distinct necessarily has no nulls, so the
+    // all-distinct case also offers the unique/primary-key pair.
+    let mut constraint_options = Vec::new();
+    match distinctness(col, rows) {
         Some(approx) => {
-            let mut todo = Todo::new(if approx {
-                "values look distinct (approximate count), none missing — \
-                 uncomment one or delete:"
+            let observed = if approx {
+                sentences.push(
+                    "Specify `constraints`. Some options suggested by the data \
+                     (distinct count is approximate):"
+                        .to_string(),
+                );
+                "values look distinct & present"
             } else {
-                "all values distinct, none missing — uncomment one or delete:"
-            });
-            todo.stub
-                .push("constraints: [required, unique]".to_string());
-            todo.stub.push("constraints: [primary_key]".to_string());
-            Some(todo)
+                sentences
+                    .push("Specify `constraints`. Some options suggested by the data:".to_string());
+                "all values distinct & present"
+            };
+            constraint_options.push(format!("constraints: [required, unique] # {observed}"));
+            constraint_options.push(format!("constraints: [primary_key] # {observed}"));
+            constraint_options.push("constraints: [required] # all values present".to_string());
         }
         None if rows > 0 && col.null_count == Some(0) => {
-            let mut todo = Todo::new("no missing values observed — uncomment or delete:");
-            todo.stub.push("constraints: [required]".to_string());
-            Some(todo)
+            sentences
+                .push("Specify `constraints`. Some options suggested by the data:".to_string());
+            constraint_options.push("constraints: [required] # all values present".to_string());
         }
-        None => None,
-    };
+        None => {}
+    }
 
     let range = matches!(col.kind, ValueKind::Date | ValueKind::Timestamp { .. })
         .then(|| render_range(col))
         .flatten();
-    let examples = matches!(dict_type, Some("string" | "number" | "number(id)"))
-        .then(|| col.examples.iter().map(render_plain).collect::<Vec<_>>());
+    // An enum candidate lists every distinct value, so accepting its todo is
+    // exactly the `examples` → `values` rename it suggests.
+    let examples = match &enum_values {
+        Some(values) => Some(values.iter().map(|v| yaml_scalar(v)).collect()),
+        None => matches!(dict_type, Some("string" | "number" | "number(id)"))
+            .then(|| col.examples.iter().map(render_plain).collect::<Vec<_>>()),
+    };
     let time_zone = match col.kind {
         ValueKind::Timestamp {
             utc_adjusted: true, ..
@@ -318,11 +323,11 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
     DraftColumn {
         name: col.name.clone(),
         dict_type,
-        constraints_todo,
         time_zone,
         range,
         examples,
-        todos,
+        todos: sentences,
+        constraint_options,
     }
 }
 
@@ -576,7 +581,7 @@ fn emit_new_file(tables: &[DraftTable]) -> String {
     out.push_str(&format!("$version: {SPEC_VERSION}\n"));
     out.push_str(&format!("$learn_more: {LEARN_MORE_URL}\n"));
     out.push('\n');
-    emit_description(&mut out, "", DATASET_DESCRIPTION_TODO);
+    emit_todo(&mut out, "", &[DATASET_TODO.to_string()], &[]);
     out.push('\n');
     out.push_str("tables:\n");
     for (i, table) in tables.iter().enumerate() {
@@ -584,7 +589,8 @@ fn emit_new_file(tables: &[DraftTable]) -> String {
             out.push('\n');
         }
         // A single-table dictionary describes itself at the top level (S16
-        // warns against a table-level description there).
+        // warns against a table-level description there), so its table gets
+        // no description todo.
         emit_table(&mut out, table, "  - ", tables.len() > 1);
     }
     out
@@ -602,9 +608,12 @@ fn emit_table(out: &mut String, table: &DraftTable, item_prefix: &str, with_desc
         "{indent}  parquet: {}\n",
         yaml_scalar(&table.source)
     ));
+    let mut bullets = Vec::new();
     if with_description {
-        emit_description(out, &indent, TABLE_DESCRIPTION_TODO);
+        bullets.push(TABLE_TODO.to_string());
     }
+    bullets.push(TABLE_PK_TODO.to_string());
+    emit_todo(out, &indent, &bullets, &[]);
     out.push_str(&format!("{indent}columns:\n"));
     let col_prefix = format!("{indent}  - ");
     for column in &table.columns {
@@ -619,43 +628,44 @@ fn emit_column(out: &mut String, column: &DraftColumn, item_prefix: &str) {
     if let Some(dict_type) = column.dict_type {
         out.push_str(&format!("{indent}type: {dict_type}\n"));
     }
-    if let Some(todo) = &column.constraints_todo {
-        emit_todo(out, &indent, todo);
-    }
     if let Some(time_zone) = column.time_zone {
         out.push_str(&format!("{indent}time_zone: {time_zone}\n"));
     }
-    emit_description(out, &indent, COLUMN_DESCRIPTION_TODO);
     if let Some([min, max]) = &column.range {
         out.push_str(&format!("{indent}range: [{min}, {max}]\n"));
     }
     if let Some(examples) = &column.examples {
         emit_list(out, &indent, "examples", examples);
     }
-    for todo in &column.todos {
-        emit_todo(out, &indent, todo);
-    }
+    emit_todo(out, &indent, &column.todos, &column.constraint_options);
 }
 
-/// A `# TODO:` comment (wrapped) followed by its commented-out YAML stub.
-fn emit_todo(out: &mut String, indent: &str, todo: &Todo) {
-    wrap_comment(out, indent, &format!("TODO: {}", todo.text));
-    for line in &todo.stub {
-        out.push_str(&format!("{indent}# {line}\n"));
-    }
-}
-
-/// A `description: >` folded block scalar at `indent`, with `text` wrapped to
-/// [`WIDTH`] on the following lines. Folding joins the wrapped lines back into
-/// one paragraph when the YAML is read.
-fn emit_description(out: &mut String, indent: &str, text: &str) {
-    out.push_str(&format!("{indent}description: >\n"));
+/// The `todo` key at `indent`: a `|` literal block holding one `- ` bullet
+/// per note, with `nested` indented as sub-bullets of the last note (the
+/// constraints options under their "Specify `constraints`" bullet). A literal
+/// block keeps every line and carries any text without quoting.
+fn emit_todo(out: &mut String, indent: &str, bullets: &[String], nested: &[String]) {
+    out.push_str(&format!("{indent}todo: |\n"));
     let inner = format!("{indent}  ");
-    let available = WIDTH.saturating_sub(inner.len()).max(20);
+    for bullet in bullets {
+        wrap_bullet(out, &inner, bullet);
+    }
+    let sub = format!("{inner}  ");
+    for bullet in nested {
+        wrap_bullet(out, &sub, bullet);
+    }
+}
+
+/// One `- ` bullet at `indent`, wrapped at word boundaries to stay within
+/// [`WIDTH`], with continuation lines hanging under the bullet's text.
+fn wrap_bullet(out: &mut String, indent: &str, text: &str) {
+    let available = WIDTH.saturating_sub(indent.len() + 2).max(20);
     let mut line = String::new();
+    let mut marker = "- ";
     for word in text.split_whitespace() {
         if !line.is_empty() && line.len() + 1 + word.len() > available {
-            out.push_str(&format!("{inner}{line}\n"));
+            out.push_str(&format!("{indent}{marker}{line}\n"));
+            marker = "  ";
             line.clear();
         }
         if !line.is_empty() {
@@ -664,7 +674,7 @@ fn emit_description(out: &mut String, indent: &str, text: &str) {
         line.push_str(word);
     }
     if !line.is_empty() {
-        out.push_str(&format!("{inner}{line}\n"));
+        out.push_str(&format!("{indent}{marker}{line}\n"));
     }
 }
 
@@ -681,40 +691,6 @@ fn emit_list(out: &mut String, indent: &str, key: &str, items: &[String]) {
         for item in items {
             out.push_str(&format!("{indent}  - {item}\n"));
         }
-    }
-}
-
-/// The commented-out stub lines for a suggested `key: [a, b, c]`, with the
-/// same flow-to-block fallback as [`emit_list`] (the `# ` prefix counts
-/// against the width via the caller's indent — close enough for a comment).
-fn stub_list(key: &str, items: &[String]) -> Vec<String> {
-    let flow = format!("{key}: [{}]", items.join(", "));
-    if flow.len() <= WIDTH.saturating_sub(10) {
-        vec![flow]
-    } else {
-        let mut lines = vec![format!("{key}:")];
-        lines.extend(items.iter().map(|item| format!("  - {item}")));
-        lines
-    }
-}
-
-/// Emit `text` as `# `-prefixed comment lines at `indent`, wrapped at word
-/// boundaries to stay within [`WIDTH`].
-fn wrap_comment(out: &mut String, indent: &str, text: &str) {
-    let available = WIDTH.saturating_sub(indent.len() + 2).max(20);
-    let mut line = String::new();
-    for word in text.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > available {
-            out.push_str(&format!("{indent}# {line}\n"));
-            line.clear();
-        }
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(word);
-    }
-    if !line.is_empty() {
-        out.push_str(&format!("{indent}# {line}\n"));
     }
 }
 
@@ -777,7 +753,7 @@ fn append(
     }
     let tables = draft_tables(&fresh, output_dir)?;
     // Same S16-driven rule as a new file, counting what's already there: only
-    // a dictionary that ends up multi-table gets table-level descriptions.
+    // a dictionary that ends up multi-table gets table-level description todos.
     let with_description = dict.tables.len() + tables.len() > 1;
 
     let content =
@@ -935,13 +911,50 @@ mod tests {
     }
 
     #[test]
-    fn comments_wrap_at_width() {
+    fn todo_bullets_emit_as_a_literal_block() {
         let mut out = String::new();
-        let text = "TODO: ".to_string() + &"word ".repeat(40);
-        wrap_comment(&mut out, "    ", text.trim());
-        assert!(out.lines().count() > 1);
-        assert!(out.lines().all(|l| l.len() <= WIDTH));
-        assert!(out.lines().all(|l| l.starts_with("    # ")));
+        emit_todo(
+            &mut out,
+            "    ",
+            &[
+                "Add a `description`.".to_string(),
+                "Needs a `time_zone`?".to_string(),
+            ],
+            &[],
+        );
+        assert_eq!(
+            out,
+            "    todo: |\n      - Add a `description`.\n      - Needs a `time_zone`?\n"
+        );
+    }
+
+    #[test]
+    fn long_todo_bullets_wrap_with_a_hanging_indent() {
+        let mut out = String::new();
+        let long = "Specify the `number` more precisely because ".to_string() + &"word ".repeat(20);
+        emit_todo(&mut out, "    ", &[long.trim().to_string()], &[]);
+        assert!(out.starts_with("    todo: |\n      - Specify"), "{out}");
+        assert!(out.lines().count() > 2, "{out}");
+        assert!(
+            out.lines().skip(2).all(|l| l.starts_with("        ")),
+            "{out}"
+        );
+        assert!(out.lines().all(|l| l.len() <= WIDTH), "{out}");
+    }
+
+    #[test]
+    fn constraint_options_nest_under_the_last_bullet() {
+        let mut out = String::new();
+        emit_todo(
+            &mut out,
+            "    ",
+            &["Specify `constraints`. Some options suggested by the data:".to_string()],
+            &["constraints: [required] # all values present".to_string()],
+        );
+        assert_eq!(
+            out,
+            "    todo: |\n      - Specify `constraints`. Some options suggested by the data:\n        - constraints: [required] # all values present\n"
+        );
     }
 
     #[test]

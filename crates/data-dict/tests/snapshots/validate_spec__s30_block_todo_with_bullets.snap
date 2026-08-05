@@ -1,0 +1,27 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: string
+        examples: [x, y]
+        todo: |
+          - Add a `description`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
+────────────────────────────────────────
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:10:11
+   |
+LL |     - name: t
+LL |       columns:
+LL |         - name: a
+...
+LL | /           - Add a `description`.
+LL | |           - Specify `constraints`. Some options suggested by the data:
+LL | |             - constraints: [required] # all values present
+   | |__________________________________________________________^ unresolved todo

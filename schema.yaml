@@ -43,6 +43,11 @@ object:
     # the dataset. Unenforced: no S-check, never fetched or resolved.
     origin: string
 
+    # A note of work that remains to be done. Accepted at every describing
+    # level (dataset, table, column, field, relationship); each remaining
+    # note is reported by S30.
+    todo: string
+
     tables:
       arrayOf:
         object:
@@ -61,6 +66,7 @@ object:
             description: string
             details: string
             origin: string
+            todo: string
 
             source:
               object:
@@ -85,6 +91,7 @@ object:
                     label: string
                     description: string
                     details: string
+                    todo: string
                     display:
                       enum: [restricted]
                     units: string
@@ -149,6 +156,7 @@ object:
           required: [cardinality, join]
           properties:
             description: string
+            todo: string
             cardinality:
               enum: [one-to-one, one-to-many, many-to-one]
             join: string

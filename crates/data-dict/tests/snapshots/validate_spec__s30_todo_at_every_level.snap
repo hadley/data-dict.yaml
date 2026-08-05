@@ -1,0 +1,76 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+todo: Describe the dataset as a whole.
+tables:
+  - name: food
+    todo: Confirm the grain with the data team.
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2, 3]
+      - name: status
+        type: string
+        examples: [active, closed]
+        todo: Looks like an enum — confirm the full set of values.
+      - name: addr
+        type: struct
+        fields:
+          - name: zip
+            type: string
+            examples: ['97201']
+            todo: Is this always 5 digits?
+  - name: category
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+      - name: food_id
+        type: number(id)
+        constraints: [foreign_key]
+        examples: [1, 2]
+relationships:
+  - join: category.food_id = food.id
+    cardinality: many-to-one
+    todo: Check whether this is really many-to-one.
+────────────────────────────────────────
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:3:7
+   |
+LL | todo: Describe the dataset as a whole.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:6:11
+   |
+LL |   - name: food
+LL |     todo: Confirm the grain with the data team.
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:15:15
+   |
+LL |   - name: food
+...
+LL |       - name: status
+...
+LL |         todo: Looks like an enum — confirm the full set of values.
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:22:17
+   |
+LL |   - name: food
+...
+LL |           - name: zip
+...
+LL |             todo: Is this always 5 digits?
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+warning[S30]: Every `todo` must be resolved.
+  --> dict.yaml:36:9
+   |
+LL |   - join: category.food_id = food.id
+LL |     cardinality: many-to-one
+LL |     todo: Check whether this is really many-to-one.
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo

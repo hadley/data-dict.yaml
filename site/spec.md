@@ -13,6 +13,8 @@ The descriptive keys — `name`, `label`, `description`, and `details` — ident
 
 The dataset may also carry an optional `origin` key: a link to the code that produced it (see [Origin](#origin)). The same key is available on each table.
 
+Every level of the dictionary — this top level, a table, a column, a struct field, a relationship — may also carry a `todo` key recording work that remains to be done; see [Todo](#todo).
+
 In the common case of a dictionary that describes a single table, these top-level keys should be used to describe the dataset, leaving the table itself undescribed.
 
 The content keys all hold the actual information about the data:
@@ -32,6 +34,7 @@ The content keys all hold the actual information about the data:
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
+* `todo`: work that remains on this table (see [Todo](#todo)).
 
 For example:
 
@@ -109,6 +112,7 @@ Each descriptor has the following properties:
 * `type`: the column's data type (see [Types](#types)). Should match (approximately) the underlying data type. Optional — see below.
 * `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
 * `display`: controls whether the column should appear in user-facing output (see [Display](#display)).
+* `todo`: work that remains on this column (see [Todo](#todo)).
 
 Some properties only apply to certain types:
 
@@ -215,7 +219,7 @@ The element type in `list(element_type)` may be any type: `string`, `number`, `n
 
 #### Struct fields
 
-A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, etc). It doesn't yet support: `label`, `display`, and `constraints`. 
+A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, `todo`, etc). It doesn't yet support: `label`, `display`, and `constraints`. 
 
 A field may itself be `list(...)` or `struct` (with its own `fields`), allowing deep nesting.
 
@@ -356,6 +360,7 @@ constraints:
 * `description`: human-readable description of the relationship. Only needed if it's not clear from the context.
 * `conflicts`: a list of column names that appear on both sides of the join with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
 * `aliases`: a map from alias to table name, naming the role each side of the join plays. See [aliases](#aliases).
+* `todo`: work that remains on this relationship (see [Todo](#todo)).
 
 For example:
 
@@ -425,3 +430,20 @@ If you use a `number`, we recommend [semantic versioning](https://datapackage.or
 version:
   date: 2024-01-31
 ```
+
+## Todo
+
+`todo` records work that remains before the dictionary is complete: a description still to be written, a type to confirm with a domain expert, a constraint you suspect but haven't verified. Its value is a single string saying what's left to do. When several tasks are outstanding, write them as one note — a literal block scalar (`|`) keeps a bulleted list readable:
+
+```yaml
+- name: status
+  type: string
+  examples: [active, pending, closed]
+  todo: |
+    - Add a `description`.
+    - Looks like an enum — confirm the full set of `values` and switch the `type`.
+```
+
+`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, and a relationship. Put each note on the thing it's about, so the work travels with its subject.
+
+Every remaining `todo` is reported when the spec is validated (see S30 in [validation](validation.md)), so a dictionary announces its own unfinished work each time it's checked. It's reported as a warning rather than an error, so an unfinished dictionary can still be validated against its data — but you should resolve every `todo` before you consider the dictionary finished.

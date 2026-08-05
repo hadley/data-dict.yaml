@@ -229,6 +229,7 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
     validate_s26_alias_shadows_table(dict, out);
     validate_s27_unused_alias(dict, out);
     validate_s16_single_table_description(dict, out);
+    validate_s30_todos(dict, out);
 
     let mut seen_tables: HashMap<String, SourceInfo> = HashMap::new();
     for table in &dict.tables {
@@ -1517,6 +1518,44 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
             format!("{init}, and `{}`", keys[keys.len() - 1])
         }
     }
+}
+
+// --- S30 --------------------------------------------------------------
+
+/// Warn for every `todo` left anywhere in the dictionary: the dataset, each
+/// table, column, and struct field (recursively), and each relationship.
+fn validate_s30_todos(dict: &DataDict, out: &mut ProblemSet) {
+    report_todo(&dict.todo, &[], out);
+    for table in &dict.tables {
+        report_todo(&table.todo, &[&table.name.span], out);
+        report_column_todos(table, &table.columns, out);
+    }
+    for rel in &dict.relationships {
+        report_todo(&rel.todo, &[&rel.join_text.span], out);
+    }
+}
+
+fn report_column_todos(table: &Table, columns: &[Column], out: &mut ProblemSet) {
+    for col in columns {
+        report_todo(&col.todo, &[&table.name.span, &col.name.span], out);
+        if let Some(fields) = &col.fields {
+            report_column_todos(table, fields, out);
+        }
+    }
+}
+
+/// One S30 warning per `todo`, anchored at its note with the `enclosing`
+/// nodes (the table, and column for a column todo) shown as context.
+fn report_todo(todo: &Option<Spanned<String>>, enclosing: &[&SourceInfo], out: &mut ProblemSet) {
+    let Some(todo) = todo else { return };
+    let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| (*s).clone()).collect();
+    spans.push(todo.span.clone());
+    out.push_spec_warning(
+        "S30",
+        "Every `todo` must be resolved.",
+        "unresolved todo",
+        spans,
+    );
 }
 
 // --- S09 --------------------------------------------------------------

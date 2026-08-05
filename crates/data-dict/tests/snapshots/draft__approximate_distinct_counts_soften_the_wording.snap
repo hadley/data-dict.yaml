@@ -5,20 +5,23 @@ expression: content
 $version: 0.1.0
 $learn_more: https://data-dict.tidyverse.org/
 
-description: >
-  TODO: describe the dataset as a whole.
+todo: |
+  - Write a `description` of the dataset.
 
 tables:
   - name: visits
     source:
       parquet: visits.parquet
+    todo: |
+      - Record a `primary_key`, if present.
     columns:
       - name: visit_code
         type: string
-        # TODO: values look distinct (approximate count), none missing —
-        # uncomment one or delete:
-        # constraints: [required, unique]
-        # constraints: [primary_key]
-        description: >
-          TODO: what does this column mean?
         examples: [visit-0002, visit-0324, visit-0660, visit-0905, visit-1197]
+        todo: |
+          - Add a `description`.
+          - Specify `constraints`. Some options suggested by the data (distinct
+            count is approximate):
+            - constraints: [required, unique] # values look distinct & present
+            - constraints: [primary_key] # values look distinct & present
+            - constraints: [required] # all values present

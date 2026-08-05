@@ -5,42 +5,47 @@ expression: "draft_new(&dir, &[path])"
 $version: 0.1.0
 $learn_more: https://data-dict.tidyverse.org/
 
-description: >
-  TODO: describe the dataset as a whole.
+todo: |
+  - Write a `description` of the dataset.
 
 tables:
   - name: penguins
     source:
       parquet: penguins.parquet
+    todo: |
+      - Record a `primary_key`, if present.
     columns:
       - name: species
         type: string
-        # TODO: no missing values observed — uncomment or delete:
-        # constraints: [required]
-        description: >
-          TODO: what does this column mean?
         examples: [Adelie, Chinstrap, Gentoo]
-        # TODO: only 3 distinct values — if this is an enum, set type: enum
-        # and replace examples with:
-        # values: [Adelie, Chinstrap, Gentoo]
+        todo: |
+          - Add a `description`.
+          - Only 3 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
       - name: bill_length_mm
         type: number
-        description: >
-          TODO: what does this column mean?
         examples: [36.7, 39.5, 46.5, 48.7, 59.6]
+        todo: |
+          - Add a `description`.
+          - Specify the `number` more precisely: `number(id)`,
+            `number(ordinal)`, or `number(quantity)` (with `units`).
       - name: body_mass_g
         type: number
-        # TODO: all values distinct, none missing — uncomment one or delete:
-        # constraints: [required, unique]
-        # constraints: [primary_key]
-        description: >
-          TODO: what does this column mean?
         examples: [3250, 3625, 3750, 4675, 6300]
+        todo: |
+          - Add a `description`.
+          - Specify the `number` more precisely: `number(id)`,
+            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required, unique] # all values distinct & present
+            - constraints: [primary_key] # all values distinct & present
+            - constraints: [required] # all values present
       - name: sex
         type: string
-        description: >
-          TODO: what does this column mean?
         examples: [female, male]
-        # TODO: only 2 distinct values — if this is an enum, set type: enum
-        # and replace examples with:
-        # values: [female, male]
+        todo: |
+          - Add a `description`.
+          - Only 2 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.

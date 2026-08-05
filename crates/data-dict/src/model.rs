@@ -26,6 +26,8 @@ impl<T> Spanned<T> {
 pub struct DataDict {
     pub tables: Vec<Table>,
     pub relationships: Vec<Relationship>,
+    /// The dataset-level `todo`, when present (see S30).
+    pub todo: Option<Spanned<String>>,
 }
 
 impl DataDict {
@@ -97,6 +99,7 @@ pub struct Table {
     pub label: Option<SourceInfo>,
     pub description: Option<SourceInfo>,
     pub details: Option<SourceInfo>,
+    pub todo: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +133,7 @@ pub struct Column {
     /// `fields` key was absent; `Some` means it was present (possibly empty,
     /// which S07 rejects).
     pub fields: Option<Vec<Column>>,
+    pub todo: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +259,7 @@ pub struct Relationship {
     pub conflicts: Vec<Spanned<String>>,
     /// Alias declarations, in source order. Scoped to this relationship.
     pub aliases: Vec<Alias>,
+    pub todo: Option<Spanned<String>>,
 }
 
 impl Relationship {

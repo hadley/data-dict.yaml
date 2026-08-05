@@ -31,10 +31,10 @@ enum Command {
     ///
     /// Profiles each file and writes one table per file (named after its
     /// stem), with inferred column types, observed ranges and examples, and a
-    /// `# TODO:` comment for everything only a human can decide —
-    /// descriptions, enum candidates, constraints, the primary key. The
-    /// output always passes `validate-spec`, so work through the TODOs
-    /// incrementally under it.
+    /// `todo` note for everything only a human can decide — descriptions,
+    /// enum candidates, constraints, the primary key. The output passes
+    /// `validate-spec` with no errors (each `todo` is a warning), so work
+    /// through the todos incrementally under it.
     ///
     /// If the output file already exists, tables are appended for the inputs
     /// it doesn't have yet; the existing text is preserved byte for byte.

@@ -18,7 +18,7 @@ The thing that matters most, and where data dictionaries most often go wrong, is
 
 1.  **Discover the data and context.** Identify every parquet file in scope, and look for markdown files, Word documents, and PDFs that might contain information about the data. If you don't find anything, ask the user where to look.
 
-2.  **Draft the dictionary.** Use `data-dict draft <parquetfiles>` to generate the starting dictionary. `data-dict` will profile the data and create a draft data dictionary with one table per file, with inferred types, observed ranges and examples, and a `# TODO:` comment for everything it can't decide. Those TODOs are your work list for the steps below; delete each comment as you resolve it.
+2.  **Draft the dictionary.** Use `data-dict draft <parquetfiles>` to generate the starting dictionary. `data-dict` will profile the data and create a draft data dictionary with one table per file, with inferred types, observed ranges and examples, and a `todo` entry for everything it can't decide. Those todos are your work list for the steps below; delete each one as you resolve it.
 
     To dig into a single file while you work, `data-dict describe <file> [column]` prints a per-column summary: type, distinct and missing counts, and a sketch of the values.
 
@@ -32,6 +32,8 @@ The thing that matters most, and where data dictionaries most often go wrong, is
     -   **Relationships and cardinality** you can't infer from the data alone.
 
     Gather your questions and ask them in batches. Where you have a reasonable guess, offer it as a concrete option to confirm or correct ("`amount` looks like it's in cents -- is that right?") -- that's far easier to answer than an open-ended question. Record the answers directly into the relevant `description`, `details`, or `glossary` entry. If the user genuinely doesn't know, say so in `details` rather than papering over it.
+
+    Record every question that stays open -- the user hasn't answered yet, or no one you can ask knows -- as a `todo` on the exact table, column, or field it concerns (`todo: Confirm whether amount is in cents or dollars.`). Never guess instead: a `todo` keeps the gap visible to validation and to future readers, while an invented description looks finished and gets trusted. Delete each `todo` once its question is answered.
 
 4.  **Fill in each table.**
 
@@ -49,7 +51,7 @@ The thing that matters most, and where data dictionaries most often go wrong, is
 
 6.  **Build the glossary.** Add definitions for domain-specific terms used in descriptions. If a word would be unfamiliar to a new team member or an AI agent, define it. If you don't know what a term refers to, ask the user for clarification (see step 3).
 
-7.  **Validate.** A data dictionary that disagrees with the data is actively harmful, so check it against both the spec and the data with `data-dict validate-data data-dict.yaml`. Repeat until no problems remain.
+7.  **Validate.** A data dictionary that disagrees with the data is actively harmful, so check it against both the spec and the data with `data-dict validate-data data-dict.yaml`. Repeat until no problems remain. Every remaining `todo` is reported as a warning (S30), so the dictionary isn't finished while any are left -- but don't resolve a `todo` by deleting it or by guessing; resolve it by getting the answer (see step 3).
 
 ## Style
 
