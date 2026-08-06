@@ -1,6 +1,6 @@
 # Expressions
 
-data-dict provides a small expression language: a SQL-like sublanguage for stating a rule about the values in a single row of a single table. You write one wherever a dictionary needs to say something a keyword can't, which today means the `assert` key of a column or table [constraint](spec.md#column-constraints):
+data-dict provides a small expression language: a SQL-like sublanguage for stating a rule about the values in a single table. You write one wherever a dictionary needs to say something a keyword can't, which today means the `assert` key of a column or table [constraint](spec.md#column-constraints):
 
 ```yaml
 tables:
@@ -18,11 +18,13 @@ tables:
 
 An expression is always written against the columns of one table: bare names are that table's column names, and an expression on a column sees every other column too. So the two constraints above differ in where they're written, not in what they can say — a column constraint sits next to the column it's mostly about, and a table constraint is the natural home for a rule that spans columns.
 
-This page is the reference for the language. It covers [how an expression is evaluated](#evaluation), [truth and null](#truth-and-null), the [types](#types) values carry, how [columns are referred to](#column-references), the [literals](#literals), [operators](#operators), and [functions](#functions) available, [`COLUMNS(...)`](#selecting-multiple-columns) for applying one predicate to many columns, the [type rules](#type-checking) a validator enforces, and the [grammar](#grammar).
+This page is the reference for the language. It covers [how an expression is evaluated](#evaluation), [truth and null](#truth-and-null), the [types](#types) values carry and the [shapes](#shapes) they come in, how [columns are referred to](#column-references), the [literals](#literals), [operators](#operators), and [functions](#functions) available, [`COLUMNS(...)`](#selecting-multiple-columns) for applying one predicate to many columns, the [type rules](#type-checking) a validator enforces, and the [grammar](#grammar).
 
 ## Evaluation
 
-**One row of one table.** An expression sees the columns of a single row at a time, and evaluating it against every row in turn is the whole of its meaning. There are no aggregates and no subqueries — cross-table rules belong in [`relationships`](spec.md#relationships), and the per-row restriction keeps expressions cheap to check.
+**One table, at two grains.** An expression sees the columns of one table. A bare column reference is read one row at a time, and evaluating the expression against every row in turn is the whole of its meaning; an [aggregate](#aggregate-functions) instead folds a column over every row at once, giving one value for the table. Which grain each part of an expression has is settled before any data is read — see [shapes](#shapes).
+
+There are no subqueries: cross-table rules belong in [`relationships`](spec.md#relationships).
 
 **Deterministic, apart from `NOW()`.** The same row always gives the same result. `NOW()` is the one exception: it reads the current time, so a freshness check like `observed_at >= NOW() - interval(2, weeks)` can pass one day and fail the next even though the data hasn't changed.
 
@@ -53,15 +55,50 @@ Every expression has a type. These are the language's own types, close to but no
 
 An **`enum`** is a `string`, because [its values are always strings](spec.md#representative-values). It behaves like any other string column: `sex` declared as `values: [M, F, U]` can be measured with `LENGTH` and matched with `LIKE`. The *look* of the values doesn't change that — `values: [2024-01-01, 2024-01-02]` is still a `string`, not a `date`, so it can't be compared with `NOW()`, and `values: [1, 2, 3]` can't be compared with `<`.
 
-A **`struct`** or **`list`** column carries no scalar value of its own, so its bare name may stand only where no type is needed: `address IS NOT NULL` is fine, and any other use is ill-typed. A `struct`'s fields are reached with [dot access](#field-access), and a field reference has the field's declared type.
+A **`struct`** or **`list`** column carries no scalar value of its own, so its bare name may stand only where no type is needed: `address IS NOT NULL` and `COUNT(address)` are fine, and any other use is ill-typed. A `struct`'s fields are reached with [dot access](#field-access), and a field reference has the field's declared type.
 
 A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error (S23): nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
 
-An unknown type is only a problem where a type is actually needed. `IS NULL` and `IS NOT NULL` ask nothing of their operand, so `u IS NOT NULL` — and `COLUMNS(*) IS NOT NULL` on a table with undocumented columns — is fine; `LENGTH(u)` and `u > 5` are not.
+An unknown type is only a problem where a type is actually needed. `IS NULL`, `IS NOT NULL`, and [`COUNT`](#count) ask nothing of their operand, so `u IS NOT NULL` — and `COLUMNS(*) IS NOT NULL` on a table with undocumented columns — is fine; `LENGTH(u)` and `u > 5` are not.
 
 `NULL` is the one genuinely typeless thing in the language, and stays compatible with every type.
 
 The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares.
+
+### Type classes {#type-classes}
+
+Some signatures are written over a *class* of types rather than one type:
+
+| Class     | Members                                                          |
+|-----------|------------------------------------------------------------------|
+| `Ordered` | `number`, `string`, `date`, `datetime` — the types `<` compares. |
+| `Numeric` | `number`.                                                        |
+
+: {tbl-colwidths="[15,85]"}
+
+A class also names a type variable, so `Ordered T → T` reads "takes any ordered type, and returns that same type": `MIN` of a `date` column is a `date`. Only the [aggregates](#aggregate-functions) have signatures of this shape; every other function names its types outright.
+
+## Shapes
+
+Alongside its type, every expression has a **shape**: how many values it stands for.
+
+| Shape   | Comes from                                             | Cardinality          |
+|---------|--------------------------------------------------------|----------------------|
+| `const` | A literal, `NOW()`, or `interval(...)`.                | One value, period.   |
+| `row`   | A column reference, a field access, or `COLUMNS(...)`. | One value per row.   |
+| `agg`   | An [aggregate function](#aggregate-functions).         | One value per table. |
+
+: {tbl-colwidths="[12,53,35]"}
+
+Two rules fix the shape of everything else.
+
+**An aggregate takes a `row` or `const` argument and returns `agg`.** So aggregates can't nest: `AVG(MIN(x))` asks for the average of a single value, and is a shape error (S30).
+
+**Every other operator and function takes the largest shape among its operands**, ordering them `const` < `agg` < `row`. So `LENGTH(postcode)` is `row`, `MAX(qty) * 2` is `agg`, and `qty <= MAX(qty)` is `row`.
+
+That last one mixes grains, which SQL rejects — there you must write `MAX(qty) OVER ()` — but data-dict allows. There is no `GROUP BY` here for it to be ambiguous with, "no value is more than twice the smallest" is a natural rule to want to state, and it costs one extra pass over the column.
+
+An assertion's own shape decides what a violation can say. A `row` assertion is checked row by row, so a report can point at the row that broke it; an `agg` assertion is a single verdict about the whole table, so a report can only name the table.
 
 ## Column references
 
@@ -132,7 +169,7 @@ Interval arithmetic is the only non-numeric arithmetic: a date or datetime plus 
 |----------|-----------|-------|
 | `x = y` | `T, T → boolean` | |
 | `x != y`, `x <> y` | `T, T → boolean` | The two spellings are identical. |
-| `x < y`, `x <= y`, `x > y`, `x >= y` | `T, T → boolean` | Ordered types: numbers, strings, dates, datetimes. |
+| `x < y`, `x <= y`, `x > y`, `x >= y` | `T, T → boolean` | `T` must be an [`Ordered`](#type-classes) type. |
 
 : {tbl-colwidths="[28,25,47]"}
 
@@ -211,7 +248,7 @@ Use parentheses when in doubt: `NOT(q3) OR q4 IS NOT NULL` and `NOT (q3 OR q4 IS
 
 ## Functions
 
-Function names are case-insensitive. Every function is null-propagating: any null argument gives a null result. Passing the wrong number of arguments, or an argument of the wrong type, is an error at spec-validation time, not something that happens per row.
+Function names are case-insensitive. Every scalar function is null-propagating: any null argument gives a null result. The [aggregates](#aggregate-functions) are the exception — they ignore null inputs rather than propagating them. Passing the wrong number of arguments, or an argument of the wrong type, is an error at spec-validation time, not something that happens per row.
 
 ### String functions
 
@@ -303,6 +340,83 @@ All five are fixed-length. Calendar units (`months`, `years`) are deliberately e
   description: The export always covers the last fortnight.
 ```
 
+### Aggregate functions
+
+An aggregate folds a column over every row of the table into a single value, so its [shape](#shapes) is `agg`. Unlike every other function, an aggregate **ignores** nulls rather than propagating them, and each one says separately what it gives back when there is nothing left to fold; see [empty and all-null input](#empty-input).
+
+Their signatures are written over the [type classes](#type-classes).
+
+#### `MIN(x)`, `MAX(x)`
+
+`Ordered T → T`. The smallest and largest non-null value of `x`, in that type's own order — so `MIN` of a `date` column is the earliest date, and of a `string` column the first by code point.
+
+```yaml
+- assert: value <= 2 * MIN(value)
+  description: No reading is more than twice the smallest.
+```
+
+Note the mixed grain: `value` is one value per row and `MIN(value)` one per table, which [is allowed](#shapes).
+
+#### `SUM(x)`
+
+`Numeric → number`. The total of the non-null values. A sum of integers is an integer.
+
+#### `AVG(x)`
+
+`Numeric → number`. The mean of the non-null values. Always a float, even over integers.
+
+```yaml
+- assert: AVG(score) BETWEEN 0 AND 100
+```
+
+#### `COUNT(x)` {#count}
+
+`T → number`, for any `T` at all. How many rows have a non-null `x`.
+
+`COUNT` is the one function that does not constrain its argument. Like `IS NULL`, it asks only whether each value is null, so it never consults `x`'s type: a `struct`, a `list`, and a [column listed by name only](#types) are all fair game, and `COUNT(address)` counts the rows that have an address. (A null `list` is missing; an empty one is present, as [everywhere else](spec.md#column-constraints).)
+
+`COUNT(x) = ROW_COUNT()` says "`x` is never null", which the [`required` constraint](spec.md#column-constraints) already says more directly — prefer `required`. `COUNT` earns its place on the *partial* case, which nothing else in the language can state:
+
+```yaml
+- assert: COUNT(email) >= 0.9 * ROW_COUNT()
+  description: At least 90% of customers have an email address.
+```
+
+#### `ROW_COUNT()`
+
+`→ number`. How many rows the table has, nulls included. It takes no arguments, which is why there is no `COUNT(*)` form.
+
+#### `COUNT_DISTINCT(x)`
+
+`Ordered T → number`. How many distinct non-null values `x` takes.
+
+```yaml
+- assert: COUNT_DISTINCT(region) <= 16
+```
+
+A function rather than a `DISTINCT` modifier.
+
+#### `ANY(b)`, `ALL(b)`
+
+`boolean → boolean`. Whether any, or every, non-null row is true.
+
+A bare `b` already asserts that `b` holds for every row, so `ALL(b)` is rarely worth writing as a whole assertion. Both earn their place inside a larger rule, where the aggregate's single value is compared or combined with something else.
+
+#### Empty and all-null input {#empty-input}
+
+Aggregates skip nulls, so a column holding nothing but nulls looks much like a table with no rows at all. What comes back is not uniform:
+
+|                            | No rows | Every value null   |
+|----------------------------|---------|--------------------|
+| `MIN`, `MAX`, `SUM`, `AVG` | null    | null               |
+| `ANY`, `ALL`               | null    | null               |
+| `COUNT`, `COUNT_DISTINCT`  | 0       | 0                  |
+| `ROW_COUNT`                | 0       | the number of rows |
+
+: {tbl-colwidths="[40,30,30]"}
+
+Combined with [`CHECK` semantics](#truth-and-null), where a null result passes, this means an aggregate assertion **passes vacuously on an empty table**: `AVG(score) BETWEEN 0 AND 100` holds when there are no scores.
+
 ## Selecting multiple columns
 
 To apply the same predicate to a group of columns without repeating it, use a `COLUMNS(...)` expression — a simple subset of [DuckDB's `COLUMNS`](https://duckdb.org/docs/current/sql/expressions/star). The supported forms select columns by:
@@ -340,9 +454,9 @@ The lambda form (`COLUMNS(c -> ...)`) and the star modifiers (`EXCLUDE`, `REPLAC
 
 ## Type checking
 
-Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression is S19, an unknown column S20, an ill-typed expression S21, and an empty column selection S22; see [validation](validation.md) for the full list.
+Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression is S19, an unknown column S20, an ill-typed expression S21, an empty column selection S22, and a nested aggregate S30; see [validation](validation.md) for the full list.
 
-Four rules decide whether an expression is well typed, and a fifth (S23, above) requires that every operand whose type matters has one. The more the dictionary says about a column, the more of an expression can be checked.
+Five rules decide whether an expression is well formed, and a sixth (S23, above) requires that every operand whose type matters has one. The more the dictionary says about a column, the more of an expression can be checked.
 
 ### The expression as a whole must be boolean
 
@@ -350,7 +464,7 @@ An expression states a rule, so its result must be a truth value. A bare non-boo
 
 ### Operands must match their operator or function
 
-The signatures above are enforced exactly: `LENGTH(qty)` on a numeric column is an error, as is `LENGTH('a', 'b')`, as is calling a function that doesn't exist.
+The signatures above are enforced exactly: `LENGTH(qty)` on a numeric column is an error, as is `LENGTH('a', 'b')`, as is calling a function that doesn't exist. A signature written over a [class](#type-classes) is enforced the same way — `SUM(name)` on a string column is an error, because `string` is not `Numeric`.
 
 ### Compared values must be comparable {#comparability}
 
@@ -364,6 +478,12 @@ Two operands may be compared when any of the following holds:
 ### A `CASE` must have one result type
 
 Its type is the common type of its branches; branches of differing types make the whole `CASE` typeless, which then passes any comparison it's used in. That's permitted but rarely what you want.
+
+### An aggregate can't contain another aggregate
+
+The one rule about [shape](#shapes) rather than type. An aggregate needs a value per row to fold, and another aggregate hands it a single value, so `AVG(MIN(x))` is a shape error (S30). It is the analogue of SQL's "column must appear in the `GROUP BY` clause" and, like the type rules, it fires before any data is read.
+
+Every other combination of shapes is well formed, [mixed grains included](#shapes).
 
 ## Grammar
 
@@ -396,5 +516,7 @@ QUOTED         := "`" ( [^`] | "``" )+ "`"
 ```
 
 A function name is always an `IDENT`; only columns can be quoted.
+
+The aggregates need no grammar of their own: each is an ordinary `funcall`, and `ROW_COUNT()` is the empty-argument case the rule already admits. None of their names is reserved either, so a column called `count` or `min` remains reachable without backticks — a name followed by `(` is a call, and anything else is a column.
 
 The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`. A column named after one of them is still reachable [in backticks](#column-references).

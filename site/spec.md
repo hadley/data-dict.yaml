@@ -215,7 +215,7 @@ The element type in `list(element_type)` may be any type: `string`, `number`, `n
 
 #### Struct fields
 
-A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, etc). It doesn't yet support: `label`, `display`, and `constraints`. 
+A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, etc). It doesn't yet support: `label`, `display`, and `constraints`.
 
 A field may itself be `list(...)` or `struct` (with its own `fields`), allowing deep nesting.
 
@@ -328,15 +328,15 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table, row-level boolean expression written in data-dict's small SQL-like [expression language](expressions.md). It is evaluated against every row, and the constraint holds unless the expression is *false* for some row. Bare names refer to columns of the table.
+An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns of the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
 Assertions state what must be **true**, so conditional rules are written as implications, e.g. `NOT(q3) OR q4 IS NOT NULL`.
 
-Assertions are deliberately **per-row and single-table**: an expression sees only the columns of one row at a time. There are no aggregates and no subqueries — cross-table rules belong in [`relationships`](#relationships), and the per-row restriction keeps assertions cheap to check. Aside from `NOW()`, they are also deterministic: the same row always gives the same result.
+Assertions are deliberately **single-table**: an expression sees only the columns of one table. There are no subqueries — cross-table rules belong in [`relationships`](#relationships). Within a table an expression has two grains available: a column reference is read one row at a time, and an aggregate folds a column over every row into one value. The two can be mixed, so `value <= 2 * MIN(value)` is a legitimate rule; an assertion that uses no aggregate is checked row by row, and a violation can name the offending row. Aside from `NOW()`, assertions are deterministic: the same data always gives the same result.
 
-The language offers the SQL operators you'd expect — comparisons, `AND`/`OR`/`NOT`, `IS NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR TO`, `CASE`, and arithmetic — over column references, numeric, string, boolean, and `NULL` literals, plus a handful of string (`LENGTH`, `LOWER`, `UPPER`, `TRIM`, `STARTS_WITH`, `ENDS_WITH`), numeric (`ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`), and date/time (`NOW()`, `interval(<n>, <unit>)`) functions. A `COLUMNS(...)` expression applies one predicate to many columns at once:
+The language offers the SQL operators you'd expect — comparisons, `AND`/`OR`/`NOT`, `IS NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR TO`, `CASE`, and arithmetic — over column references, numeric, string, boolean, and `NULL` literals, plus a handful of string (`LENGTH`, `LOWER`, `UPPER`, `TRIM`, `STARTS_WITH`, `ENDS_WITH`), numeric (`ABS`, `ROUND`, `FLOOR`, `CEIL`, `MOD`), date/time (`NOW()`, `interval(<n>, <unit>)`), and aggregate (`MIN`, `MAX`, `SUM`, `AVG`, `COUNT`, `ROW_COUNT`, `COUNT_DISTINCT`, `ANY`, `ALL`) functions. A `COLUMNS(...)` expression applies one predicate to many columns at once:
 
 ```yaml
 constraints:
