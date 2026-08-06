@@ -18,10 +18,27 @@ function loadDict(next) {
   });
   /* Longest first so "size bucket" wins over "size", "HIDI lead" over "lead". */
   const terms = glossItems.map(([term]) => term).sort((a, b) => b.length - a.length);
-  const quote = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   GLOSS_RE = terms.length
-    ? new RegExp("\\b(" + terms.map(quote).join("|") + ")\\b", "gi")
+    ? new RegExp("\\b(" + terms.map(termPattern).join("|") + ")\\b", "g")
     : null;
+}
+
+const quoteRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* How a glossary term is matched in prose. A term written entirely in lower
+   case is an ordinary word, and should be found however the sentence happens to
+   capitalise it. One carrying capitals is a name or an acronym where the
+   capitals are part of it — `PWS` is not the word `pws` — so it is matched as
+   written. JavaScript has no per-group case flag, so the insensitive terms are
+   spelled out as character classes rather than given their own regex. */
+function termPattern(term) {
+  if (term !== term.toLowerCase()) return quoteRe(term);
+  return [...term]
+    .map((ch) => {
+      const upper = ch.toUpperCase();
+      return upper === ch || upper.length !== 1 ? quoteRe(ch) : `[${quoteRe(ch)}${quoteRe(upper)}]`;
+    })
+    .join("");
 }
 
 loadDict(JSON.parse(document.getElementById("dict").textContent));
