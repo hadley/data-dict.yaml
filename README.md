@@ -32,6 +32,9 @@ The `data-dict` CLI validates dictionaries at [three levels](https://data-dict.t
 * Compare a dictionary against its tables' data — column names and types
   (`validate-meta`), or values too (`validate-data`). The data is located
   through each table's `source`, so only the dictionary is passed.
+* Render a dictionary as fully-resolved
+  [JSON](https://data-dict.tidyverse.org/export.html), optionally with
+  per-column data profiles (`export-spec` / `export-data`).
 * Summarise the columns of a Parquet file — types, distinct and missing
   counts, histograms and common values (`describe`).
 * Print an embedded agent skill for reading or writing data dictionaries

@@ -16,7 +16,7 @@ Both levels emit the same JSON document shape; `export-spec` just never populate
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
 
-Top level:
+### Top level
 
 ```jsonc
 {
@@ -34,7 +34,7 @@ Top level:
 }
 ```
 
-`Table`:
+### Table
 
 ```jsonc
 {
@@ -51,7 +51,9 @@ Top level:
 }
 ```
 
-`Column` (recursive: `fields` holds child `Column`s for `struct` and `list(struct)`; a field uses the same shape, minus the keys the spec doesn't allow on fields — `label`, `display`, `constraints`). A column or field with no declared `type` makes no claims and is omitted from the export entirely, including from `COLUMNS(...)` expansions:
+### Column
+
+A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(struct)`; a field uses the same shape, minus the keys the spec doesn't allow on fields (`label`, `display`, `constraints`). A column or field with no declared `type` makes no claims and is omitted from the export entirely, including from `COLUMNS(...)` expansions:
 
 ```jsonc
 {
@@ -82,7 +84,7 @@ Top level:
 
 Both `references` and `referenced_by` are derived from `relationships`, not read directly off the column — they're absent for a column that isn't part of any relationship, even if it's marked `foreign_key`/`primary_key` in isolation (which `validate-spec`'s S01 already treats as an error).
 
-`Assertion`:
+### Assertion
 
 ```jsonc
 {
@@ -92,7 +94,9 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 }
 ```
 
-`Relationship`, normalized so cardinality is always read left-to-right as "many-to-one" (a declared `one-to-many` has each pair's `left`/`right` swapped so `left` is always the "many" side and `right` the "one" side; `one-to-one` is unaffected):
+### Relationship
+
+A `Relationship` is normalized so cardinality is always read left-to-right as "many-to-one" (a declared `one-to-many` has each pair's `left`/`right` swapped so `left` is always the "many" side and `right` the "one" side; `one-to-one` is unaffected):
 
 ```jsonc
 {
@@ -110,7 +114,9 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 
 `pairs` records which column matches which, one pair per join conjunct. Pair tables are real table names — an alias in the `join` is resolved through `aliases`, which is preserved so the original `join` text can still be read. A range join like `a.date >= b.start AND a.date <= b.end` yields two pairs: `a.date` ↔ `b.start` and `a.date` ↔ `b.end`.
 
-`Profile` (export-data only), one per column, carrying the same statistics as `describe`. Its shape follows the column's type, so a key that could never apply to that type doesn't appear at all.
+### Profile
+
+A `Profile` (export-data only) accompanies one column, carrying the same statistics as `describe`. Its shape follows the column's type, so a key that could never apply to that type doesn't appear at all.
 
 Numeric and temporal columns (`number`, `number(...)`, `date`, `datetime`) summarize on a scale:
 
@@ -160,13 +166,7 @@ Nested columns profile as far as the data allows:
 * A list-typed *field* inside a struct carries no `profile` at all (its container nulls aren't countable below the top level).
 * A column whose Parquet type can't be summarised (uuid, decimal, json, …) gets the list shape — `missing` alone, when the file's footer supplies it — or no `profile` at all.
 
-`Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
+### Scalar
 
-## CLI
+A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
 
-```
-data-dict export-spec [PATH] [--pretty]
-data-dict export-data [PATH] [--pretty]
-```
-
-`PATH` is a file or a directory containing `data-dict.yaml` (defaults to `.`), matching `validate-spec`. Output is JSON on stdout; `--pretty` pretty-prints it (default is compact, one document per line, so it composes with tools like `jq`). Diagnostics (the `S##`/`M##`/`D##` problems) are printed to stderr in the same format `validate-*` uses, and a non-zero exit code is returned exactly when no document could be produced — the level's validation failed. A missing or unreadable source is a warning, so a partially-profiled export still exits zero.
