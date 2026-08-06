@@ -612,6 +612,7 @@ dependencies = [
  "data-dict",
  "data-dict-lsp",
  "data-dict-parquet",
+ "indoc",
  "insta",
  "parquet",
  "serde_json",

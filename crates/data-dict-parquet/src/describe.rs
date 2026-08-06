@@ -213,7 +213,9 @@ fn column_description(profile: ColumnProfile, info: &ColumnTypeInfo) -> ColumnDe
 
 // --- scalar and label rendering ---------------------------------------------
 
-fn render_scalar(value: &Value, kind: &ValueKind) -> Scalar {
+/// A profiled [`Value`] in its presentable form: numbers and booleans as
+/// themselves, temporal raws as ISO 8601 strings per `kind`.
+pub fn render_scalar(value: &Value, kind: &ValueKind) -> Scalar {
     match (value, kind) {
         (&Value::Int(days), ValueKind::Date) => date_iso(days)
             .map(Scalar::Text)
@@ -272,7 +274,8 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
 /// detail no consumer should need). Numbers are rounded at the same
 /// width-derived precision as the text labels — bin edges are computed
 /// values, and `37.845000000000006` says nothing that `37.8` doesn't.
-fn edge_scalar(edge: f64, kind: &ValueKind, width: f64) -> Scalar {
+/// `width` is the histogram's bin width, which sets that precision.
+pub fn edge_scalar(edge: f64, kind: &ValueKind, width: f64) -> Scalar {
     match kind {
         ValueKind::Date | ValueKind::Time { .. } | ValueKind::Timestamp { .. } => {
             Scalar::Text(edge_label(edge, kind, width))

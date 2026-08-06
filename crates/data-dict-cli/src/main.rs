@@ -33,6 +33,10 @@ enum Command {
     ValidateMeta(ValidateArgs),
     /// Validate a dataset's values against a data dictionary
     ValidateData(ValidateArgs),
+    /// Render a data dictionary as fully-resolved JSON [default: .]
+    ExportSpec(ExportArgs),
+    /// Render a data dictionary as JSON with per-column data profiles
+    ExportData(ExportArgs),
     /// Print the data-dict.yaml specification
     Spec,
     /// Skill for reading and understanding a data dictionary
@@ -43,6 +47,16 @@ enum Command {
     #[cfg(feature = "lsp")]
     #[command(hide = true)]
     Lsp,
+}
+
+/// Shared arguments for `export-spec` and `export-data`.
+#[derive(clap::Args)]
+struct ExportArgs {
+    /// A data-dict.yaml file or a directory containing one
+    path: Option<PathBuf>,
+    /// Pretty-print the JSON (default is compact, one document per line)
+    #[arg(long)]
+    pretty: bool,
 }
 
 /// Shared arguments for `validate-meta` and `validate-data`.
@@ -89,6 +103,8 @@ fn main() -> ExitCode {
         }
         Command::ValidateMeta(args) => run_validate(args, data_dict::validate_meta),
         Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
+        Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
+        Command::ExportData(args) => run_export(args, data_dict::export_data),
         Command::Spec => {
             print!("{}", data_dict::SPEC_MD);
             ExitCode::SUCCESS
@@ -185,6 +201,38 @@ fn resolve_dict_path(path: Option<PathBuf>) -> Result<PathBuf, String> {
 /// A validation entry point: `validate_meta` or `validate_data`. Both share the
 /// signature, so `run_validate` is generic over which one it drives.
 type ValidateFn = fn(&Path, Option<&str>) -> ProblemSet;
+
+/// An export entry point: `export_spec` or `export_data`. Both share the
+/// signature, so `run_export` is generic over which one it drives.
+type ExportFn = fn(&Path) -> (ProblemSet, Option<data_dict::Export>);
+
+/// Run an export and turn its outcome into output and an exit code: the JSON
+/// document on stdout, diagnostics on stderr, and failure exactly when no
+/// document could be produced (the level's validation failed).
+fn run_export(args: ExportArgs, export: ExportFn) -> ExitCode {
+    let dict = match resolve_dict_path(args.path) {
+        Ok(dict) => dict,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (problems, export) = export(&dict);
+    for line in problems.render(stderr_style()) {
+        eprintln!("{line}");
+    }
+    let Some(export) = export else {
+        return ExitCode::FAILURE;
+    };
+    let json = if args.pretty {
+        serde_json::to_string_pretty(&export)
+    } else {
+        serde_json::to_string(&export)
+    }
+    .expect("an export always serializes");
+    println!("{json}");
+    ExitCode::SUCCESS
+}
 
 /// Colour diagnostics only when stderr (where they are printed) is a terminal,
 /// so piped or redirected output stays plain.
