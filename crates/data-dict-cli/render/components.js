@@ -65,14 +65,14 @@ function DetailsBlock({ source, hl }) {
 
 function MetaLine({ label, items, hl }) {
   return html`<div class="col-meta">
-    <span class="lbl">${label}</span>
+    ${label && html`<span class="lbl">${label}:</span>`}
     ${items.map((v, i) => html`${i ? " " : ""}<code><${Marked} text=${String(v)} ql=${hl} /></code>`)}
   </div>`;
 }
 
 /* A meta line whose value is plain text rather than code chips. */
 function MetaText({ label, text }) {
-  return html`<div class="col-meta"><span class="lbl">${label}</span>${text}</div>`;
+  return html`<div class="col-meta"><span class="lbl">${label}:</span>${text}</div>`;
 }
 
 /* Values seen in the data, tucked behind a disclosure so the row stays short. */
@@ -105,14 +105,9 @@ function rangeText(range) {
   return (lo != null ? "[" + fmtNum(lo) : "(-∞") + ", " + (hi != null ? fmtNum(hi) + "]" : "∞)");
 }
 
-/* The three-line hover every bar shares: what it is, how many rows, and the
-   share of the rows counted. Built as DOM for the shared imperative tooltip. */
+/* The hover every bar shares: "{value or bin}: {n} ({share}%)". */
 function barTip(label, count, total) {
-  const box = el("div", "bar-tip");
-  box.appendChild(el("div", null, label));
-  box.appendChild(el("div", null, "Count: " + count.toLocaleString()));
-  if (total) box.appendChild(el("div", null, fmtPct(count / total)));
-  return box;
+  return label + ": " + count.toLocaleString() + (total ? " (" + fmtPct(count / total) + ")" : "");
 }
 
 /* ---- theme --------------------------------------------------------------- */
@@ -192,22 +187,22 @@ function Histogram({ profile: p, rows }) {
   if (hb && hb.length) {
     const h = p.histogram;
     if (h.negative_infinity_count) {
-      bars.push({ count: h.negative_infinity_count, label: "Value: -∞", special: true });
+      bars.push({ count: h.negative_infinity_count, label: "-∞", special: true });
       seps.push(bars.length);
     }
     hb.forEach((b) => {
-      const label = b.min === b.max ? "Value: " + edge(b.min)
-            : "Range: " + (b.closed === "both" || b.closed === "left" ? "[" : "(") + edge(b.min) +
+      const label = b.min === b.max ? edge(b.min)
+            : (b.closed === "both" || b.closed === "left" ? "[" : "(") + edge(b.min) +
               ", " + edge(b.max) + (b.closed === "both" || b.closed === "right" ? "]" : ")");
       bars.push({ count: b.count, label });
     });
     if (h.positive_infinity_count || h.nan_count) seps.push(bars.length);
     if (h.positive_infinity_count) {
-      bars.push({ count: h.positive_infinity_count, label: "Value: ∞", special: true });
+      bars.push({ count: h.positive_infinity_count, label: "∞", special: true });
     }
-    if (h.nan_count) bars.push({ count: h.nan_count, label: "Value: NaN", special: true });
+    if (h.nan_count) bars.push({ count: h.nan_count, label: "NaN", special: true });
   } else if (cv && cv.length) {
-    cv.forEach((v) => bars.push({ count: v.count, label: "Value: " + String(v.value) }));
+    cv.forEach((v) => bars.push({ count: v.count, label: String(v.value) }));
   } else {
     return null;
   }
@@ -215,14 +210,6 @@ function Histogram({ profile: p, rows }) {
   const W = 240, H = 38, n = bars.length, gap = n > 60 ? 0 : 1.5;
   const bw = (W - (n - 1) * gap) / n;
   const max = Math.max(1, ...bars.map((b) => b.count));
-
-  const caption = [];
-  /* `profile.range` is the observed min/max; bin edges are only the binning bounds. */
-  if (p.range) caption.push(edge(p.range.min) + " – " + edge(p.range.max));
-  if (p.distinct && p.distinct.count != null) {
-    caption.push((p.distinct.approximate ? "~" : "") + p.distinct.count.toLocaleString() + " distinct");
-  }
-  if (!hb && p.common_values && p.common_values.approximate) caption.push("top values");
 
   return html`<div class="col-hist">
     <svg width=${W} height=${H} class="hist-svg">
@@ -239,25 +226,27 @@ function Histogram({ profile: p, rows }) {
         return html`<line class="hist-sep" x1=${x} x2=${x} y1="0" y2=${H} />`;
       })}
     </svg>
-    ${caption.length > 0 && html`<div class="hist-cap">${caption.join(" · ")}</div>`}
+    ${p.range &&
+      /* the observed extremes read as axis labels: min pinned to the left
+         edge, max to the right */
+      html`<div class="hist-cap hist-cap-range">
+        <span>${edge(p.range.min)}</span>
+        <span>${edge(p.range.max)}</span>
+      </div>`}
   </div>`;
 }
 
-/* The share of a column's rows that are missing, as a little meter: the
-   missing portion in red, anchored left, over a grey base. Hover carries the
-   same three-line tooltip as the histogram bars. */
+/* The share of a column's rows that are missing */
 function MissingMeter({ missing, rows }) {
   const pct = rows ? (missing / rows) * 100 : 0;
   const label = pct === 0 ? "0% missing" : pct < 1 ? "<1% missing" : Math.round(pct) + "% missing";
-  return html`<div
-    onMouseEnter=${(e) => showTip(barTip("Missing values", missing, rows), e)}
+  return html`<div class="miss-meter"
+    onMouseEnter=${(e) => showTip(barTip("Missing", missing, rows), e)}
     onMouseMove=${moveTip} onMouseLeave=${hideTip}>
-    <div class="null-plotarea">
-      <div class="missbar">
-        ${pct > 0 && html`<div class=${"missfill" + (pct === 100 ? " full" : "")}
-          style=${pct === 100 ? null : { width: pct + "%" }} />`}
-      </div>
+    <div class="miss-pct">${label}</div>
+    <div class="missbar">
+      ${pct > 0 && html`<div class=${"missfill" + (pct === 100 ? " full" : "")}
+        style=${pct === 100 ? null : { width: pct + "%" }} />`}
     </div>
-    <div class="null-cap">${label}</div>
   </div>`;
 }

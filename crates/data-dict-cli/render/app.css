@@ -127,8 +127,6 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 #tip .tip-head + p { margin-top: 5px; }
 #tip .tip-label { font-style: italic; }
 #tip .gt-term { font-weight: 700; }
-#tip .bar-tip div { color: var(--ink-soft); }
-#tip .bar-tip div:first-child { color: var(--ink); }
 
 @media (max-width: 720px) {
   main { padding: 26px 18px 60px; }

@@ -328,19 +328,24 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
       ${joins.length > 0 &&
         html`<div class="col-meta joins-line">
-          <span class="lbl">joins</span>
+          <span class="lbl">joins:</span>
           ${joins.map((j) => html`<${JoinChip} join=${j} />`)}
         </div>`}
       ${c.values && c.values.length > 0 && html`<${MetaLine} label="values" items=${c.values} hl=${hl} />`}
-      ${c.examples && c.examples.length > 0 && html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} />`}
       ${c.range && (c.range.min != null || c.range.max != null) &&
         html`<${MetaText} label="range" text=${rangeText(c.range)} />`}
+      ${p && p.distinct && p.distinct.count != null &&
+        html`<${MetaText} label="distinct values"
+          text=${(p.distinct.approximate ? "~" : "") + p.distinct.count.toLocaleString()} />`}
+      ${c.examples && c.examples.length > 0 && html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} />`}
       ${c.units != null && html`<${MetaText} label="units" text=${String(c.units)} />`}
       ${p && p.sample_values && p.sample_values.length > 0 &&
         html`<${SampleValues} values=${p.sample_values} hl=${hl} />`}
     </div>
-    <div class="col-side">${p && html`<${Histogram} profile=${p} rows=${t.rows} />`}</div>
-    <div class="col-null">${p && t.rows && html`<${MissingMeter} missing=${p.missing || 0} rows=${t.rows} />`}</div>
+    <div class="col-side">
+      ${p && html`<${Histogram} profile=${p} rows=${t.rows} />`}
+      ${p && t.rows && html`<${MissingMeter} missing=${p.missing || 0} rows=${t.rows} />`}
+    </div>
   </div>`;
 }
 

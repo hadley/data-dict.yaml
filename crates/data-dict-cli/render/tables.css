@@ -212,13 +212,15 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
 .modal-body { flex: 1; overflow-y: auto; padding: 4px 22px 22px; }
 .col-main { flex: 1 1 auto; min-width: 0; }
 .col-side { flex: 0 0 auto; width: 256px; }
-.col-null { flex: 0 0 auto; width: 50px; }
-.null-plotarea { height: 38px; display: flex; align-items: center; justify-content: center; }
-/* the missing meter: the missing share in red, anchored left, over a grey base */
-.missbar { width: 50px; height: 10px; border-radius: 999px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
+/* the missing meter, under the histogram and exactly as wide (240px, offset
+   by the panel's own padding so the edges line up): the percentage on the
+   left, and on the right the missing share in red, anchored left over a grey
+   base — each taking half the width */
+.miss-meter { display: flex; align-items: center; gap: 8px; width: 240px; margin: 6px 7px 0; }
+.missbar { flex: 1 1 0; min-width: 0; height: 9px; border-radius: 999px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
 .missfill { position: absolute; top: -0.5px; left: -0.5px; bottom: -0.5px; min-width: 6px; border-radius: 999px 0 0 999px; background: var(--null-bar); box-sizing: border-box; }
 .missfill.full { right: -0.5px; min-width: 0; border-radius: 999px; }
-.null-cap { color: var(--ink-soft); font-size: 11px; margin-top: 3px; font-family: ui-monospace, Menlo, Consolas, monospace; text-align: center; white-space: nowrap; }
+.miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
 .col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .col-name { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 13.5px; color: var(--ink); }
 a.col-name { text-decoration: none; border-radius: 3px; }
@@ -250,9 +252,8 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .col-hist {
   margin-top: 2px;
   padding: 6px 7px 5px;
-  border: 1px solid var(--row-line);
   border-radius: 6px;
-  background: var(--paper);
+  background: var(--chip);
 }
 .hist-svg { display: block; }
 .hist-svg .bar { fill: var(--hist-bar); transition: fill .08s ease; }
@@ -265,7 +266,19 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .hist-svg .band.hot { fill: var(--hist-band); }
 .hist-svg .hit { fill: transparent; }
 .hist-cap { color: var(--ink-soft); font-size: 11px; margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+/* the observed extremes as axis labels: min under the left edge, max under
+   the right */
+.hist-cap-range { display: flex; justify-content: space-between; gap: 8px; }
+.hist-cap-range .cap-mid { color: var(--ink-faint); }
 .gloss-item { padding: 12px 0; border-bottom: 1px solid var(--rule); }
 .gloss-item:last-child { border-bottom: none; }
 .gloss-term { font-weight: 700; font-size: 14.5px; color: var(--ink); }
 .gloss-def { color: var(--ink); font-size: 13px; margin-top: 3px; line-height: 1.55; }
+
+/* On a narrow window the profiles come off the right-hand side and sit
+   under the description instead. Last, so it outranks the base column rules
+   above at the same specificity. */
+@media (max-width: 880px) {
+  .col-item { flex-wrap: wrap; row-gap: 10px; }
+  .col-main { flex: 1 1 100%; max-width: none; }
+}
