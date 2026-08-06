@@ -1,7 +1,7 @@
-// Plumbing shared by the two apps inlined into this page: the embedded
-// dictionary, prose rendering, the tooltip, the theme toggle, and one Escape
-// dispatcher. Everything is declared at the top level of a classic script, so
-// the bindings are visible to the diagram and tables scripts that follow.
+// Plumbing shared by the Preact app and the diagram engine inlined into this
+// page: the embedded dictionary, prose rendering and glossary annotation, the
+// tooltip, and one Escape dispatcher. Everything is declared at the top level
+// of a classic script, so the bindings are visible to the scripts that follow.
 
 const DICT = JSON.parse(document.getElementById("dict").textContent);
 window.DICT = DICT;
@@ -40,7 +40,9 @@ const GLOSS_RE = (() => {
   return new RegExp("\\b(" + terms.map(quote).join("|") + ")\\b", "gi");
 })();
 
-/* Text with the query occurrence wrapped in <mark>. */
+/* Text with the query occurrence wrapped in <mark>, as a DOM node. The prose
+   annotator below builds real DOM; the vnode twin for component use is
+   `Marked` in components.js. */
 function marked(text, ql, cls) {
   const s = String(text == null ? "" : text);
   const span = el("span", cls);
@@ -75,7 +77,10 @@ function annotate(s, hl, literal) {
    the export already rendered from Markdown to HTML (with any raw HTML in
    the source escaped). Placing it is innerHTML; then every text run is
    decorated with glossary underlines and search marks. Code spans and links
-   are left literal — no glossary underlines inside them. */
+   are left literal — no glossary underlines inside them.
+
+   This builds real DOM rather than vnodes so the annotation walk can use the
+   parsed tree; the `Prose` component in components.js mounts it via a ref. */
 function prose(html, hl) {
   const span = el("span", "prose");
   const s = String(html == null ? "" : html).trim();
@@ -98,17 +103,6 @@ function plain(html) {
   const text = plainScratch.textContent;
   plainScratch.textContent = "";
   return text;
-}
-
-/* "name: label" — the name keeps the mono face of `nameNode`; the label is
-   plain body text beside it. One node comes back, so a flex row's gap can't
-   split the pair. */
-function nameLabel(nameNode, label) {
-  if (!label) return nameNode;
-  const wrap = el("span");
-  wrap.appendChild(nameNode);
-  wrap.appendChild(el("span", "name-label", ": " + label));
-  return wrap;
 }
 
 /* ---- Tooltip ---------------------------------------------------------------
@@ -155,39 +149,24 @@ function hideTip() {
   tip.hidden = true;
 }
 
-/* ---- Theme -----------------------------------------------------------------
-   Light or dark, toggled by one button. The stylesheet holds one palette
-   written with light-dark(); this only decides which scheme is in use. With
-   nothing chosen the page follows the system. */
-
-const themeBtn = document.getElementById("theme-toggle");
-themeBtn.innerHTML =
-  '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
-  '<path d="M8,1c-3.87,0-7,3.13-7,7s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM8,14V2c3.31,0,6,2.69,6,6s-2.69,6-6,6Z"/></svg>';
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
-
-function effectiveTheme() {
-  return document.documentElement.dataset.theme ?? (systemDark.matches ? "dark" : "light");
-}
-
-function updateThemeIcon() {
-  const dark = effectiveTheme() === "dark";
-  themeBtn.classList.toggle("is-dark", dark);
-  themeBtn.title = dark ? "Switch to light mode" : "Switch to dark mode";
-}
-
-themeBtn.addEventListener("click", () => {
-  const next = effectiveTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try {
-    localStorage.setItem("dd-theme", next);
-  } catch {
-    // storage can be refused for a file:// page; the choice just won't persist
+/* Glossary terms in prose get their definition in the shared tooltip,
+   anchored under the term, wherever the prose was placed. The definition
+   arrives as rendered HTML. */
+document.addEventListener("mouseover", (e) => {
+  const t = e.target.closest && e.target.closest("abbr.gterm");
+  if (!t) return;
+  const content = el("span");
+  content.appendChild(el("span", "gt-term", t.dataset.term + " "));
+  if (t.dataset.def) {
+    const def = el("span", "gt-def");
+    def.innerHTML = t.dataset.def;
+    content.appendChild(def);
   }
-  updateThemeIcon();
+  anchorTip(content, t);
 });
-systemDark.addEventListener("change", updateThemeIcon); // only matters while following it
-updateThemeIcon();
+document.addEventListener("mouseout", (e) => {
+  if (e.target.closest && e.target.closest("abbr.gterm")) hideTip();
+});
 
 /* ---- Escape ------------------------------------------------------------
    One dispatcher for the whole page. Handlers register with a priority and
@@ -196,15 +175,21 @@ updateThemeIcon();
 
 const escapeActions = [];
 
-// `action` returns true when it consumed the key.
+// `action` returns true when it consumed the key. Returns an unregister
+// function, so a component effect can register for only as long as it lives.
 function onEscape(priority, action) {
-  escapeActions.push({ priority, action });
+  const entry = { priority, action };
+  escapeActions.push(entry);
   escapeActions.sort((a, b) => a.priority - b.priority);
+  return () => {
+    const i = escapeActions.indexOf(entry);
+    if (i >= 0) escapeActions.splice(i, 1);
+  };
 }
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  for (const { action } of escapeActions) {
+  for (const { action } of [...escapeActions]) {
     if (action(event)) {
       event.preventDefault();
       return;

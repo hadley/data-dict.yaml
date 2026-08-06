@@ -299,9 +299,11 @@ const RENDER_DIAGRAM_CSS: &str = include_str!("../render/diagram.css");
 const RENDER_TABLES_CSS: &str = include_str!("../render/tables.css");
 const RENDER_DAGRE_JS: &str = include_str!("../render/dagre.js");
 const RENDER_LAYOUT_JS: &str = include_str!("../render/layout-dagre.js");
+const RENDER_PREACT_JS: &str = include_str!("../render/preact.js");
 const RENDER_SHARED_JS: &str = include_str!("../render/shared.js");
+const RENDER_COMPONENTS_JS: &str = include_str!("../render/components.js");
 const RENDER_DIAGRAM_JS: &str = include_str!("../render/diagram.js");
-const RENDER_TABLES_JS: &str = include_str!("../render/tables.js");
+const RENDER_APP_JS: &str = include_str!("../render/app.js");
 
 /// Substitute the page template's `{{…}}` markers. The dictionary JSON goes
 /// in last so a marker spelled in someone's prose is embedded as written
@@ -313,9 +315,11 @@ fn render_html(dict_json: &str) -> String {
         .replace("{{TABLES_CSS}}", RENDER_TABLES_CSS)
         .replace("{{DAGRE_JS}}", RENDER_DAGRE_JS)
         .replace("{{LAYOUT_JS}}", RENDER_LAYOUT_JS)
+        .replace("{{PREACT_JS}}", RENDER_PREACT_JS)
         .replace("{{SHARED_JS}}", RENDER_SHARED_JS)
+        .replace("{{COMPONENTS_JS}}", RENDER_COMPONENTS_JS)
         .replace("{{DIAGRAM_JS}}", RENDER_DIAGRAM_JS)
-        .replace("{{TABLES_JS}}", RENDER_TABLES_JS)
+        .replace("{{APP_JS}}", RENDER_APP_JS)
         .replace("{{DICT_JSON}}", dict_json)
 }
 

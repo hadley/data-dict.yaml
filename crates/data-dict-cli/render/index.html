@@ -17,100 +17,7 @@ try {
 </style>
 </head>
 <body>
-<main>
-<header class="pagehead">
-  <h1 class="title" id="dict-title"></h1>
-  <div class="head-actions">
-    <button id="glossary-btn" class="icon-btn" type="button" aria-label="Show glossary" title="Glossary"></button>
-    <button id="theme-toggle" class="icon-btn theme-toggle" type="button" aria-label="Toggle color theme"></button>
-  </div>
-</header>
-
-<div id="home">
-  <div class="lead" id="dict-lead"></div>
-
-  <section id="relationships">
-    <div id="board">
-      <div id="canvas"><div id="stage"><svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
-      <div id="controls">
-        <button id="showall" type="button" hidden
-                title="Put every table back on the board">show all</button>
-        <button id="tidy" type="button" disabled title="Lay the tables out again">tidy</button>
-        <div id="diagram-search">
-          <input id="find" type="search" placeholder="Find a column&hellip;"
-                 autocomplete="off" spellcheck="false" aria-label="Find a column">
-          <div id="hits" hidden></div>
-        </div>
-      </div>
-    </div>
-    <div class="legend" id="legend"></div>
-  </section>
-
-  <section id="tables">
-    <div class="toolbar">
-      <input type="search" id="table-search" placeholder="Search tables and columns &mdash; name, description, or details&hellip;" autocomplete="off">
-    </div>
-    <div class="table-count" id="table-count"></div>
-    <div class="tlist-wrap">
-      <table class="tlist" id="tlist">
-        <thead>
-          <tr>
-            <th>Tables</th>
-            <th class="num"></th>
-          </tr>
-        </thead>
-      </table>
-    </div>
-  </section>
-</div>
-
-<section id="table-page" hidden>
-  <nav class="tpage-nav"><a class="backlink" href="#">&larr; All tables</a></nav>
-  <div class="tpage-head">
-    <div class="tpage-title-row">
-      <span class="mtitle" id="table-title"></span>
-    </div>
-    <div class="tpage-substat"></div>
-    <div class="tpage-cols">
-      <div class="tpage-main">
-        <p class="tpage-desc"></p>
-        <div class="tpage-details"></div>
-      </div>
-      <div class="tpage-related" hidden>
-        <div class="rel-lbl">Related tables</div>
-        <div class="rel-chips"></div>
-      </div>
-    </div>
-    <div class="tpage-controls">
-      <select class="tpage-sort" aria-label="Sort columns">
-        <option value="original">Sort by Original</option>
-        <option value="name-asc">Sort by Name, Ascending</option>
-        <option value="name-desc">Sort by Name, Descending</option>
-        <option value="type-asc">Sort by Type, Ascending</option>
-        <option value="type-desc">Sort by Type, Descending</option>
-        <option value="missing-desc">Sort by Percent Missing</option>
-      </select>
-      <input class="tpage-filter" type="search" placeholder="Filter columns&hellip;" autocomplete="off">
-    </div>
-  </div>
-  <div class="tpage-count"></div>
-  <div class="tpage-list"></div>
-</section>
-</main>
-
-<div id="gloss-modal" class="modal-overlay" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="gloss-title">
-    <div class="modal-head">
-      <button class="modal-close" type="button" aria-label="Close">&times;</button>
-      <div class="modal-title-row"><span class="mtitle" id="gloss-title">Glossary</span></div>
-      <div class="modal-substat"></div>
-      <input class="modal-filter gloss-filter" type="search" placeholder="Filter terms&hellip;" autocomplete="off">
-    </div>
-    <div class="modal-body">
-      <div class="gloss-list"></div>
-    </div>
-  </div>
-</div>
+<main id="app"></main>
 
 <script type="application/json" id="dict">{{DICT_JSON}}</script>
 <script>
@@ -118,10 +25,14 @@ try {
 <script>
 {{LAYOUT_JS}}</script>
 <script>
+{{PREACT_JS}}</script>
+<script>
 {{SHARED_JS}}</script>
+<script>
+{{COMPONENTS_JS}}</script>
 <script>
 {{DIAGRAM_JS}}</script>
 <script>
-{{TABLES_JS}}</script>
+{{APP_JS}}</script>
 </body>
 </html>

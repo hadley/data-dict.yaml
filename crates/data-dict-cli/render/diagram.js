@@ -24,10 +24,12 @@
 // it: the layout places what it was given and never has to know why. `was` is the
 // previous layout's positions, or null for a layout from scratch.
 //
-// Wrapped in an IIFE so its top-level names can't collide with the tables app
-// inlined after it; the deliberate globals (LAYOUT's inputs REL_ENDS and
-// ROW_ANCHOR, and the DIAGRAM readout) go on window.
-(() => {
+// The whole engine lives inside DIAGRAM_INIT, which the app's
+// RelationshipsDiagram component calls once its skeleton is in the document —
+// and only when the dictionary has relationships to draw. Its names are
+// scoped to the function; the deliberate globals (LAYOUT's inputs REL_ENDS
+// and ROW_ANCHOR, and the DIAGRAM readout) go on window.
+window.DIAGRAM_INIT = () => {
 
 const MAX_ROWS_H = 300; // fixed maximum height of a table's scroll area
 
@@ -39,13 +41,6 @@ const wires = document.getElementById("wires");
 const markerLayer = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 const dict = window.DICT;
 const relationships = dict.relationships ?? [];
-
-// With no relationships there is nothing to diagram — the boxes would just
-// repeat the table index below — so the whole section comes off the page.
-if (!relationships.length) {
-  document.getElementById("relationships").hidden = true;
-  return;
-}
 
 // Each relationship becomes one wire per joined column pair. The export has
 // already sorted out which columns pair with which, and which end is which: it
@@ -1235,4 +1230,4 @@ addEventListener("resize", markPannable);
 // `draw` reads its first argument as the layout to stay close to.
 (document.fonts?.ready ?? Promise.resolve()).then(() => draw());
 
-})();
+};
