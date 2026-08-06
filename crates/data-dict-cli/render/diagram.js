@@ -121,9 +121,13 @@ for (const table of dict.tables) {
       (isKey(column, "primary_key") ? `<span class="key">PK</span>` : "") +
       (isKey(column, "foreign_key") ? `<span class="key fk">FK</span>` : "");
     // Names and types come from the dictionary, so they are escaped: a name
-    // containing markup would otherwise be parsed as HTML.
+    // containing markup would otherwise be parsed as HTML. The name is a real
+    // link to the column's entry on its table page, so it can be opened in a
+    // new tab or copied; `draggable` is off because dragging a row is how the
+    // board is panned, and a link would drag itself instead.
     row.innerHTML =
-      `<span class="name">${esc(column.name)}</span>` +
+      `<a class="name" draggable="false" href="#${esc(`${table.name}.${column.name}`)}">` +
+      `${esc(column.name)}</a>` +
       `<span class="type">${esc(column.type ?? "")}</span>` +
       `<span class="keys">${keys}</span>`;
     rows.appendChild(row);
@@ -648,10 +652,12 @@ let panning = null;
 canvas.addEventListener("pointerdown", (event) => {
   // A press on a drag handle moves a table; on a key badge, a wire or its marker
   // it is a click to hold the highlight, and preventing the default here would
-  // swallow that click.
+  // swallow that click. A press on a column name is a click to follow the link,
+  // and panning would capture the pointer, which sends the click that follows to
+  // the board instead of to the link.
   if (
     event.button !== 0 ||
-    event.target.closest(`${DRAG_HANDLE}, .key.live, #wires .edge, #markers .markers`)
+    event.target.closest(`${DRAG_HANDLE}, .key.live, #wires .edge, #markers .markers, a[href]`)
   ) {
     return;
   }

@@ -108,6 +108,38 @@ fn export_spec_resolves_the_dictionary() {
     insta::assert_snapshot!(export_json(RICH_DICT));
 }
 
+/// An enum written as a map keeps its labels: the values themselves still list
+/// in declaration order, and each one's label is looked up by the value. The
+/// list form has nothing to label, so it exports no `value_labels` at all.
+#[test]
+fn enum_labels_survive_the_map_form() {
+    let json: serde_json::Value = serde_json::from_str(&export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        tables:
+          - name: people
+            columns:
+              - name: sex
+                type: enum
+                values: {M: Male, F: Female}
+              - name: status
+                type: enum
+                values: [active, closed]
+    "#}))
+    .unwrap();
+    let columns = &json["tables"][0]["columns"];
+    assert_eq!(columns[0]["values"], serde_json::json!(["M", "F"]));
+    assert_eq!(
+        columns[0]["value_labels"],
+        serde_json::json!({ "M": "Male", "F": "Female" })
+    );
+    assert_eq!(
+        columns[1]["values"],
+        serde_json::json!(["active", "closed"])
+    );
+    assert!(columns[1].get("value_labels").is_none());
+}
+
 /// A column with no declared `type` makes no claims and is omitted, including
 /// from a `COLUMNS(...)` expansion.
 #[test]

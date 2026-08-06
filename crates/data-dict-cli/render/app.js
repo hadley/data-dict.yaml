@@ -41,7 +41,12 @@ function goHome() {
 function useRoute() {
   const [route, setRoute] = useState(parseHash);
   useEffect(() => {
-    const follow = () => setRoute(parseHash());
+    /* A tooltip belongs to what you were pointing at, and following a link out
+       of the diagram hides that without the pointer ever leaving it. */
+    const follow = () => {
+      hideTip();
+      setRoute(parseHash());
+    };
     addEventListener("hashchange", follow);
     return () => removeEventListener("hashchange", follow);
   }, []);
@@ -271,14 +276,8 @@ function TableIndex({ query }) {
   const groups = ALL_TABLES
     .map((t) => ({ t, m: ql ? matchTable(t, ql) : { self: true, cols: [] } }))
     .filter(({ m }) => !ql || m.self || m.cols.length);
-  const cols = groups.reduce((sum, { m }) => sum + m.cols.length, 0);
-
-  const parts = [ql ? groups.length + " of " + ALL_TABLES.length + " tables"
-                    : ALL_TABLES.length + (ALL_TABLES.length === 1 ? " table" : " tables")];
-  if (cols) parts.push(cols + (cols === 1 ? " matching column" : " matching columns"));
 
   return html`
-    <div class="table-count" id="table-count">${parts.join(" · ")}</div>
     <div class="tlist-wrap">
       <table class="tlist" id="tlist">
         <thead><tr><th>Tables</th><th class="num" /></tr></thead>
@@ -363,21 +362,24 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
       ${constraints.length > 0 &&
-        html`<${MetaLine} label="constraints" hl=${hl} code=${false}
+        html`<${MetaLine} label="constraints" hl=${hl}
           items=${constraints.map((k) => k.replace(/_/g, " "))} />`}
       ${joins.length > 0 &&
         html`<div class="col-meta joins-line">
           <span class="lbl">joins:</span>
           ${joins.map((j) => html`<${JoinChip} join=${j} />`)}
         </div>`}
-      ${c.values && c.values.length > 0 && html`<${MetaLine} label="values" items=${c.values} hl=${hl} />`}
+      ${c.values && c.values.length > 0 &&
+        (c.value_labels
+          ? html`<${ValueDefs} values=${c.values} labels=${c.value_labels} hl=${hl} />`
+          : html`<${MetaLine} label="values" items=${c.values} hl=${hl} />`)}
       ${c.range && (c.range.min != null || c.range.max != null) &&
-        html`<${MetaText} label="range" text=${rangeText(c.range)} />`}
+        html`<${RangeLine} range=${c.range} />`}
       ${p && p.distinct && p.distinct.count != null &&
         html`<${MetaText} label="distinct values"
           text=${(p.distinct.approximate ? "~" : "") + p.distinct.count.toLocaleString()} />`}
       ${c.examples && c.examples.length > 0 &&
-        html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} code=${false} />`}
+        html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} />`}
       ${c.units != null && html`<${MetaText} label="units" text=${String(c.units)} />`}
       ${p && p.sample_values && p.sample_values.length > 0 &&
         html`<${SampleValues} values=${p.sample_values} hl=${hl} />`}
@@ -400,16 +402,16 @@ function RelatedTablesBox({ table: t }) {
 
 /* Mounted per table (keyed by name in App), so filter and sort state start
    fresh on every navigation. */
-function TablePage({ table: t, targetCol, pageQuery }) {
+function TablePage({ table: t, targetCol }) {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState("original");
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
 
-  /* What to highlight on the page: the page's own filter when it is in use,
-     otherwise the search that brought you here. */
-  const hl = (filter.trim() || pageQuery.trim()).toLowerCase();
+  /* Only this page's own filter is highlighted. The search that brought you
+     here has done its job by then, and marking its terms all over a table you
+     came to read is noise. */
   const ql = filter.trim().toLowerCase();
   const cols = (t.columns || []).filter(Boolean);
   const shown = sortCols(cols, sort, t.rows).filter((c) => {
@@ -436,8 +438,8 @@ function TablePage({ table: t, targetCol, pageQuery }) {
           </div>
           <div class="tpage-substat">${substat}</div>
           <div class="tpage-main">
-            ${t.description && html`<p class="tpage-desc"><${Prose} source=${t.description} hl=${hl} /></p>`}
-            ${t.details && html`<div class="tpage-details"><${DetailsBlock} source=${t.details} hl=${hl} /></div>`}
+            ${t.description && html`<p class="tpage-desc"><${Prose} source=${t.description} hl=${ql} /></p>`}
+            ${t.details && html`<div class="tpage-details"><${DetailsBlock} source=${t.details} hl=${ql} /></div>`}
           </div>
         </div>
         <${RelatedTablesBox} table=${t} />
@@ -456,12 +458,9 @@ function TablePage({ table: t, targetCol, pageQuery }) {
           value=${filter} onInput=${(e) => setFilter(e.target.value)} />
       </div>
     </div>
-    <div class="tpage-count">
-      ${ql ? shown.length + " of " + cols.length + " columns" : cols.length + " columns"}
-    </div>
     <div class="tpage-list">
       ${shown.map((c) =>
-        html`<${ColumnItem} key=${c.name} table=${t} column=${c} hl=${hl}
+        html`<${ColumnItem} key=${c.name} table=${t} column=${c} hl=${ql}
           isTarget=${!!targetCol && c.name === targetCol} />`)}
     </div>
   </section>`;
@@ -557,7 +556,7 @@ function App() {
     </div>
     ${openTable &&
       html`<${TablePage} key=${openTable.name} table=${openTable}
-        targetCol=${route.col} pageQuery=${query} />`}
+        targetCol=${route.col} />`}
     ${glossOpen && html`<${GlossaryModal} onClose=${() => setGlossOpen(false)} />`}`;
 }
 

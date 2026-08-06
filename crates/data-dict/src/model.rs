@@ -167,6 +167,11 @@ pub struct Representation {
     /// finding sits under.
     pub key_span: SourceInfo,
     pub items: Vec<Spanned<Scalar>>,
+    /// What each item was labelled with, for an enum written in the map form
+    /// (`{M: Male, F: Female}`). Either empty — the list form, `range`, and
+    /// `examples` — or exactly as long as `items`, since the map form labels
+    /// every key.
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -62,26 +62,43 @@ function DetailsBlock({ source, hl }) {
 
 /* ---- metadata lines ------------------------------------------------------ */
 
-/* A run of values on a meta line. An enum's declared values are set in code,
-   which is how the dictionary writes them; examples and values drawn from the
-   data are ordinary text, so they read as a list rather than as literals. */
-function ValueList({ items, hl, code }) {
-  return items.map((v, i) => {
-    const text = html`<${Marked} text=${String(v)} ql=${hl} />`;
-    return html`${i ? (code ? " " : ", ") : ""}${code ? html`<code>${text}</code>` : text}`;
-  });
+/* A run of values on a meta line. An enum's allowed values, the constraints the
+   column is under, the examples the dictionary gives, and the values sampled
+   from the data are all facts rather than prose, so each is set off in its own
+   chip; the page's text face keeps them readable, which a code face would not
+   for a long label. */
+function ValueList({ items, hl }) {
+  return items.map(
+    (v, i) => html`${i ? " " : ""}<span class="val"><${Marked} text=${String(v)} ql=${hl} /></span>`
+  );
 }
 
-function MetaLine({ label, items, hl, code = true }) {
+function MetaLine({ label, items, hl }) {
   return html`<div class="col-meta">
     ${label && html`<span class="lbl">${label}:</span>`}
-    <${ValueList} items=${items} hl=${hl} code=${code} />
+    <${ValueList} items=${items} hl=${hl} />
   </div>`;
 }
 
-/* A meta line whose value is plain text rather than a list. */
+/* A meta line carrying a single value — a range, a count, a unit. It is a value
+   like any other on these lines, so it wears the same chip. */
 function MetaText({ label, text }) {
-  return html`<div class="col-meta"><span class="lbl">${label}:</span>${text}</div>`;
+  return html`<div class="col-meta">
+    <span class="lbl">${label}:</span><span class="val">${text}</span>
+  </div>`;
+}
+
+/* An enum written as a map gives every value a label, which is a definition
+   list: what may appear on the left, what it means on the right. */
+function ValueDefs({ values, labels, hl }) {
+  return html`<div class="col-meta">
+    <span class="lbl">values:</span>
+    <dl class="val-defs">
+      ${values.map((v) => html`
+        <dt><span class="val"><${Marked} text=${String(v)} ql=${hl} /></span></dt>
+        <dd><${Marked} text=${labels[v] ?? ""} ql=${hl} /></dd>`)}
+    </dl>
+  </div>`;
 }
 
 /* How many sampled values a column shows before you ask for the rest. */
@@ -94,7 +111,7 @@ function SampleValues({ values, hl }) {
   const shown = all ? values : values.slice(0, SAMPLES_SHOWN);
   return html`<div class="col-meta">
     <span class="lbl">sample values:</span>
-    <${ValueList} items=${shown} hl=${hl} code=${false} />
+    <${ValueList} items=${shown} hl=${hl} />
     ${values.length > SAMPLES_SHOWN &&
       html`<button type="button" class="more-less" onClick=${() => setAll(!all)}>
         ${all ? "less" : "more"}
@@ -117,11 +134,15 @@ function fmtPct(share) {
   return (share * 100).toFixed(share >= 0.1 ? 0 : 1) + "%";
 }
 
-/* A range as interval notation; an absent bound (declared ±Inf) leaves that
-   end open. */
-function rangeText(range) {
-  const lo = range.min, hi = range.max;
-  return (lo != null ? "[" + fmtNum(lo) : "(-∞") + ", " + (hi != null ? fmtNum(hi) + "]" : "∞)");
+/* A range as its two ends, each a value in its own right; an absent bound
+   (declared ±Inf) leaves that end open. The dash between them is punctuation
+   rather than a value, so it stays outside the chips. */
+function RangeLine({ range }) {
+  const bound = (v, open) => html`<span class="val">${v == null ? open : fmtNum(v)}</span>`;
+  return html`<div class="col-meta">
+    <span class="lbl">range:</span>
+    ${bound(range.min, "−∞")}${"–"}${bound(range.max, "∞")}
+  </div>`;
 }
 
 /* The hover every bar shares: "{value or bin}: {n} ({share}%)". */

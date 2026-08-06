@@ -26,7 +26,6 @@ details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outli
 }
 
 /* ---- table index ---- */
-.table-count { color: var(--ink-soft); font-size: 12px; margin: 0 0 10px; }
 .tlist-wrap {
   border: 1px solid var(--rule); border-radius: 10px;
   background: var(--card); overflow-x: auto;
@@ -132,7 +131,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
   font-size: 13px; color: var(--link); text-decoration: none;
 }
 .tpage-nav .backlink:hover { text-decoration: underline; }
-.tpage-head { padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.tpage-head { padding-bottom: 14px; }
 .tpage-title-row { display: flex; align-items: center; gap: 10px; }
 .mtitle { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 18px; color: var(--ink); }
 .tpage-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
@@ -190,7 +189,6 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
   flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
   background: var(--card); color: var(--ink); font-size: 14px;
 }
-.tpage-count { color: var(--ink-soft); font-size: 12px; margin: 12px 0 2px; }
 
 .col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
 .col-item:last-child { border-bottom: none; }
@@ -255,6 +253,21 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .col-meta { color: var(--ink-soft); font-size: 11.5px; margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }
 .col-meta code { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+/* One chip for every value a column reports — allowed, given as an example,
+   sampled from the data, or the range and counts read off it — set off from the
+   line but in the page's own text face. */
+.val {
+  display: inline-block;
+  background: var(--inset); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0 3px; color: var(--ink);
+}
+/* an enum whose values are labelled: the value, then what it means */
+.val-defs {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 3px 10px; margin: 5px 0 0;
+}
+.val-defs dt, .val-defs dd { margin: 0; }
+.val-defs dd { color: var(--ink); }
 /* reveals the rest of a column's sampled values, and puts them away again */
 .more-less {
   margin-left: 6px; padding: 0; border: none; background: none;

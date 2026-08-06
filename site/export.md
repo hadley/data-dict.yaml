@@ -76,6 +76,8 @@ A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(s
   // present when this column is a `primary_key` that foreign-key columns
   // elsewhere reference: each of those columns
   "values?": [Scalar],            // enum
+  "value_labels?": { "value": "what it means", ... },
+  // present when `values` was written as a map, giving each value a label
   "range?": { "min": Scalar, "max": Scalar },
   "examples?": [Scalar],
   "fields?": [ Column ],
@@ -83,6 +85,8 @@ A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(s
   "profile?": Profile             // export-data only; never present under export-spec
 }
 ```
+
+`values` lists what an `enum` column may hold, in the order the dictionary declares them. Writing them as a map (`{M: Male, F: Female}`) labels each one; the values themselves still appear in `values`, and `value_labels` maps each to its label. A column whose values were written as a plain list has no `value_labels` — there, the values speak for themselves.
 
 Both `references` and `referenced_by` are derived from `relationships`, not read directly off the column — they're absent for a column that isn't part of any relationship, even if it's marked `foreign_key`/`primary_key` in isolation (which `validate-spec`'s S01 already treats as an error).
 

@@ -152,12 +152,16 @@
 .row.pinned.linked { --row-bg: var(--hover-row); }
 .row.pin-last { box-shadow: 0 1px 0 var(--rule), 0 3px 6px -4px var(--shadow-far); }
 .row.linked { --row-bg: var(--hover-row); }
+/* the link to this column's entry on its table page */
 .row .name {
   color: var(--ink);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-decoration: none;
 }
+.row .name:hover { color: var(--link); text-decoration: underline; }
+.row .name:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; border-radius: 2px; }
 .row .type { color: var(--ink-faint); font-size: 10.5px; }
 .row .keys { display: flex; gap: 4px; }
 /* the badges themselves are styled in app.css, shared with the tables app */

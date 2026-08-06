@@ -101,7 +101,11 @@ expression: export_json(RICH_DICT)
           "values": [
             "cat",
             "dog"
-          ]
+          ],
+          "value_labels": {
+            "cat": "A cat",
+            "dog": "A dog"
+          }
         },
         {
           "name": "weight",

@@ -9,7 +9,7 @@
 //! validated against the dictionary: a table whose `source` is missing or
 //! unreadable is reported as a warning and exported without its profiles.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
@@ -138,6 +138,11 @@ struct ExportColumn {
     referenced_by: Vec<ExportColumnRef>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     values: Vec<JsonScalar>,
+    /// What each value means, keyed by the value, for an enum written in the
+    /// map form. Absent for the list form, where the values speak for
+    /// themselves.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    value_labels: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     range: Option<ExportRange>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -577,6 +582,11 @@ fn build_column(
         .as_ref()
         .map(representation_scalars)
         .unwrap_or_default();
+    let value_labels = col
+        .values
+        .as_ref()
+        .map(representation_labels)
+        .unwrap_or_default();
     let mut profile = profiles.remove(&path.join("."));
     if let Some(profile) = &mut profile
         && !values.is_empty()
@@ -601,6 +611,7 @@ fn build_column(
         references,
         referenced_by,
         values,
+        value_labels,
         range: col.range.as_ref().and_then(|range| {
             let [min, max] = range.items.as_slice() else {
                 return None;
@@ -653,6 +664,20 @@ fn representation_scalars(rep: &Representation) -> Vec<JsonScalar> {
     rep.items
         .iter()
         .map(|item| scalar_json(&item.value))
+        .collect()
+}
+
+/// The label each enum value was written with, keyed by the value. Empty
+/// unless the values were given as a map; enum values are strings, so a value
+/// is always a usable key.
+fn representation_labels(rep: &Representation) -> BTreeMap<String, String> {
+    rep.items
+        .iter()
+        .zip(&rep.labels)
+        .filter_map(|(item, label)| match &item.value {
+            Scalar::String(value) => Some((value.clone(), label.clone())),
+            _ => None,
+        })
         .collect()
 }
 
