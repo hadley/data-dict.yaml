@@ -75,36 +75,46 @@ function matchTable(t, ql) {
    a composite key is several pairs and each column reports its own join. */
 function joinsForColumn(tbl, col) {
   const out = [];
-  (DICT.relationships || []).forEach((r) => {
-    const oneToOne = /one-to-one/i.test(r.cardinality || "");
-    (r.pairs || []).forEach(({ left, right }) => {
+  (DICT.relationships || []).forEach((rel) => {
+    const oneToOne = /one-to-one/i.test(rel.cardinality || "");
+    (rel.pairs || []).forEach(({ left, right }) => {
       const other = left.table === tbl && left.column === col ? right
                   : right.table === tbl && right.column === col ? left
                   : null;
-      if (other) out.push({ other: other.table, oneToOne });
+      if (other) out.push({ other: other.table, oneToOne, rels: [rel] });
     });
   });
   return out;
 }
 
-/* Every table this one joins to, first-appearance order, one chip each. */
+/* Every table this one joins to, alphabetical, one chip each. Two tables
+   joined more than one way get a single chip carrying every relationship, so
+   its hover reports them all. */
 function relatedTables(tbl) {
   const seen = new Map();
-  (DICT.relationships || []).forEach((r) => {
-    const oneToOne = /one-to-one/i.test(r.cardinality || "");
-    (r.pairs || []).forEach(({ left, right }) => {
+  (DICT.relationships || []).forEach((rel) => {
+    const oneToOne = /one-to-one/i.test(rel.cardinality || "");
+    (rel.pairs || []).forEach(({ left, right }) => {
       const other = left.table === tbl ? right.table
                   : right.table === tbl ? left.table
                   : null;
-      if (other && !seen.has(other)) seen.set(other, { other, oneToOne });
+      if (!other) return;
+      const seenBefore = seen.get(other);
+      if (!seenBefore) seen.set(other, { other, oneToOne, rels: [rel] });
+      else if (!seenBefore.rels.includes(rel)) seenBefore.rels.push(rel);
     });
   });
-  return [...seen.values()];
+  return [...seen.values()].sort((a, b) => a.other.localeCompare(b.other));
 }
 
+/* Hovering reports what the join is for; clicking opens the table it names.
+   The tip is dismissed on the way out, since navigating away from the page
+   leaves no chance for the pointer to leave the chip. */
 function JoinChip({ join }) {
-  return html`<span class="join-chip" title=${"Open " + join.other}
-    onClick=${() => go("#" + join.other)}>
+  return html`<span class="join-chip"
+    onMouseEnter=${(e) => showTip(joinTip(join.rels), e)}
+    onMouseMove=${moveTip} onMouseLeave=${hideTip}
+    onClick=${() => { hideTip(); go("#" + join.other); }}>
     <${Icon} svg=${join.oneToOne ? ICONS.oneToOne : ICONS.oneToMany} />
     <span>${join.other}</span>
   </span>`;
@@ -395,14 +405,16 @@ function TablePage({ table: t, targetCol, pageQuery }) {
       <a class="backlink" href="#" onClick=${(e) => { e.preventDefault(); goHome(); }}>← All tables</a>
     </nav>
     <div class="tpage-head">
-      <div class="tpage-title-row">
-        <span class="mtitle"><${NameLabel} label=${t.label}><span>${t.name}</span><//></span>
-      </div>
-      <div class="tpage-substat">${substat}</div>
-      <div class="tpage-cols">
-        <div class="tpage-main">
-          ${t.description && html`<p class="tpage-desc"><${Prose} source=${t.description} hl=${hl} /></p>`}
-          ${t.details && html`<div class="tpage-details"><${DetailsBlock} source=${t.details} hl=${hl} /></div>`}
+      <div class="tpage-top">
+        <div class="tpage-headmain">
+          <div class="tpage-title-row">
+            <span class="mtitle"><${NameLabel} label=${t.label}><span>${t.name}</span><//></span>
+          </div>
+          <div class="tpage-substat">${substat}</div>
+          <div class="tpage-main">
+            ${t.description && html`<p class="tpage-desc"><${Prose} source=${t.description} hl=${hl} /></p>`}
+            ${t.details && html`<div class="tpage-details"><${DetailsBlock} source=${t.details} hl=${hl} /></div>`}
+          </div>
         </div>
         <${RelatedTablesBox} table=${t} />
       </div>

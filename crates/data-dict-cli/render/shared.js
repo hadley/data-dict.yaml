@@ -156,6 +156,34 @@ function hideTip() {
   tip.hidden = true;
 }
 
+/* The parts a tooltip is built from: a heading naming the thing in code face,
+   with an optional aside, and a paragraph of the export's rendered prose. */
+function tipHead(codeText, subText) {
+  const head = el("div", "tip-head");
+  head.appendChild(el("code", null, codeText));
+  if (subText) head.appendChild(el("span", "tip-sub", subText));
+  return head;
+}
+
+function tipProse(text) {
+  const p = el("p");
+  p.appendChild(prose(text));
+  return p;
+}
+
+/* What a join is for and the key it joins on. One chip can stand for more than
+   one relationship — two tables joined two different ways — so each is
+   reported in turn. The cardinality is the one the dictionary declared, since
+   that is the orientation the join text reads in. */
+function joinTip(rels) {
+  const box = el("div");
+  for (const rel of rels) {
+    box.appendChild(tipHead(rel.join, rel.declared_cardinality));
+    if (rel.description) box.appendChild(tipProse(rel.description));
+  }
+  return box;
+}
+
 /* Glossary terms in prose get their definition in the shared tooltip,
    anchored under the term, wherever the prose was placed. The definition
    arrives as rendered HTML. */

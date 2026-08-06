@@ -122,9 +122,12 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   color: var(--ink);
 }
 #tip .tip-head code { color: var(--accent); }
-#tip .tip-sub { color: var(--ink-faint); }
+/* the aside keeps its line; the code beside it is what wraps */
+#tip .tip-sub { color: var(--ink-faint); white-space: nowrap; }
 #tip p { margin: 0; color: var(--ink-soft); }
 #tip .tip-head + p { margin-top: 5px; }
+/* a second relationship behind the same chip, set off from the first */
+#tip .tip-head ~ .tip-head { margin-top: 9px; }
 #tip .tip-label { font-style: italic; }
 #tip .gt-term { font-weight: 700; }
 

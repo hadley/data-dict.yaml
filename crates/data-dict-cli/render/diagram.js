@@ -504,19 +504,8 @@ function markerSpot(path, along) {
 
 // ------------------------------------------------------------------- tooltip
 
-// Content for the shared cursor-following tooltip, built as DOM nodes.
-function tipHead(codeText, subText) {
-  const head = el("div", "tip-head");
-  head.appendChild(el("code", null, codeText));
-  if (subText) head.appendChild(el("span", "tip-sub", subText));
-  return head;
-}
-
-function tipProse(text) {
-  const p = el("p");
-  p.appendChild(prose(text));
-  return p;
-}
+// Content for the shared cursor-following tooltip, built as DOM nodes with
+// `tipHead` and `tipProse` from shared.js.
 
 // Plenty of relationships carry no description, so fall back to the join itself
 // rather than showing an empty tooltip. The cardinality quoted is the declared

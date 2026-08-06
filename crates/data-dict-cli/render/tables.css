@@ -142,13 +142,17 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
 .mtitle { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 18px; color: var(--ink); }
 .tpage-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
 
-/* description on the left, the related-tables box top-right */
-.tpage-cols { display: flex; gap: 28px; align-items: flex-start; margin-bottom: 13px; }
-.tpage-main { flex: 1 1 auto; min-width: 0; max-width: 76ch; }
+/* The name, its stats and the description on the left; the related-tables box
+   set against the right edge of the page, its top level with the name. */
+.tpage-top { display: flex; gap: 28px; align-items: flex-start; margin-bottom: 13px; }
+.tpage-headmain { flex: 1 1 auto; min-width: 0; }
+.tpage-main { max-width: 76ch; }
 .tpage-desc { color: var(--ink); font-size: 13.5px; margin: 0 0 13px; }
 .tpage-desc:last-child, .tpage-main > :last-child { margin-bottom: 0; }
+/* Sized by its chips rather than fixed, so a table with a few relations gets a
+   short box and several of them share a line. */
 .tpage-related {
-  flex: 0 0 auto; width: 240px;
+  flex: 0 1 auto; max-width: 420px;
   border: 1px solid var(--rule); border-radius: 10px; background: var(--card);
   padding: 10px 12px;
 }
@@ -275,10 +279,13 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .gloss-term { font-weight: 700; font-size: 14.5px; color: var(--ink); }
 .gloss-def { color: var(--ink); font-size: 13px; margin-top: 3px; line-height: 1.55; }
 
-/* On a narrow window the profiles come off the right-hand side and sit
-   under the description instead. Last, so it outranks the base column rules
-   above at the same specificity. */
+/* On a narrow window the profiles and the related-tables box come off the
+   right-hand side and sit under what they sat beside. Last, so it outranks the
+   base rules above at the same specificity. */
 @media (max-width: 880px) {
   .col-item { flex-wrap: wrap; row-gap: 10px; }
   .col-main { flex: 1 1 100%; max-width: none; }
+  .tpage-top { flex-wrap: wrap; row-gap: 14px; }
+  .tpage-headmain { flex: 1 1 100%; }
+  .tpage-related { max-width: none; }
 }
