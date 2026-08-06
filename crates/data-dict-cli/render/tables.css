@@ -230,14 +230,6 @@ a.col-name .anchor-mark { margin-left: 6px; font-weight: 400; color: var(--ink-s
 a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 1; }
 /* quiet, but its own colour keeps it findable */
 .col-type { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; font-weight: 500; line-height: 1; color: var(--type-ink); }
-/* constraint pills — primary key, unique, required — all one family */
-.col-tag {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  color: var(--tag-ink); background: var(--chip); border-radius: 4px;
-  padding: 3px 7px; font-size: 11px; line-height: 1;
-}
-.col-tag svg { width: 11px; height: 11px; display: block; }
 .col-desc { color: var(--ink); font-size: 13px; margin-top: 4px; line-height: 1.5; }
 .col-meta { color: var(--ink-soft); font-size: 11.5px; margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }

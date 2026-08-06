@@ -316,12 +316,32 @@ function sortCols(cols, sort, rows) {
   return arr.map((x) => x.c);
 }
 
+/* A column's constraints, split by where they are shown: the keys ride beside
+   the name as badges, and the rest read on their own line.
+
+   The export lists the constraints a column implies as well as the ones it
+   declares, which is right for a consumer but repetitive to read: a primary
+   key is unique and required by definition, so the badge has already said so. */
+function splitConstraints(constraints) {
+  const all = constraints || [];
+  const isKey = (k) => k === "primary_key" || k === "foreign_key";
+  const keys = all.filter(isKey);
+  const rest = all.filter((k) => !isKey(k));
+  return {
+    keys,
+    rest: keys.includes("primary_key")
+      ? rest.filter((k) => k !== "unique" && k !== "required")
+      : rest,
+  };
+}
+
 function ColumnItem({ table: t, column: c, hl, isTarget }) {
   const ref = useRef(null);
   useEffect(() => {
     if (isTarget) ref.current.scrollIntoView({ block: "center" });
   }, []);
   const joins = joinsForColumn(t.name, c.name);
+  const { keys, rest: constraints } = splitConstraints(c.constraints);
   const p = c.profile;
   return html`<div class=${"col-item" + (isTarget ? " is-target" : "")} ref=${ref} data-col=${c.name || ""}>
     <div class="col-main">
@@ -336,12 +356,15 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
             </a>`
           : html`<span class="col-name">(unnamed)</span>`}
         ${c.type && html`<span class="col-type"><${Marked} text=${c.type} ql=${hl} /></span>`}
-        ${(c.constraints || []).map((k) =>
+        ${keys.map((k) =>
           k === "primary_key"
-            ? html`<span class="col-tag"><${Icon} svg=${ICONS.key} /><span>primary key</span></span>`
-            : html`<span class="col-tag">${k.replace(/_/g, " ")}</span>`)}
+            ? html`<span class="key">PK</span>`
+            : html`<span class="key fk">FK</span>`)}
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
+      ${constraints.length > 0 &&
+        html`<${MetaLine} label="constraints" hl=${hl} code=${false}
+          items=${constraints.map((k) => k.replace(/_/g, " "))} />`}
       ${joins.length > 0 &&
         html`<div class="col-meta joins-line">
           <span class="lbl">joins:</span>

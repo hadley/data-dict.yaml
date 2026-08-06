@@ -160,17 +160,7 @@
 }
 .row .type { color: var(--ink-faint); font-size: 10.5px; }
 .row .keys { display: flex; gap: 4px; }
-.row .key {
-  font-family: ui-sans-serif, sans-serif;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 3px;
-  padding: 1px 4px;
-}
-.row .key.fk { color: var(--many); background: var(--fk-badge); }
+/* the badges themselves are styled in app.css, shared with the tables app */
 /* badges that stand for at least one relationship respond to the mouse */
 .row .key.live { cursor: pointer; }
 .row .key.live:hover { box-shadow: inset 0 0 0 1px currentColor; }

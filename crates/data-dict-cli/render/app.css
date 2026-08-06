@@ -68,6 +68,20 @@ h1.title { color: var(--accent); font-size: 29px; font-weight: 700; margin: 0; }
   background: var(--card); color: var(--ink); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
+/* The key badges, worn identically by a column in the diagram's tables and by
+   the same column on its own page. */
+.key {
+  font-family: ui-sans-serif, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.key.fk { color: var(--many); background: var(--fk-badge); }
+
 .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 .icon-btn svg { display: block; width: 19px; height: 19px; }
 .icon-btn[hidden] { display: none; }
