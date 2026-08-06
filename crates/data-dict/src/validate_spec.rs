@@ -377,6 +377,7 @@ fn run_assertion_check(
             "S20" => "An assertion may only reference columns of its table.",
             "S22" => "A `COLUMNS(...)` selection should match at least one column.",
             "S23" => "An assertion may only use columns with a declared `type`.",
+            "S30" => "An aggregate can't be nested inside another aggregate.",
             _ => "An assertion must be a well-typed boolean expression.",
         };
         match finding.severity {

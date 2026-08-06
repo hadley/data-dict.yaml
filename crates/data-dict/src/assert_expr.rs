@@ -38,8 +38,9 @@
 //! can point at the failing token, exactly as [`crate::join_expr`] does.
 //!
 //! Parsing is pure syntax — it knows nothing about the table. Column
-//! resolution and type checking live in [`check`], which walks the parsed tree
-//! against a [`CheckEnv`] and emits the S20/S21 [`Finding`]s.
+//! resolution, type checking, and the shape check live in [`check`], which walks
+//! the parsed tree against a [`CheckEnv`] and emits the S20–S23/S30
+//! [`Finding`]s.
 
 /// A parsed assertion expression: the root node of the tree.
 #[derive(Debug, Clone)]
@@ -858,7 +859,8 @@ pub trait CheckEnv {
 
 /// One problem found in an assertion, with its byte span in the source
 /// expression. `code` is `"S20"` (unknown column), `"S21"` (ill-typed), `"S22"`
-/// (empty column selection, a warning), or `"S23"` (untyped column).
+/// (empty column selection, a warning), `"S23"` (untyped column), or `"S30"`
+/// (nested aggregate).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub code: &'static str,
@@ -927,13 +929,109 @@ fn kind_to_ty(kind: ColumnKind) -> Ty {
     }
 }
 
-/// The nouns of `types` joined with "or", e.g. "a number or a string".
+/// The nouns of `types` as a prose list: "a number", "a number or a string",
+/// "a number, a string, or a date".
 fn join_nouns(types: &[Ty]) -> String {
-    types
-        .iter()
-        .map(|t| t.noun())
-        .collect::<Vec<_>>()
-        .join(" or ")
+    let nouns: Vec<&str> = types.iter().map(|t| t.noun()).collect();
+    match nouns.as_slice() {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [a, b] => format!("{a} or {b}"),
+        [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
+    }
+}
+
+/// How many values an expression stands for. The variants are ordered so that
+/// `max` implements the rule that an operator takes the largest shape among its
+/// operands: `Const` is the identity, and `Row` absorbs `Agg`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Shape {
+    Const,
+    Agg,
+    Row,
+}
+
+/// The types a function's argument may take.
+#[derive(Clone, Copy)]
+enum ArgClass {
+    Only(&'static [Ty]),
+    /// `COUNT`, which asks only whether a value is null. Nothing about the
+    /// argument's type matters — not even that it has one — so a `struct`, a
+    /// `list`, and an untyped column are all accepted, as they are by `IS NULL`.
+    Unconstrained,
+}
+
+/// What a function returns: a fixed type, or whatever its first argument was
+/// (`MIN`/`MAX`, the language's only parametric signatures).
+#[derive(Clone, Copy)]
+enum Ret {
+    Fixed(Ty),
+    SameAsArg,
+}
+
+#[derive(Clone, Copy)]
+struct Sig {
+    arities: &'static [usize],
+    arg: ArgClass,
+    ret: Ret,
+    aggregate: bool,
+}
+
+impl Sig {
+    const fn scalar(arities: &'static [usize], arg: &'static [Ty], ret: Ret) -> Sig {
+        Sig {
+            arities,
+            arg: ArgClass::Only(arg),
+            ret,
+            aggregate: false,
+        }
+    }
+
+    const fn agg(arities: &'static [usize], arg: &'static [Ty], ret: Ret) -> Sig {
+        Sig {
+            arities,
+            arg: ArgClass::Only(arg),
+            ret,
+            aggregate: true,
+        }
+    }
+}
+
+/// The signature of the named function, or `None` if there is no such function.
+/// `name` must already be lowercased. `NOW` and `interval` are absent: the
+/// parser gives them their own AST nodes.
+fn signature(name: &str) -> Option<Sig> {
+    use Ret::{Fixed, SameAsArg};
+    const STRING: &[Ty] = &[Ty::String];
+    const NUMBER: &[Ty] = &[Ty::Number];
+    const BOOL: &[Ty] = &[Ty::Bool];
+    const ORDERED: &[Ty] = &[Ty::Number, Ty::String, Ty::Date, Ty::Datetime];
+
+    Some(match name {
+        "length" => Sig::scalar(&[1], STRING, Fixed(Ty::Number)),
+        "lower" | "upper" | "trim" => Sig::scalar(&[1], STRING, Fixed(Ty::String)),
+        "starts_with" | "ends_with" => Sig::scalar(&[2], STRING, Fixed(Ty::Bool)),
+        "abs" | "floor" | "ceil" => Sig::scalar(&[1], NUMBER, Fixed(Ty::Number)),
+        "round" => Sig::scalar(&[1, 2], NUMBER, Fixed(Ty::Number)),
+        "mod" => Sig::scalar(&[2], NUMBER, Fixed(Ty::Number)),
+        "min" | "max" => Sig::agg(&[1], ORDERED, SameAsArg),
+        "sum" | "avg" => Sig::agg(&[1], NUMBER, Fixed(Ty::Number)),
+        "count_distinct" => Sig::agg(&[1], ORDERED, Fixed(Ty::Number)),
+        "any" | "all" => Sig::agg(&[1], BOOL, Fixed(Ty::Bool)),
+        "count" => Sig {
+            arities: &[1],
+            arg: ArgClass::Unconstrained,
+            ret: Fixed(Ty::Number),
+            aggregate: true,
+        },
+        "row_count" => Sig {
+            arities: &[0],
+            arg: ArgClass::Unconstrained,
+            ret: Fixed(Ty::Number),
+            aggregate: true,
+        },
+        _ => return None,
+    })
 }
 
 /// Check a parsed assertion against `env`, returning every finding in source
@@ -946,6 +1044,7 @@ pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
         columns_spans: Vec::new(),
     };
     let ty = cx.infer(&expr.root);
+    cx.shape(&expr.root);
     // The assertion as a whole must be boolean. A bare top-level COLUMNS(...)
     // stands for each selected column, so every one of those must be boolean.
     if let ExprKind::Columns(sel) = &expr.root.kind {
@@ -1011,11 +1110,14 @@ impl Checker<'_> {
     /// reporting an S21 against `e` naming `ctx` if not, or an S23 if `e`'s type
     /// isn't known at all. A `COLUMNS(...)` operand is checked per selected
     /// column, since the predicate applies to each.
-    fn require(&mut self, e: &Expr, allowed: &[Ty], ctx: &str) {
+    ///
+    /// Returns `e`'s inferred type, so a caller that needs it doesn't visit `e`
+    /// a second time — a second visit would double-count a `COLUMNS(...)`.
+    fn require(&mut self, e: &Expr, allowed: &[Ty], ctx: &str) -> Ty {
         if let ExprKind::Columns(sel) = &e.kind {
-            self.infer(e);
+            let ty = self.infer(e);
             self.require_columns(e, sel, allowed, ctx);
-            return;
+            return ty;
         }
         let ty = self.infer(e);
         if ty == Ty::Unknown {
@@ -1027,6 +1129,7 @@ impl Checker<'_> {
                 e,
             );
         }
+        ty
     }
 
     /// Require every column a `COLUMNS(...)` node selects to satisfy `allowed`.
@@ -1391,25 +1494,16 @@ impl Checker<'_> {
 
     fn infer_call(&mut self, name: &str, args: &[Expr], e: &Expr) -> Ty {
         let lower = name.to_ascii_lowercase();
-        // (arity, arg type, result type). `ROUND` alone allows a second arg.
-        let spec: Option<(&[usize], Ty, Ty)> = match lower.as_str() {
-            "length" => Some((&[1], Ty::String, Ty::Number)),
-            "lower" | "upper" | "trim" => Some((&[1], Ty::String, Ty::String)),
-            "starts_with" | "ends_with" => Some((&[2], Ty::String, Ty::Bool)),
-            "abs" | "floor" | "ceil" => Some((&[1], Ty::Number, Ty::Number)),
-            "round" => Some((&[1, 2], Ty::Number, Ty::Number)),
-            "mod" => Some((&[2], Ty::Number, Ty::Number)),
-            _ => None,
-        };
-        let Some((arities, arg_ty, result)) = spec else {
+        let Some(sig) = signature(&lower) else {
             self.report("S21", format!("unknown function `{name}`"), e);
             for a in args {
                 self.infer(a);
             }
             return Ty::Any;
         };
-        if !arities.contains(&args.len()) {
-            let want = arities
+        if !sig.arities.contains(&args.len()) {
+            let want = sig
+                .arities
                 .iter()
                 .map(usize::to_string)
                 .collect::<Vec<_>>()
@@ -1425,10 +1519,106 @@ impl Checker<'_> {
             );
         }
         let ctx = format!("`{}`", lower.to_uppercase());
-        for a in args {
-            self.require(a, &[arg_ty], &ctx);
+        let mut first: Option<Ty> = None;
+        for (i, a) in args.iter().enumerate() {
+            let ty = match sig.arg {
+                ArgClass::Only(allowed) => self.require(a, allowed, &ctx),
+                ArgClass::Unconstrained => self.infer(a),
+            };
+            if i == 0 {
+                first = Some(ty);
+            }
         }
-        result
+        match (sig.ret, sig.arg) {
+            (Ret::Fixed(t), _) => t,
+            // An argument outside the class is already reported, and a
+            // `COLUMNS(...)` argument infers to `Any`; either way `Any` keeps one
+            // root cause to one diagnostic.
+            (Ret::SameAsArg, ArgClass::Only(allowed)) => match first {
+                Some(t) if allowed.contains(&t) => t,
+                _ => Ty::Any,
+            },
+            (Ret::SameAsArg, ArgClass::Unconstrained) => Ty::Any,
+        }
+    }
+
+    /// Compute `e`'s [`Shape`], reporting S30 for an aggregate applied to an
+    /// argument that is itself aggregated. Shape follows from syntax alone, so
+    /// this is a separate walk from [`Checker::infer`].
+    fn shape(&mut self, e: &Expr) -> Shape {
+        match &e.kind {
+            ExprKind::Number { .. }
+            | ExprKind::Str(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Now => Shape::Const,
+            ExprKind::Column(_) | ExprKind::Columns(_) => Shape::Row,
+            ExprKind::Neg(inner) | ExprKind::Not(inner) => self.shape(inner),
+            ExprKind::IsNull { operand, .. } => self.shape(operand),
+            ExprKind::Interval { n, .. } => self.shape(n),
+            ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
+                let l = self.shape(lhs);
+                l.max(self.shape(rhs))
+            }
+            ExprKind::And(l, r) | ExprKind::Or(l, r) => {
+                let ls = self.shape(l);
+                ls.max(self.shape(r))
+            }
+            ExprKind::Like {
+                operand, pattern, ..
+            }
+            | ExprKind::SimilarTo {
+                operand, pattern, ..
+            } => {
+                let o = self.shape(operand);
+                o.max(self.shape(pattern))
+            }
+            ExprKind::Between {
+                operand, lo, hi, ..
+            } => {
+                let mut s = self.shape(operand);
+                s = s.max(self.shape(lo));
+                s.max(self.shape(hi))
+            }
+            ExprKind::In { operand, list, .. } => {
+                let mut s = self.shape(operand);
+                for item in list {
+                    s = s.max(self.shape(item));
+                }
+                s
+            }
+            ExprKind::Case { whens, els } => {
+                let mut s = Shape::Const;
+                for (cond, result) in whens {
+                    s = s.max(self.shape(cond));
+                    s = s.max(self.shape(result));
+                }
+                if let Some(els) = els {
+                    s = s.max(self.shape(els));
+                }
+                s
+            }
+            ExprKind::Call { name, args } => {
+                let aggregate =
+                    signature(&name.to_ascii_lowercase()).is_some_and(|sig| sig.aggregate);
+                let mut widest = Shape::Const;
+                for a in args {
+                    let s = self.shape(a);
+                    if aggregate && s == Shape::Agg {
+                        self.report(
+                            "S30",
+                            format!(
+                                "this argument of `{}` is already an aggregate",
+                                name.to_ascii_uppercase()
+                            ),
+                            a,
+                        );
+                    }
+                    widest = widest.max(s);
+                }
+                if aggregate { Shape::Agg } else { widest }
+            }
+        }
     }
 
     fn infer_case(&mut self, whens: &[(Expr, Expr)], els: Option<&Expr>) -> Ty {
@@ -2052,6 +2242,166 @@ mod tests {
         assert!(
             f.iter()
                 .any(|f| f.code == "S21" && f.message.contains("a list, not a boolean"))
+        );
+    }
+
+    // --- aggregates ---
+
+    #[test]
+    fn aggregate_expressions_are_clean() {
+        for s in [
+            "COUNT(postcode) >= 0.9 * ROW_COUNT()",
+            "COUNT_DISTINCT(s) <= 16",
+            "AVG(n) BETWEEN 0 AND 100",
+            "SUM(qty) > 0",
+            "MIN(d) >= '2000-01-01'",
+            "MAX(ts) <= NOW()",
+            "ANY(flag)",
+            "ALL(q3 OR q4)",
+            "ROW_COUNT() > 0",
+        ] {
+            assert!(check_str(s).is_empty(), "{s}: {:?}", check_str(s));
+        }
+    }
+
+    #[test]
+    fn aggregate_names_are_case_insensitive() {
+        assert!(check_str("min(n) <= max(n)").is_empty());
+    }
+
+    #[test]
+    fn mixing_row_and_aggregate_grains_is_allowed() {
+        assert!(check_str("qty <= 2 * MIN(qty)").is_empty());
+        assert!(check_str("n <= MAX(n)").is_empty());
+    }
+
+    #[test]
+    fn nested_aggregate_is_s30() {
+        let src = "AVG(MIN(n)) > 0";
+        let f = check_str(src);
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].code, "S30");
+        assert!(f[0].message.contains("`AVG`"), "{:?}", f[0].message);
+        // The span points at the offending argument, not the whole call.
+        assert_eq!(&src[f[0].start..f[0].end], "MIN(n)");
+    }
+
+    #[test]
+    fn aggregate_nested_below_an_operator_is_still_s30() {
+        let src = "SUM(MAX(n) + 1) > 0";
+        let f = check_str(src);
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].code, "S30");
+        assert_eq!(&src[f[0].start..f[0].end], "MAX(n) + 1");
+    }
+
+    #[test]
+    fn an_aggregate_of_a_scalar_function_is_fine() {
+        assert!(check_str("MAX(LENGTH(postcode)) <= 10").is_empty());
+    }
+
+    #[test]
+    fn a_scalar_function_of_an_aggregate_is_fine() {
+        assert!(check_str("ABS(AVG(n)) < 1").is_empty());
+    }
+
+    #[test]
+    fn min_max_return_their_argument_type() {
+        // A date argument makes `MIN` a date, so a date literal compares.
+        assert!(check_str("MIN(d) >= '2000-01-01'").is_empty());
+        // A string argument makes it a string, which a bare number can't match.
+        let f = check_str("MIN(s) >= 3");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("cannot compare")),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn min_of_an_unordered_type_is_s21() {
+        let f = check_str("MIN(flag)");
+        assert!(
+            f.iter().any(|f| f.code == "S21"
+                && f.message
+                    .contains("`MIN` expects a number, a string, a date, or a datetime")),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn sum_and_avg_reject_non_numbers() {
+        for s in ["SUM(s) > 0", "AVG(d) > 0"] {
+            let f = check_str(s);
+            assert!(
+                f.iter()
+                    .any(|f| f.code == "S21" && f.message.contains("expects a number")),
+                "{s}: {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn any_and_all_require_a_boolean() {
+        let f = check_str("ANY(n)");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("expects a boolean")),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn row_count_takes_no_arguments() {
+        let f = check_str("ROW_COUNT(n) > 0");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("takes 0 argument(s), found 1")),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn count_accepts_anything_including_untyped_and_composite() {
+        // `COUNT` asks only whether a value is null, so it never consults a type.
+        for s in [
+            "COUNT(u) >= 1",
+            "COUNT(addr) >= 1",
+            "COUNT(tags) >= 1",
+            "COUNT(n) = ROW_COUNT()",
+        ] {
+            assert!(check_str(s).is_empty(), "{s}: {:?}", check_str(s));
+        }
+    }
+
+    #[test]
+    fn count_distinct_still_needs_a_declared_ordered_type() {
+        let f = check_str("COUNT_DISTINCT(u) <= 4");
+        assert!(f.iter().any(|f| f.code == "S23"), "{f:?}");
+        let f = check_str("COUNT_DISTINCT(flag) <= 4");
+        assert!(f.iter().any(|f| f.code == "S21"), "{f:?}");
+    }
+
+    #[test]
+    fn a_bare_aggregate_must_still_be_boolean() {
+        let f = check_str("SUM(n)");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("not a boolean")),
+            "{f:?}"
+        );
+        assert!(check_str("ANY(flag)").is_empty());
+    }
+
+    #[test]
+    fn an_aggregate_over_columns_distributes_over_the_selection() {
+        // Every selected column must fit the aggregate's class.
+        assert!(check_str("MAX(COLUMNS([n, qty])) > 0").is_empty());
+        let f = check_str("SUM(COLUMNS('q[34]')) > 0");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("column `q3` is a boolean")),
+            "{f:?}"
         );
     }
 }

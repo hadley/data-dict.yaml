@@ -1997,6 +1997,50 @@ fn constraints_s21_columns_wrong_type() {
     );
 }
 
+// S30: an aggregate applied to something already aggregated.
+#[test]
+fn constraints_s30_nested_aggregate() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: AVG(MIN(qty)) > 0
+    "});
+    diagnostic.assert_contains(&["S30", "already an aggregate"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Aggregates and row-level operands may be mixed freely; only nesting is wrong.
+#[test]
+fn constraints_aggregates_are_valid() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+              - name: region
+                type: string
+                examples: [north, south]
+              - name: notes
+              - name: flag
+                type: boolean
+            constraints:
+              - assert: qty <= 2 * MIN(qty)
+              - assert: COUNT_DISTINCT(region) <= 16
+              - assert: AVG(qty) BETWEEN 0 AND 100
+              - assert: COUNT(notes) >= 0.9 * ROW_COUNT()
+              - assert: ROW_COUNT() > 0
+              - assert: ANY(flag)
+    "});
+}
+
 // A column constraint bareword must be one of the four structural names.
 #[test]
 fn constraints_column_unknown_bareword() {

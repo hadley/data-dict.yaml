@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: qty
+        type: number
+        examples: [1, 2]
+    constraints:
+      - assert: AVG(MIN(qty)) > 0
+────────────────────────────────────────
+error[S30]: An aggregate can't be nested inside another aggregate.
+  --> dict.yaml:10:21
+   |
+LL |   - name: t
+...
+LL |       - assert: AVG(MIN(qty)) > 0
+   |                     ^^^^^^^^ this argument of `AVG` is already an aggregate
