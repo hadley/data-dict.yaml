@@ -1,0 +1,138 @@
+/* The page shell and the one palette both apps share. Each colour is defined
+   once: `light-dark()` picks by the scheme in use, and the two rules below
+   force a scheme when the reader asks for one, so there is no second palette
+   to keep in step. */
+:root {
+  color-scheme: light dark;
+
+  --ink: light-dark(#1c2430, #e3e6ea);
+  --ink-soft: light-dark(#5b6675, #a3acb7);
+  --ink-faint: light-dark(#98a2b0, #6f7883);
+  --paper: light-dark(#f6f5f2, #14181c);
+  --card: light-dark(#ffffff, #1e242a);
+  --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
+  --rule: light-dark(#dfdcd5, #333b44);
+  --row-line: light-dark(#f0eeea, #2a3138);
+  --accent: light-dark(#1d6b6b, #43a8a0);
+  --accent-soft: light-dark(#cfe3e0, #1b3f3d);
+  --on-accent: light-dark(#ffffff, #0f1d1c); /* text on an accent fill */
+  --many: light-dark(#b4622a, #d98b52); /* the "many" end of a relationship */
+  --fk-badge: light-dark(#f3e2d6, #3f2a1d);
+  --grid-dot: light-dark(#cdc6b6, #2c343c);
+  --scroll-thumb: light-dark(#cdc9c1, #3f4751);
+  --hover-row: light-dark(#f4f8f7, #223032);
+  --focus-ring: light-dark(rgba(29, 107, 107, 0.14), rgba(67, 168, 160, 0.22));
+  --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
+  --shadow-far: light-dark(rgba(28, 36, 48, 0.25), rgba(0, 0, 0, 0.5));
+  --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
+  --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
+
+  /* the tables app's vocabulary, mapped onto the same palette */
+  --chip: light-dark(#eef1f4, #21262d);
+  --link: light-dark(#4f78b3, #7da7d9);
+  --type-ink: light-dark(#0e7490, #35c2d6);
+  --tag-ink: light-dark(#9d5d00, #d9a05b);
+  --mark: light-dark(rgba(29, 107, 107, 0.18), rgba(67, 168, 160, 0.3));
+  --hist-bar: #6ea8dc;
+  --hist-bar-hot: #e8896b;
+  --hist-band: light-dark(rgba(232, 137, 107, 0.17), rgba(232, 137, 107, 0.26));
+  --null-bar: light-dark(#d80d0d, #e05252);
+  --null-fill: light-dark(#e3e3e3, #444c55);
+  --null-edge: light-dark(#bcbcbc, #5a626c);
+  --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
+  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.196));
+
+  --row-text: 11.5px; /* diagram rows and the tooltip share this size */
+}
+
+:root[data-theme="light"] { color-scheme: only light; }
+:root[data-theme="dark"] { color-scheme: only dark; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
+
+.pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
+h1.title { color: var(--accent); font-size: 29px; font-weight: 700; margin: 0; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.icon-btn {
+  flex: none; width: 38px; height: 38px; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--card); color: var(--ink); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn svg { display: block; width: 19px; height: 19px; }
+.icon-btn[hidden] { display: none; }
+.lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
+
+/* One toggle, light or dark; the half-moon icon turns over when dark. With
+   nothing chosen the page follows the system. */
+.theme-toggle svg { transition: transform .2s ease; }
+.theme-toggle.is-dark svg { transform: rotate(180deg); }
+
+/* "name: label" — the name keeps whatever (usually mono) face surrounds it;
+   the label reads as plain text beside it. */
+.name-label {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+#tables { margin-top: 30px; }
+
+/* search hits, wherever they land */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* ---- tooltip -------------------------------------------------------------
+   One #tip element for the whole page, above the modals: it follows the
+   cursor (wires, rows, histogram bars) or is anchored under an element
+   (glossary terms) — shared.js decides which per show. */
+#tip {
+  position: fixed;
+  z-index: 2000;
+  max-width: 40ch;
+  padding: 7px 9px;
+  background: var(--float);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px -12px var(--shadow-lift);
+  font-size: var(--row-text);
+  line-height: 1.45;
+  pointer-events: none;
+}
+#tip[hidden] { display: none; }
+#tip code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--row-text);
+}
+#tip .tip-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--ink);
+}
+#tip .tip-head code { color: var(--accent); }
+#tip .tip-sub { color: var(--ink-faint); }
+#tip p { margin: 0; color: var(--ink-soft); }
+#tip .tip-head + p { margin-top: 5px; }
+#tip .tip-label { font-style: italic; }
+#tip .gt-term { font-weight: 700; }
+#tip .bar-tip div { color: var(--ink-soft); }
+#tip .bar-tip div:first-child { color: var(--ink); }
+
+@media (max-width: 720px) {
+  main { padding: 26px 18px 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

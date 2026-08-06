@@ -37,6 +37,14 @@ enum Command {
     ExportSpec(ExportArgs),
     /// Render a data dictionary as JSON with per-column data profiles
     ExportData(ExportArgs),
+    /// Render a data dictionary as a self-contained HTML page [default: .]
+    ///
+    /// The page holds a relationship diagram, a searchable index of the
+    /// tables and columns, and the glossary, all in one file that works
+    /// opened straight from disk. Source data is profiled into the page
+    /// (row counts, histograms, missing values) when at least one table's
+    /// `source` file is present; otherwise the dictionary renders alone.
+    Render(RenderArgs),
     /// Print the data-dict.yaml specification
     Spec,
     /// Skill for reading and understanding a data dictionary
@@ -57,6 +65,17 @@ struct ExportArgs {
     /// Pretty-print the JSON (default is compact, one document per line)
     #[arg(long)]
     pretty: bool,
+}
+
+/// Arguments for `render`.
+#[derive(clap::Args)]
+struct RenderArgs {
+    /// A data-dict.yaml file or a directory containing one
+    path: Option<PathBuf>,
+    /// Where to write the page (default: the dictionary's path with an
+    /// `.html` extension)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 /// Shared arguments for `validate-meta` and `validate-data`.
@@ -105,6 +124,7 @@ fn main() -> ExitCode {
         Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
+        Command::Render(args) => run_render(args),
         Command::Spec => {
             print!("{}", data_dict::SPEC_MD);
             ExitCode::SUCCESS
@@ -232,6 +252,71 @@ fn run_export(args: ExportArgs, export: ExportFn) -> ExitCode {
     .expect("an export always serializes");
     println!("{json}");
     ExitCode::SUCCESS
+}
+
+/// Render a dictionary to a self-contained HTML page. The dictionary is
+/// exported with `export_auto` — data profiles appear exactly when at least
+/// one table's source file is present — and the export fails the run the same
+/// way `export-spec` would: diagnostics on stderr and nothing written.
+fn run_render(args: RenderArgs) -> ExitCode {
+    let dict = match resolve_dict_path(args.path) {
+        Ok(dict) => dict,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (problems, export) = data_dict::export_auto(&dict);
+    for line in problems.render(stderr_style()) {
+        eprintln!("{line}");
+    }
+    let Some(export) = export else {
+        return ExitCode::FAILURE;
+    };
+    // `<` is escaped so nothing in the dictionary can close the page's
+    // `<script>` block or open a comment (`</script>`, `<!--`); in JSON, `<`
+    // only ever appears inside strings, where `<` spells the same text.
+    let json = serde_json::to_string(&export)
+        .expect("an export always serializes")
+        .replace('<', "\\u003c");
+    let output = args.output.unwrap_or_else(|| dict.with_extension("html"));
+    match std::fs::write(&output, render_html(&json)) {
+        Ok(()) => {
+            println!("wrote {}", output.display());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}: {err}", output.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The page's parts, tracked as separate files and stitched at build time.
+const RENDER_PAGE: &str = include_str!("../render/index.html");
+const RENDER_APP_CSS: &str = include_str!("../render/app.css");
+const RENDER_DIAGRAM_CSS: &str = include_str!("../render/diagram.css");
+const RENDER_TABLES_CSS: &str = include_str!("../render/tables.css");
+const RENDER_DAGRE_JS: &str = include_str!("../render/dagre.js");
+const RENDER_LAYOUT_JS: &str = include_str!("../render/layout-dagre.js");
+const RENDER_SHARED_JS: &str = include_str!("../render/shared.js");
+const RENDER_DIAGRAM_JS: &str = include_str!("../render/diagram.js");
+const RENDER_TABLES_JS: &str = include_str!("../render/tables.js");
+
+/// Substitute the page template's `{{…}}` markers. The dictionary JSON goes
+/// in last so a marker spelled in someone's prose is embedded as written
+/// rather than expanded.
+fn render_html(dict_json: &str) -> String {
+    RENDER_PAGE
+        .replace("{{APP_CSS}}", RENDER_APP_CSS)
+        .replace("{{DIAGRAM_CSS}}", RENDER_DIAGRAM_CSS)
+        .replace("{{TABLES_CSS}}", RENDER_TABLES_CSS)
+        .replace("{{DAGRE_JS}}", RENDER_DAGRE_JS)
+        .replace("{{LAYOUT_JS}}", RENDER_LAYOUT_JS)
+        .replace("{{SHARED_JS}}", RENDER_SHARED_JS)
+        .replace("{{DIAGRAM_JS}}", RENDER_DIAGRAM_JS)
+        .replace("{{TABLES_JS}}", RENDER_TABLES_JS)
+        .replace("{{DICT_JSON}}", dict_json)
 }
 
 /// Colour diagnostics only when stderr (where they are printed) is a terminal,

@@ -2,7 +2,8 @@
 //! `site/export.md`).
 //!
 //! [`export_spec`] resolves the dictionary alone; [`export_data`] additionally
-//! profiles each table's source data. Both validate the spec first and return
+//! profiles each table's source data; [`export_auto`] profiles only when at
+//! least one source file is present. All validate the spec first and return
 //! the run's [`ProblemSet`] plus the document, which is `None` when that
 //! fails — the same failure `validate-spec` reports. The data itself is never
 //! validated against the dictionary: a table whose `source` is missing or
@@ -322,13 +323,56 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
     let Some(dict) = validate_and_lower(&doc, &mut problems) else {
         return (problems, None);
     };
-
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
+    let profiles = profile_sources(&dict, base_dir, &mut problems);
+    let export = build(&dict, profiles);
+    (problems, Some(export))
+}
 
+/// Render the dictionary, profiling source data only when at least one table's
+/// source file is actually present: with none, this is [`export_spec`] — no
+/// data is read and no missing-source warnings are raised — and otherwise it
+/// is [`export_data`], where the tables whose sources are missing still warn.
+pub fn export_auto(dict_path: &Path) -> (ProblemSet, Option<Export>) {
+    let (mut problems, doc) = match load(dict_path) {
+        Ok(loaded) => loaded,
+        Err(problems) => return (problems, None),
+    };
+    let Some(dict) = validate_and_lower(&doc, &mut problems) else {
+        return (problems, None);
+    };
+    let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
+    let profiles = if any_source_present(&dict, base_dir) {
+        profile_sources(&dict, base_dir, &mut problems)
+    } else {
+        HashMap::new()
+    };
+    let export = build(&dict, profiles);
+    (problems, Some(export))
+}
+
+/// Whether any table's `source.parquet` resolves to an existing file.
+fn any_source_present(dict: &DataDict, base_dir: &Path) -> bool {
+    dict.tables.iter().any(|table| {
+        table
+            .source
+            .as_ref()
+            .is_some_and(|source| base_dir.join(&source.parquet.value).is_file())
+    })
+}
+
+/// Profile every table whose source can be read, keyed by table name. A source
+/// that's missing (M04) or unreadable (M05) is reported as a warning and that
+/// table is skipped.
+fn profile_sources(
+    dict: &DataDict,
+    base_dir: &Path,
+    problems: &mut ProblemSet,
+) -> HashMap<String, TableData> {
     let mut profiles: HashMap<String, TableData> = HashMap::new();
     for table in &dict.tables {
         let Some((parquet_path, actual)) =
-            crate::read_parquet(table, base_dir, Severity::Warning, &mut problems)
+            crate::read_parquet(table, base_dir, Severity::Warning, problems)
         else {
             continue;
         };
@@ -347,19 +391,40 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
             }
         }
     }
-    let export = build(&dict, profiles);
-    (problems, Some(export))
+    profiles
 }
 
 // --- document assembly -------------------------------------------------
+
+/// Render a Markdown prose field (`description`, `details`, a glossary
+/// definition) to HTML, so consumers don't need a Markdown implementation of
+/// their own. Raw HTML in the source is escaped rather than passed through,
+/// so dictionary text can't smuggle markup into a page that embeds the
+/// export.
+fn markdown_html(text: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, html};
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let parser = Parser::new_ext(text, options).map(|event| match event {
+        Event::Html(s) => Event::Text(s),
+        Event::InlineHtml(s) => Event::Text(s),
+        other => other,
+    });
+    let mut out = String::new();
+    html::push_html(&mut out, parser);
+    out.trim_end().to_string()
+}
+
+fn prose(text: &Option<String>) -> Option<String> {
+    text.as_deref().map(markdown_html)
+}
 
 fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
     Export {
         format_version: EXPORT_VERSION,
         name: dict.name.clone(),
         label: dict.label.clone(),
-        description: dict.description.clone(),
-        details: dict.details.clone(),
+        description: prose(&dict.description),
+        details: prose(&dict.details),
         origin: dict.origin.clone(),
         learn_more: dict.learn_more.clone(),
         version: dict.version.as_ref().map(|v| match v {
@@ -388,7 +453,7 @@ fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
             .iter()
             .map(|entry| ExportGlossaryEntry {
                 term: entry.term.clone(),
-                definition: entry.definition.clone(),
+                definition: markdown_html(&entry.definition),
             })
             .collect(),
     }
@@ -403,8 +468,8 @@ fn build_table(
     ExportTable {
         name: table.name.value.clone(),
         label: table.label.as_ref().map(|s| s.value.clone()),
-        description: table.description.as_ref().map(|s| s.value.clone()),
-        details: table.details.as_ref().map(|s| s.value.clone()),
+        description: table.description.as_ref().map(|s| markdown_html(&s.value)),
+        details: table.details.as_ref().map(|s| markdown_html(&s.value)),
         origin: table.origin.clone(),
         source: table.source.as_ref().map(|s| ExportSource {
             parquet: s.parquet.value.clone(),
@@ -479,8 +544,8 @@ fn build_column(
     ExportColumn {
         name: col.name.value.clone(),
         label: col.label.clone(),
-        description: col.description.clone(),
-        details: col.details.clone(),
+        description: prose(&col.description),
+        details: prose(&col.details),
         display: col.display.clone(),
         col_type: col
             .col_type
@@ -559,7 +624,7 @@ fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
     }
     ExportAssertion {
         expression: assertion.text.value.clone(),
-        description: assertion.description.clone(),
+        description: prose(&assertion.description),
         columns,
     }
 }
@@ -699,7 +764,7 @@ fn build_relationship(rel: &Relationship) -> Option<ExportRelationship> {
         })
         .collect();
     Some(ExportRelationship {
-        description: rel.description.clone(),
+        description: prose(&rel.description),
         cardinality,
         declared_cardinality,
         pairs,

@@ -35,6 +35,9 @@ The `data-dict` CLI validates dictionaries at [three levels](https://data-dict.t
 * Render a dictionary as fully-resolved
   [JSON](https://data-dict.tidyverse.org/export.html), optionally with
   per-column data profiles (`export-spec` / `export-data`).
+* Render a dictionary as a self-contained HTML page — a relationship
+  diagram, a searchable index of tables and columns, and the glossary,
+  profiled against the source data when it's present (`render`).
 * Summarise the columns of a Parquet file — types, distinct and missing
   counts, histograms and common values (`describe`).
 * Print an embedded agent skill for reading or writing data dictionaries
@@ -75,6 +78,7 @@ Commands:
   validate-data  Validate a dataset's values against a data dictionary
   export-spec    Render a data dictionary as fully-resolved JSON [default: .]
   export-data    Render a data dictionary as JSON with per-column data profiles
+  render         Render a data dictionary as a self-contained HTML page [default: .]
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
   skill-write    Skill for creating or updating a data dictionary

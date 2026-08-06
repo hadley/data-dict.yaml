@@ -1,5 +1,6 @@
 //! Integration tests for the export document (`data_dict::export_spec` /
-//! `data_dict::export_data`); see `site/export.md` for the shape.
+//! `data_dict::export_data` / `data_dict::export_auto`); see `site/export.md`
+//! for the shape.
 
 mod common;
 use common::{diagnostic, temp_dir, write_dict, write_nested_parquet};
@@ -8,7 +9,7 @@ use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
-use data_dict::{Status, export_data, export_spec};
+use data_dict::{Status, export_auto, export_data, export_spec};
 use indoc::indoc;
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType, Int64Type};
 use parquet::file::properties::WriterProperties;
@@ -349,6 +350,108 @@ fn export_data_missing_source_warns_and_still_exports() {
     diagnostic.assert_contains(&["M04", "has no `source`"]);
     #[cfg(unix)]
     common::assert_snapshot!(diagnostic);
+}
+
+/// With at least one source file present, `export_auto` behaves as
+/// `export_data`: the readable table profiles, and the tables whose sources
+/// are missing or undeclared still warn.
+#[test]
+fn export_auto_profiles_when_any_source_exists() {
+    let dir = temp_dir();
+    write_profiled_parquet(&dir.join("data.parquet"));
+    let dict = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: animals
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    examples: [1]
+              - name: keepers
+                source:
+                  parquet: missing.parquet
+                columns:
+                  - name: keeper_id
+                    type: number(id)
+                    examples: [1]
+              - name: visits
+                columns:
+                  - name: visit_id
+                    type: number(id)
+                    examples: [1]
+        "},
+    );
+    let (problems, export) = export_auto(&dict);
+    assert_eq!(problems.status(), Status::Warning);
+    let json = serde_json::to_value(export.unwrap()).unwrap();
+    assert_eq!(json["tables"][0]["rows"], 3);
+    assert_eq!(
+        json["tables"][0]["columns"][0]["profile"]["distinct"]["count"],
+        3
+    );
+    assert!(json["tables"][1]["rows"].is_null());
+    assert!(json["tables"][2]["rows"].is_null());
+    let diagnostic = diagnostic(&dict, &problems.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["M05", "M04", "has no `source`"]);
+    #[cfg(unix)]
+    common::assert_snapshot!(diagnostic);
+}
+
+/// With sources declared but none of the files present, `export_auto` behaves
+/// as `export_spec`: no data is read and no M04/M05 warnings are raised.
+#[test]
+fn export_auto_stays_quiet_when_no_source_is_readable() {
+    let dir = temp_dir();
+    let dict = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: animals
+                source:
+                  parquet: missing.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    examples: [1]
+              - name: keepers
+                columns:
+                  - name: keeper_id
+                    type: number(id)
+                    examples: [1]
+        "},
+    );
+    let (problems, export) = export_auto(&dict);
+    assert_eq!(problems.status(), Status::Ok);
+    let json = serde_json::to_value(export.unwrap()).unwrap();
+    assert!(json["tables"][0]["rows"].is_null());
+    assert!(json["tables"][0]["columns"][0]["profile"].is_null());
+}
+
+/// With no sources declared at all, `export_auto` matches `export_spec`
+/// exactly.
+#[test]
+fn export_auto_without_sources_matches_export_spec() {
+    let dir = temp_dir();
+    let dict = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: animals
+                columns:
+                  - name: id
+                    type: number(id)
+                    examples: [1]
+        "},
+    );
+    let (problems, export) = export_auto(&dict);
+    assert_eq!(problems.status(), Status::Ok);
+    let auto_json = serde_json::to_value(export.unwrap()).unwrap();
+    let (_, spec_export) = export_spec(&dict);
+    let spec_json = serde_json::to_value(spec_export.unwrap()).unwrap();
+    assert_eq!(auto_json, spec_json);
 }
 
 /// The export never validates the data against the dictionary: a declared

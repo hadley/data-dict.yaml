@@ -16,6 +16,8 @@ Both levels emit the same JSON document shape; `export-spec` just never populate
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
 
+Prose fields — every `description` and `details`, and each glossary `definition` — are written as Markdown in the dictionary and arrive here rendered to HTML (any raw HTML in the source is escaped rather than passed through), so consumers can place them straight into a page without a Markdown implementation of their own.
+
 ### Top level
 
 ```jsonc
@@ -169,4 +171,3 @@ Nested columns profile as far as the data allows:
 ### Scalar
 
 A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
-

@@ -1,0 +1,396 @@
+/* The relationships diagram. Shares the page palette in app.css; the metrics
+   and tints only the diagram uses live here. */
+:root {
+  --row-h: 30px; /* leaves ~8px above and below the text, matching --row-pad */
+  --row-pad: 9px;
+  --head-bg: light-dark(#1d6b6b, #1b4f4c);
+  --head-ink: light-dark(#ffffff, #e7f1ef);
+  --demo-head: light-dark(#6b7684, #3a434d);
+  --demo-rule: light-dark(#c9c4b8, #454e58);
+  --tint-edge: light-dark(#cfe4e0, #1d4441); /* row touched by the hovered relationship */
+  --tint-search: light-dark(#fbeccc, #3d3419); /* row matching the search */
+  --tint-search-on: light-dark(#f7dca6, #5b4a1f); /* the match you selected */
+}
+
+.legend {
+  display: flex;
+  gap: 18px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend svg .wire { stroke: var(--ink-faint); stroke-width: 1.4px; }
+
+/* ---- diagram surface ---------------------------------------------------- */
+
+/* One scrollport for the whole board, so the page doesn't grow with the schema.
+   Drag anywhere in it to pan. Nothing on the board is prose to be copied, and
+   dragging to pan would otherwise select table text. The -webkit- prefix
+   matters: Safari before 17 honours only that one. */
+#board {
+  position: relative;
+  margin: 8px 0 18px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#canvas {
+  height: min(70vh, 620px);
+  overflow: auto;
+  background-color: var(--paper);
+  /* faint dot grid, pinned to the board so it pans with it */
+  background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1.4px, transparent 0);
+  background-size: 24px 24px;
+  background-attachment: local;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 3px var(--shadow-inset);
+  overscroll-behavior: contain;
+}
+/* only offer the grab when there is somewhere to pan to */
+#canvas.can-pan { cursor: grab; }
+#canvas.panning { cursor: grabbing; }
+#canvas.panning * { cursor: grabbing !important; }
+
+#stage {
+  position: relative;
+  margin: 10px;
+}
+
+#wires,
+#markers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+}
+/* the layer ignores the mouse; the markers in it do not */
+#markers { pointer-events: none; }
+#markers .markers { pointer-events: auto; }
+
+.node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: 340px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  box-shadow: 0 1px 2px var(--shadow-near), 0 6px 16px -10px var(--shadow-far);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.node > h2 {
+  flex: none;
+  cursor: grab;
+  touch-action: none;
+  margin: 0;
+  padding: 7px var(--row-pad);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.01em;
+  background: var(--head-bg);
+  color: var(--head-ink);
+}
+
+/* the scroll box: fixed maximum height, rows scroll inside it */
+.rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: var(--max-rows-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* the standard properties only: mixing these with ::-webkit-scrollbar makes
+     Chrome ignore one of them, and the gutter no longer matches the bar drawn
+     in it, leaving a sliver */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+/* Reserve room for the bar only where the list actually scrolls: an unused
+   gutter shows through as a pale strip down the right-hand side of the table. */
+.node.clipped .rows { scrollbar-gutter: stable; }
+.node.clipped::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background: linear-gradient(to top, var(--card), transparent);
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.node.clipped.at-end::after { opacity: 0; }
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  height: var(--row-h);
+  padding: 0 var(--row-pad);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--row-text);
+  white-space: nowrap;
+}
+.row + .row { border-top: 1px solid var(--row-line); }
+.row { background: var(--row-bg, transparent); }
+/* primary keys stay put while the rest of the columns scroll under them */
+.row.pinned {
+  position: sticky;
+  z-index: 1;
+  --row-bg: var(--card);
+}
+.row.pinned.linked { --row-bg: var(--hover-row); }
+.row.pin-last { box-shadow: 0 1px 0 var(--rule), 0 3px 6px -4px var(--shadow-far); }
+.row.linked { --row-bg: var(--hover-row); }
+.row .name {
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row .type { color: var(--ink-faint); font-size: 10.5px; }
+.row .keys { display: flex; gap: 4px; }
+.row .key {
+  font-family: ui-sans-serif, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.row .key.fk { color: var(--many); background: var(--fk-badge); }
+/* badges that stand for at least one relationship respond to the mouse */
+.row .key.live { cursor: pointer; }
+.row .key.live:hover { box-shadow: inset 0 0 0 1px currentColor; }
+/* a badge clicked to hold its highlight on */
+.row .key.held {
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: none;
+}
+.row .key.fk.held { background: var(--many); }
+
+/* ---- wires -------------------------------------------------------------- */
+
+.wire { fill: none; stroke: var(--ink-soft); stroke-width: 1.4px; transition: stroke 90ms, stroke-width 90ms; }
+.hit { fill: none; stroke: transparent; stroke-width: 16px; }
+.edge { transition: opacity 110ms; }
+.edge.hover .wire { stroke: var(--accent); stroke-width: 2.6px; }
+
+/* hovering one relationship pushes the others back */
+#wires.dim .edge:not(.hover),
+#markers.dim .markers:not(.hover) { opacity: 0.16; }
+#markers .markers { transition: opacity 110ms; }
+
+/* ---- cardinality marker ------------------------------------------------- */
+
+.marker.many {
+  fill: var(--ink-soft);
+  stroke: none;
+}
+.marker.one {
+  fill: var(--ink-soft);
+  stroke: none;
+}
+.markers.hover .marker.many { fill: var(--accent); }
+.markers.hover .marker.one { fill: var(--accent); }
+
+.node.dragging {
+  box-shadow: 0 2px 4px var(--shadow-near), 0 18px 34px -14px var(--shadow-lift);
+}
+.node.dragging > h2 { cursor: grabbing; }
+
+.node.demo {
+  border-style: dashed;
+  border-color: var(--demo-rule);
+  box-shadow: none;
+}
+.node.demo > h2 { background: var(--demo-head); }
+.edge.demo .wire { stroke-dasharray: 5 3; }
+
+/* the name takes the space it needs, the size and the eye sit together at the
+   right-hand end of the heading */
+.node > h2 .count {
+  margin-left: auto;
+  font-family: ui-sans-serif, sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* ---- picking tables ------------------------------------------------------ */
+
+/* A table off the board. The attribute alone isn't enough: `.node`'s own
+   `display: flex` outranks the user agent's `[hidden] { display: none }`. */
+.node[hidden] { display: none; }
+
+.node > h2 .eye {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  margin: -3px -4px -3px 0; /* sits in the heading's own padding */
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--head-ink);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.node > h2 .eye svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.node > h2 .eye:hover { opacity: 1; }
+.node > h2 .eye[aria-pressed="true"] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--head-ink) 24%, transparent);
+}
+
+/* a table the board is being laid out around */
+.node.picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 1px 2px var(--shadow-near),
+    0 6px 16px -10px var(--shadow-far);
+}
+
+/* Wires between two tables that are only on the board because a picked table
+   joins them both. They still light up under the mouse — they just don't compete
+   with the relationships you actually asked about. */
+#wires .edge.faint:not(.hover) .wire {
+  stroke: var(--ink-faint);
+  stroke-width: 1px;
+  opacity: 0.55;
+}
+#markers .markers.faint:not(.hover) { opacity: 0.4; }
+
+/* ---- search ------------------------------------------------------------- */
+
+#controls {
+  position: absolute;
+  top: 10px;
+  right: 26px; /* clear of the board's own scrollbar */
+  z-index: 400; /* above the tables, including dragged ones */
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#diagram-search { width: 232px; }
+
+#tidy,
+#showall {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--float);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px -3px var(--shadow-far);
+  cursor: pointer;
+  white-space: nowrap;
+}
+#tidy:hover,
+#showall:hover { border-color: var(--accent); }
+/* nothing has been dragged, so there is nothing to tidy */
+#tidy[disabled] { opacity: 0.45; cursor: default; }
+#tidy[disabled]:hover { border-color: var(--rule); }
+/* only there while something is off the board */
+#showall[hidden] { display: none; }
+#showall { color: var(--accent); border-color: var(--accent-soft); }
+
+#find {
+  user-select: text;
+  -webkit-user-select: text;
+  width: 100%;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--float);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px -3px var(--shadow-far);
+}
+#find::placeholder { color: var(--ink-faint); }
+#find:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+#hits {
+  margin-top: 4px;
+  max-height: 232px;
+  overflow-y: auto;
+  overflow-x: hidden; /* long names ellipsise instead of scrolling sideways */
+  background: var(--float);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 10px 26px -14px var(--shadow-lift);
+  font-size: 11.5px;
+}
+#hits[hidden] { display: none; }
+#hits .none { padding: 7px 9px; color: var(--ink-faint); }
+#hits button {
+  display: block;
+  width: 100%;
+  padding: 5px 9px;
+  border: 0;
+  background: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+#hits button + button { border-top: 1px solid var(--row-line); }
+#hits button .hit-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#hits button:hover { background: var(--hover-row); }
+#hits button[aria-current="true"] { background: var(--accent-soft); }
+
+/* Highlighted rows all speak the same language: a background, no border. The
+   pinned variants are spelled out so they outrank .row.pinned.linked above, and
+   the combinations come last so they win on source order. */
+.row.found,
+.row.pinned.found { --row-bg: var(--tint-search); }
+.row.current,
+.row.pinned.current { --row-bg: var(--tint-search-on); }
+.row.hot,
+.row.pinned.hot { --row-bg: var(--tint-edge); }
+
+/* both at once: diagonal stripes of the two tints */
+.row.hot.found,
+.row.hot.current,
+.row.pinned.hot.found,
+.row.pinned.hot.current {
+  --row-bg: repeating-linear-gradient(
+    -45deg,
+    var(--tint-edge) 0 7px,
+    var(--tint-search-on) 7px 14px
+  );
+}

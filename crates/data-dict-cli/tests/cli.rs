@@ -216,3 +216,146 @@ fn export_spec_fails_on_invalid_dictionary() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("S07"), "{stderr}");
 }
+
+// --- render ------------------------------------------------------------
+
+/// A minimal dictionary whose one table declares `pups.parquet` as its source.
+fn write_render_dict(dir: &std::path::Path, description: &str) {
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        format!(
+            indoc::indoc! {"
+                $version: \"0.1.0\"
+                $learn_more: http://data-dict.tidyverse.org/
+                description: \"{}\"
+                tables:
+                  - name: pups
+                    source:
+                      parquet: pups.parquet
+                    columns:
+                      - name: pup_count
+                        type: number
+                        examples: [1]
+            "},
+            description
+        ),
+    )
+    .unwrap();
+}
+
+/// With the source data present, `render` writes the page next to the
+/// dictionary with the profiles embedded in its `#dict` document.
+#[test]
+fn render_profiles_data_into_the_page() {
+    let dir = temp_dir("render-data");
+    write_render_dict(&dir, "One row per pup.");
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
+
+    let output = run_in(&dir, &["render"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("data-dict.html"), "{stdout}");
+
+    let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
+    assert!(html.contains(r#"<script type="application/json" id="dict">"#));
+    assert!(html.contains(r#""distinct""#), "profiles are embedded");
+}
+
+/// With no source file present, `render` still writes the page — resolved
+/// dictionary only, no profiles — and raises no missing-source warnings.
+#[test]
+fn render_without_data_is_quiet_and_unprofiled() {
+    let dir = temp_dir("render-spec");
+    write_render_dict(&dir, "One row per pup.");
+
+    let output = run_in(&dir, &["render"]);
+    assert!(output.status.success());
+    assert!(
+        output.stderr.is_empty(),
+        "no warnings when no source is present: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
+    assert!(html.contains(r#"<script type="application/json" id="dict">"#));
+    assert!(
+        !html.contains(r#""profile""#),
+        "no profiles on the spec path"
+    );
+}
+
+/// `-o` writes the page somewhere else.
+#[test]
+fn render_output_flag_overrides_the_path() {
+    let dir = temp_dir("render-output");
+    write_render_dict(&dir, "One row per pup.");
+
+    let output = run_in(&dir, &["render", ".", "-o", "elsewhere.html"]);
+    assert!(output.status.success());
+    assert!(dir.join("elsewhere.html").is_file());
+    assert!(!dir.join("data-dict.html").exists());
+}
+
+/// Dictionary text can't break out of the page's `#dict` script block: prose
+/// has its raw HTML escaped when the Markdown is rendered, and every `<` that
+/// remains in the JSON (a scalar, say) is embedded as `\u003c`.
+#[test]
+fn render_escapes_script_breaking_text() {
+    let dir = temp_dir("render-escape");
+    let payload = "</script><script>alert(1)</script>";
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        format!(
+            indoc::indoc! {"
+                $version: \"0.1.0\"
+                $learn_more: http://data-dict.tidyverse.org/
+                description: \"{payload} pups\"
+                tables:
+                  - name: pups
+                    columns:
+                      - name: pup_name
+                        type: string
+                        examples: [\"{payload}\"]
+            "},
+            payload = payload
+        ),
+    )
+    .unwrap();
+
+    let output = run_in(&dir, &["render"]);
+    assert!(output.status.success());
+    let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
+    assert!(
+        !html.contains("</script><script>alert(1)"),
+        "the payload must never appear raw"
+    );
+    // the description, through the Markdown renderer's escaping
+    assert!(html.contains(r"&lt;/script&gt;&lt;script&gt;alert(1)"));
+    // the example scalar, through the JSON `<` escape
+    assert!(html.contains(r"\u003c/script>\u003cscript>alert(1)"));
+}
+
+/// An invalid dictionary renders nothing: diagnostics on stderr and no file
+/// written, exactly as `export-spec` fails.
+#[test]
+fn render_fails_on_invalid_dictionary() {
+    let dir = temp_dir("render-invalid");
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        indoc::indoc! {"
+            $version: \"0.1.0\"
+            $learn_more: http://data-dict.tidyverse.org/
+            tables:
+              - name: pups
+                columns:
+                  - name: pup_count
+                    type: number
+        "},
+    )
+    .unwrap();
+
+    let output = run_in(&dir, &["render"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("S07"), "{stderr}");
+    assert!(!dir.join("data-dict.html").exists(), "nothing is written");
+}

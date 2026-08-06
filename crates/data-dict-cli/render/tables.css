@@ -1,0 +1,271 @@
+/* The searchable table index, the table detail page, and the glossary.
+   Shares the page palette in app.css. */
+
+/* `details` disclosures: a quiet micro-label toggle, same in the lead and the modal */
+details.xdetails { margin: 0 0 18px; }
+details.xdetails > summary {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+details.xdetails > summary::-webkit-details-marker { display: none; }
+details.xdetails > summary::before { content: '\25B8'; font-size: 8px; }
+details.xdetails[open] > summary::before { content: '\25BE'; }
+details.xdetails > summary:hover { color: var(--ink); }
+details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 3px; }
+.xdetails-body { margin-top: 8px; max-width: 1000px; line-height: 1.55; color: var(--ink); }
+.tpage-details details.xdetails { margin: 0 0 13px; }
+.tpage-details .xdetails-body { font-size: 13.5px; max-width: none; }
+
+/* sampled values on a column, tucked away until asked for */
+details.xdetails.samples { margin: 5px 0 0; }
+details.xdetails.samples .samples-body { margin-top: 4px; max-width: none; }
+details.xdetails.samples .col-meta { margin-top: 0; }
+
+.toolbar { margin-bottom: 14px; }
+.toolbar input[type=search] {
+  width: 100%;
+  padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--card); color: var(--ink); font-size: 14px;
+}
+
+/* ---- table index ---- */
+.table-count { color: var(--ink-soft); font-size: 12px; margin: 0 0 10px; }
+.tlist-wrap {
+  border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--card); overflow-x: auto;
+}
+.tlist { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tlist thead th {
+  text-align: left; padding: 8px 14px; white-space: nowrap;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-soft); border-bottom: 1px solid var(--rule);
+}
+.tlist th.num, .tlist td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tlist td { padding: 0 14px; vertical-align: baseline; }
+
+/* one tbody per table: the block shares a border and a hover state */
+.tlist tbody.tgroup { border-bottom: 1px solid var(--rule); }
+.tlist tr[data-href] { cursor: pointer; }
+.tlist tbody.tgroup:last-child { border-bottom: none; }
+.tlist tbody.tgroup:hover td, .tlist tbody.tgroup:focus-within td { background: var(--chip); }
+.tlist tr.trow td { padding-top: 9px; }
+.tlist tr.drow td { padding-bottom: 10px; }
+.tlist tbody.tgroup:not(:has(.drow)) tr.trow td { padding-bottom: 10px; }
+
+a.tname {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 13px;
+  color: var(--ink); text-decoration: none; border-radius: 3px;
+}
+a.tname:hover { color: var(--link); }
+a.tname:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.tlist td.size { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; }
+.tlist .stimes { margin: 0 5px; opacity: .55; }
+.tlist td.desc { color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+/* the clamp needs a block of its own; a <td> does not honour -webkit-box */
+.tlist td.desc .dclamp {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* the search's receipt: the columns that matched, nested under their table */
+.tlist tr.mhead td.mheadcell { padding-top: 5px; padding-bottom: 3px; }
+.mlbl {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
+}
+button.showall {
+  font: inherit; font-size: 11px; margin-left: 10px; padding: 0;
+  border: none; background: none; color: var(--link); cursor: pointer; text-decoration: underline;
+}
+button.showall:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+.tlist tr.crow td { padding-top: 2px; padding-bottom: 2px; }
+.tlist tbody.tgroup tr.crow:last-child td { padding-bottom: 10px; }
+.tlist td.csub { padding-left: 26px; white-space: nowrap; }
+a.cpath {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  text-decoration: none; border-radius: 3px;
+}
+a.cpath .cp-tbl { color: var(--ink-soft); }
+a.cpath .cp-col { color: var(--ink); font-weight: 650; }
+a.cpath:hover .cp-col, a.cpath:hover .cp-tbl { color: var(--link); }
+a.cpath:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.cwhere {
+  margin-left: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9.5px;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft);
+}
+.tlist td.csub-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.4; text-align: left; }
+.dclamp1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.tlist tbody.tgroup:not(.expanded) tr.crow.xtra { display: none; }
+
+/* rendered Markdown in prose */
+.prose code {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em;
+  background: var(--chip); border-radius: 3px; padding: 0 3px;
+}
+.prose a { color: var(--link); text-underline-offset: 2px; }
+.prose a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+.prose p { margin: 0 0 10px; }
+.prose p:last-child, .prose > :last-child { margin-bottom: 0; }
+.prose ul, .prose ol { margin: 6px 0; padding-left: 22px; }
+
+/* glossary terms in prose: dotted underline, definition on hover */
+abbr.gterm {
+  text-decoration: underline dotted var(--ink-faint);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  cursor: help;
+}
+abbr.gterm:hover { text-decoration-color: var(--accent); }
+
+.tables-empty { color: var(--ink-soft); font-size: 13.5px; padding: 18px 14px; }
+
+@media (max-width: 720px) {
+  .tlist td.csub-desc { display: none; }
+}
+@media (max-width: 620px) {
+  .tlist td, .tlist thead th { padding-left: 10px; padding-right: 10px; }
+  .tlist td.csub { padding-left: 18px; }
+}
+
+/* ---- table detail page ---- */
+.tpage-nav { margin: 2px 0 14px; }
+.tpage-nav .backlink {
+  font-size: 13px; color: var(--link); text-decoration: none;
+}
+.tpage-nav .backlink:hover { text-decoration: underline; }
+.tpage-head { padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.tpage-title-row { display: flex; align-items: center; gap: 10px; }
+.mtitle { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 18px; color: var(--ink); }
+.tpage-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
+
+/* description on the left, the related-tables box top-right */
+.tpage-cols { display: flex; gap: 28px; align-items: flex-start; margin-bottom: 13px; }
+.tpage-main { flex: 1 1 auto; min-width: 0; max-width: 76ch; }
+.tpage-desc { color: var(--ink); font-size: 13.5px; margin: 0 0 13px; }
+.tpage-desc:last-child, .tpage-main > :last-child { margin-bottom: 0; }
+.tpage-related {
+  flex: 0 0 auto; width: 240px;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--card);
+  padding: 10px 12px;
+}
+.tpage-related[hidden] { display: none; }
+.tpage-related .rel-lbl {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-soft); margin-bottom: 8px;
+}
+.tpage-related .rel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tpage-controls { display: flex; gap: 10px; align-items: center; }
+.tpage-sort {
+  flex: none; padding: 8px 30px 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--card) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
+  color: var(--ink); font-size: 13.5px; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.tpage-filter {
+  flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--card); color: var(--ink); font-size: 14px;
+}
+.tpage-count { color: var(--ink-soft); font-size: 12px; margin: 12px 0 2px; }
+
+.col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
+.col-item:last-child { border-bottom: none; }
+/* the permalinked column: "you are here", distinct from a text match. The
+   item already bleeds into both gutters, so the tint spans the full row. */
+.col-item.is-target {
+  background: var(--chip);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding-left: 10px;
+}
+
+/* ---- glossary modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000; padding: 20px;
+  background: rgba(20, 22, 28, .45);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
+  width: min(760px, 96vw); max-height: 86vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px var(--modal-shadow), 0 0 44px var(--modal-glow);
+}
+.modal-head { flex: none; padding: 18px 22px 14px; border-bottom: 1px solid var(--rule); position: relative; }
+.modal-title-row { display: flex; align-items: center; gap: 10px; }
+.modal-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
+.modal-filter {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: 14px;
+}
+.modal-close {
+  position: absolute; top: 12px; right: 15px; border: none; background: transparent;
+  font-size: 24px; line-height: 1; color: var(--ink-soft); cursor: pointer;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-body { flex: 1; overflow-y: auto; padding: 4px 22px 22px; }
+.col-main { flex: 1 1 auto; min-width: 0; }
+.col-side { flex: 0 0 auto; width: 256px; }
+.col-null { flex: 0 0 auto; width: 50px; }
+.null-plotarea { height: 38px; display: flex; align-items: center; justify-content: center; }
+/* the missing meter: the missing share in red, anchored left, over a grey base */
+.missbar { width: 50px; height: 10px; border-radius: 999px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
+.missfill { position: absolute; top: -0.5px; left: -0.5px; bottom: -0.5px; min-width: 6px; border-radius: 999px 0 0 999px; background: var(--null-bar); box-sizing: border-box; }
+.missfill.full { right: -0.5px; min-width: 0; border-radius: 999px; }
+.null-cap { color: var(--ink-soft); font-size: 11px; margin-top: 3px; font-family: ui-monospace, Menlo, Consolas, monospace; text-align: center; white-space: nowrap; }
+.col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.col-name { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 13.5px; color: var(--ink); }
+a.col-name { text-decoration: none; border-radius: 3px; }
+a.col-name:hover { color: var(--link); }
+a.col-name:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+/* the anchor mark holds its space, so hovering never nudges the row */
+a.col-name .anchor-mark { margin-left: 6px; font-weight: 400; color: var(--ink-soft); opacity: 0; }
+a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 1; }
+/* quiet, but its own colour keeps it findable */
+.col-type { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; font-weight: 500; line-height: 1; color: var(--type-ink); }
+/* constraint pills — primary key, unique, required — all one family */
+.col-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--tag-ink); background: var(--chip); border-radius: 4px;
+  padding: 3px 7px; font-size: 11px; line-height: 1;
+}
+.col-tag svg { width: 11px; height: 11px; display: block; }
+.col-desc { color: var(--ink); font-size: 13px; margin-top: 4px; line-height: 1.5; }
+.col-meta { color: var(--ink-soft); font-size: 11.5px; margin-top: 5px; }
+.col-meta .lbl { font-weight: 650; margin-right: 6px; }
+.col-meta code { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+.joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.joins-line .lbl { margin-right: 0; }
+.join-chip { display: inline-flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; color: var(--ink); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
+.join-chip:hover { border-color: var(--link); color: var(--link); }
+.join-chip svg { width: 20px; height: 10px; display: block; color: var(--ink-soft); }
+/* a quiet panel behind the bars, so the histogram reads as one thing */
+.col-hist {
+  margin-top: 2px;
+  padding: 6px 7px 5px;
+  border: 1px solid var(--row-line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.hist-svg { display: block; }
+.hist-svg .bar { fill: var(--hist-bar); transition: fill .08s ease; }
+/* off-scale values (-Inf, Inf, NaN), split from the data by a divider */
+.hist-svg .bar.special { fill: var(--ink-faint); }
+.hist-svg .bar.hot { fill: var(--hist-bar-hot); }
+.hist-svg .hist-sep { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 2; }
+/* full-height backdrop for the hovered column, tinted to match the hot bar */
+.hist-svg .band { fill: transparent; transition: fill .08s ease; }
+.hist-svg .band.hot { fill: var(--hist-band); }
+.hist-svg .hit { fill: transparent; }
+.hist-cap { color: var(--ink-soft); font-size: 11px; margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.gloss-item { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.gloss-item:last-child { border-bottom: none; }
+.gloss-term { font-weight: 700; font-size: 14.5px; color: var(--ink); }
+.gloss-def { color: var(--ink); font-size: 13px; margin-top: 3px; line-height: 1.55; }
