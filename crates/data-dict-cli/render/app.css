@@ -7,12 +7,12 @@
 
   --ink: light-dark(#1c2430, #e3e6ea);
   --ink-soft: light-dark(#5b6675, #a3acb7);
-  --ink-faint: light-dark(#98a2b0, #6f7883);
-  --paper: light-dark(#f6f5f2, #14181c);
+  --ink-faint: light-dark(#7d8794, #6f7883);
+  --paper: light-dark(#f1eee8, #14181c);
   --card: light-dark(#ffffff, #1e242a);
   --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
-  --rule: light-dark(#dfdcd5, #333b44);
-  --row-line: light-dark(#f0eeea, #2a3138);
+  --rule: light-dark(#d6d0c4, #333b44);
+  --row-line: light-dark(#e4e0d7, #2a3138);
   --accent: light-dark(#1d6b6b, #43a8a0);
   --accent-soft: light-dark(#cfe3e0, #1b3f3d);
   --on-accent: light-dark(#ffffff, #0f1d1c); /* text on an accent fill */
@@ -27,8 +27,11 @@
   --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
   --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
 
+  /* A panel set into a card, halfway between the card and the page behind it. */
+  --inset: light-dark(#f8f6f4, #191e23);
+
   /* the tables app's vocabulary, mapped onto the same palette */
-  --chip: light-dark(#eef1f4, #21262d);
+  --chip: light-dark(#e9ecf2, #21262d);
   --link: light-dark(#4f78b3, #7da7d9);
   --type-ink: light-dark(#0e7490, #35c2d6);
   --tag-ink: light-dark(#9d5d00, #d9a05b);
