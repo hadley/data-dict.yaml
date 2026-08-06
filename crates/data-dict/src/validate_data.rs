@@ -44,7 +44,7 @@ pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
 /// pushing any problems found into `out`. `actual` is the column schema already
 /// read for the metadata checks, used here only to tell which columns are
 /// present.
-fn value_issues(
+pub(crate) fn value_issues(
     table: &Table,
     parquet_path: &Path,
     actual: &[DataColumn],
@@ -551,7 +551,7 @@ fn uniqueness_not_verified_primary_key(
 /// D05/D06 — referential integrity. Runs once over the tables that were read,
 /// checking each single-column foreign key's values against the `primary_key` it
 /// references, whose data may live in another table's source.
-fn foreign_key_issues(dict: &DataDict, readable: &ReadTables, out: &mut ProblemSet) {
+pub(crate) fn foreign_key_issues(dict: &DataDict, readable: &ReadTables, out: &mut ProblemSet) {
     let mut checks = Vec::new();
     let mut targets = Vec::new();
     for table in &dict.tables {

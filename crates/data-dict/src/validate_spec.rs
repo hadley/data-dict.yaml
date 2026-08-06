@@ -1482,7 +1482,7 @@ fn validate_s16_single_table_description(dict: &DataDict, out: &mut ProblemSet) 
         ("details", &table.details),
     ]
     .into_iter()
-    .filter_map(|(key, opt)| opt.as_ref().map(|span| (key, span)))
+    .filter_map(|(key, opt)| opt.as_ref().map(|spanned| (key, &spanned.span)))
     .collect();
 
     if present.is_empty() {
@@ -1522,9 +1522,8 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
 // --- S09 --------------------------------------------------------------
 
 /// Warn when the document omits the recommended `$learn_more` key. Unlike the
-/// other rules this inspects the raw AST, because `$learn_more` is top-level
-/// metadata that the lowered [`DataDict`] does not carry. The key has no
-/// location of its own, so the warning is anchored at the document's first
+/// other rules this inspects the raw AST, because the missing key has no
+/// location of its own; the warning is anchored at the document's first
 /// character.
 fn validate_s09_learn_more(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let Some(entries) = root.as_hash() else {
@@ -1557,8 +1556,8 @@ fn validate_s09_learn_more(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
 /// right value type); S17 enforces the semantic rules the schema can't: a
 /// `version` must carry exactly one of those keys, a `number` must have three
 /// dot-separated numeric components (with an optional suffix), and a `date` must
-/// be a valid ISO 8601 date. Like S09, it reads the raw AST because `version` is
-/// top-level metadata the lowered [`DataDict`] does not carry.
+/// be a valid ISO 8601 date. It reads the raw AST because the checks point at
+/// the offending keys, whose spans the lowered [`DataDict`] does not carry.
 fn validate_s17_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let Some(entries) = root.as_hash() else {
         return;

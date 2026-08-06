@@ -153,3 +153,66 @@ fn describe_rejects_other_file_types() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("only .parquet"), "{stderr}");
 }
+
+// --- export ------------------------------------------------------------
+
+/// `export-spec` prints the resolved dictionary as one compact JSON line on
+/// stdout (so it composes with tools like `jq`); `--pretty` pretty-prints it.
+/// `export-data` profiles the source data into the same document.
+#[test]
+fn export_compact_and_pretty() {
+    let dir = temp_dir("export");
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        indoc::indoc! {"
+            $version: \"0.1.0\"
+            $learn_more: http://data-dict.tidyverse.org/
+            tables:
+              - name: pups
+                source:
+                  parquet: pups.parquet
+                columns:
+                  - name: pup_count
+                    type: number
+                    examples: [1]
+        "},
+    )
+    .unwrap();
+
+    let output = run_in(&dir, &["export-spec"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1, "compact output is one line");
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["tables"][0]["columns"][0]["name"], "pup_count");
+    assert!(json["tables"][0]["columns"][0]["profile"].is_null());
+
+    let output = run_in(&dir, &["export-spec", "--pretty"]);
+    assert!(output.status.success());
+    let pretty = String::from_utf8(output.stdout).unwrap();
+    assert!(pretty.lines().count() > 1, "pretty output is multi-line");
+
+    let output = run_in(&dir, &["export-data"]);
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let profile = &json["tables"][0]["columns"][0]["profile"];
+    assert_eq!(profile["distinct"]["count"], 3);
+    assert_eq!(profile["missing"], 0);
+}
+
+/// An invalid dictionary exports nothing: diagnostics on stderr, nothing on
+/// stdout, and a failing exit code.
+#[test]
+fn export_spec_fails_on_invalid_dictionary() {
+    let fixture = multi_error_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
+        .args(["export-spec"])
+        .arg(&fixture)
+        .output()
+        .expect("failed to run data-dict");
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty(), "no document on stdout");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("S07"), "{stderr}");
+}

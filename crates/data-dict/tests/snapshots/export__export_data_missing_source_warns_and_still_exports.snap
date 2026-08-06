@@ -1,0 +1,17 @@
+---
+source: crates/data-dict/tests/export.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    columns:
+      - name: id
+        type: number(id)
+        examples: [1]
+────────────────────────────────────────
+warning[M04]: A table validated against data must declare a `source`.
+  --> dict.yaml:4:11
+   |
+LL |   - name: animals
+   |           ^^^^^^^ has no `source`

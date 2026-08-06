@@ -24,6 +24,8 @@ website:
         text: Expressions
       - href: validation.md
         text: Validation
+      - href: export.md
+        text: Export
       - href: examples/index.qmd
         text: Examples
     right:

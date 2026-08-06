@@ -1,0 +1,282 @@
+---
+source: crates/data-dict/tests/export.rs
+expression: "serde_json::to_string_pretty(&export.unwrap()).unwrap()"
+---
+{
+  "name": null,
+  "label": null,
+  "description": null,
+  "details": null,
+  "origin": null,
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "version": null,
+  "tables": [
+    {
+      "name": "animals",
+      "label": null,
+      "description": null,
+      "details": null,
+      "origin": null,
+      "source": {
+        "parquet": "data.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "label": null,
+          "description": null,
+          "details": null,
+          "display": null,
+          "type": "number(id)",
+          "units": null,
+          "time_zone": null,
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "references": null,
+          "referenced_by": [],
+          "values": null,
+          "range": null,
+          "examples": [
+            1
+          ],
+          "fields": null,
+          "assertions": [],
+          "profile": {
+            "distinct": {
+              "count": 3,
+              "approximate": false
+            },
+            "missing": 0,
+            "sample_values": [
+              1,
+              2,
+              3
+            ],
+            "histogram": {
+              "bins": [
+                {
+                  "min": 1,
+                  "max": 2,
+                  "count": 2,
+                  "closed": "both"
+                },
+                {
+                  "min": 2,
+                  "max": 3,
+                  "count": 1,
+                  "closed": "right"
+                }
+              ]
+            },
+            "common_values": null
+          }
+        },
+        {
+          "name": "name",
+          "label": null,
+          "description": null,
+          "details": null,
+          "display": null,
+          "type": "string",
+          "units": null,
+          "time_zone": null,
+          "constraints": [],
+          "references": null,
+          "referenced_by": [],
+          "values": null,
+          "range": null,
+          "examples": [
+            "otter"
+          ],
+          "fields": null,
+          "assertions": [],
+          "profile": {
+            "distinct": {
+              "count": 2,
+              "approximate": false
+            },
+            "missing": 0,
+            "sample_values": [
+              "otter",
+              "seal"
+            ],
+            "histogram": null,
+            "common_values": {
+              "approximate": false,
+              "values": [
+                {
+                  "value": "otter",
+                  "count": 2
+                },
+                {
+                  "value": "seal",
+                  "count": 1
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "weight",
+          "label": null,
+          "description": null,
+          "details": null,
+          "display": null,
+          "type": "number(quantity)",
+          "units": "kg",
+          "time_zone": null,
+          "constraints": [],
+          "references": null,
+          "referenced_by": [],
+          "values": null,
+          "range": {
+            "min": 0,
+            "max": 10
+          },
+          "examples": null,
+          "fields": null,
+          "assertions": [],
+          "profile": {
+            "distinct": null,
+            "missing": 1,
+            "sample_values": [
+              1.0,
+              4.0
+            ],
+            "histogram": {
+              "bins": [
+                {
+                  "min": 1.0,
+                  "max": 1.15,
+                  "count": 1,
+                  "closed": "both"
+                },
+                {
+                  "min": 1.15,
+                  "max": 1.3,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 1.3,
+                  "max": 1.45,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 1.45,
+                  "max": 1.6,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 1.6,
+                  "max": 1.75,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 1.75,
+                  "max": 1.9,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 1.9,
+                  "max": 2.05,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.05,
+                  "max": 2.2,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.2,
+                  "max": 2.35,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.35,
+                  "max": 2.5,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.5,
+                  "max": 2.65,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.65,
+                  "max": 2.8,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.8,
+                  "max": 2.95,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 2.95,
+                  "max": 3.1,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.1,
+                  "max": 3.25,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.25,
+                  "max": 3.4,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.4,
+                  "max": 3.55,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.55,
+                  "max": 3.7,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.7,
+                  "max": 3.85,
+                  "count": 0,
+                  "closed": "right"
+                },
+                {
+                  "min": 3.85,
+                  "max": 4.0,
+                  "count": 1,
+                  "closed": "right"
+                }
+              ]
+            },
+            "common_values": null
+          }
+        }
+      ],
+      "constraints": []
+    }
+  ],
+  "relationships": [],
+  "glossary": []
+}
