@@ -969,12 +969,21 @@ enum Ret {
     SameAsArg,
 }
 
+/// The [`Shape`] rule a function follows: an aggregate folds `row` or `const`
+/// arguments into `agg`, and rejects an `agg` one; every other function returns
+/// the largest shape among its arguments, whatever those are.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SigShape {
+    Elementwise,
+    Aggregate,
+}
+
 #[derive(Clone, Copy)]
 struct Sig {
     arities: &'static [usize],
     arg: ArgClass,
     ret: Ret,
-    aggregate: bool,
+    shape: SigShape,
 }
 
 impl Sig {
@@ -983,7 +992,7 @@ impl Sig {
             arities,
             arg: ArgClass::Only(arg),
             ret,
-            aggregate: false,
+            shape: SigShape::Elementwise,
         }
     }
 
@@ -992,7 +1001,7 @@ impl Sig {
             arities,
             arg: ArgClass::Only(arg),
             ret,
-            aggregate: true,
+            shape: SigShape::Aggregate,
         }
     }
 }
@@ -1022,13 +1031,13 @@ fn signature(name: &str) -> Option<Sig> {
             arities: &[1],
             arg: ArgClass::Unconstrained,
             ret: Fixed(Ty::Number),
-            aggregate: true,
+            shape: SigShape::Aggregate,
         },
         "row_count" => Sig {
             arities: &[0],
             arg: ArgClass::Unconstrained,
             ret: Fixed(Ty::Number),
-            aggregate: true,
+            shape: SigShape::Aggregate,
         },
         _ => return None,
     })
@@ -1599,8 +1608,8 @@ impl Checker<'_> {
                 s
             }
             ExprKind::Call { name, args } => {
-                let aggregate =
-                    signature(&name.to_ascii_lowercase()).is_some_and(|sig| sig.aggregate);
+                let aggregate = signature(&name.to_ascii_lowercase())
+                    .is_some_and(|sig| sig.shape == SigShape::Aggregate);
                 let mut widest = Shape::Const;
                 for a in args {
                     let s = self.shape(a);
