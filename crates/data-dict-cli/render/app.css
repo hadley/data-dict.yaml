@@ -64,7 +64,12 @@ body {
 main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
+/* the dataset's name and, once you are inside a table, the way back out */
+.head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
 h1.title { color: var(--accent); font-size: 29px; font-weight: 700; margin: 0; }
+.homelink { font-size: 13px; color: var(--link); text-decoration: none; }
+.homelink:hover { text-decoration: underline; }
+.homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .icon-btn {
   flex: none; width: 38px; height: 38px; border: 1px solid var(--rule); border-radius: 9px;

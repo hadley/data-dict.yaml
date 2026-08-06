@@ -127,13 +127,21 @@ function JoinChip({ join }) {
 
 /* ---- Header and lead ------------------------------------------------------ */
 
-function Header({ onGlossary }) {
+/* The way back sits beside the dataset's name rather than over the table it
+   leaves, so it is in the same place on every page. It only appears once there
+   is somewhere to go back from. */
+function Header({ onGlossary, atTable }) {
   return html`<header class="pagehead">
-    <h1 class="title" id="dict-title">
-      ${DICT.name
-        ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
-        : "Data dictionary"}
-    </h1>
+    <div class="head-title">
+      <h1 class="title" id="dict-title">
+        ${DICT.name
+          ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
+          : "Data dictionary"}
+      </h1>
+      ${atTable &&
+        html`<a class="homelink" href="#" title="Back to every table"
+          onClick=${(e) => { e.preventDefault(); goHome(); }}>home</a>`}
+    </div>
     <div class="head-actions">
       ${glossItems.length > 0 &&
         html`<button id="glossary-btn" class="icon-btn" type="button" aria-label="Show glossary"
@@ -435,9 +443,6 @@ function TablePage({ table: t, targetCol }) {
                    cols.length + " columns"].filter(Boolean).join(" · ");
 
   return html`<section id="table-page">
-    <nav class="tpage-nav">
-      <a class="backlink" href="#" onClick=${(e) => { e.preventDefault(); goHome(); }}>← All tables</a>
-    </nav>
     <div class="tpage-head">
       <div class="tpage-top">
         <div class="tpage-headmain">
@@ -553,7 +558,7 @@ function App() {
   );
 
   return html`
-    <${Header} onGlossary=${() => setGlossOpen(true)} />
+    <${Header} onGlossary=${() => setGlossOpen(true)} atTable=${!!openTable} />
     <div id="home" hidden=${!!openTable}>
       <${Lead} />
       ${hasRels && html`<${RelationshipsDiagram} />`}

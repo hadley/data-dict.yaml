@@ -126,11 +126,6 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
 }
 
 /* ---- table detail page ---- */
-.tpage-nav { margin: 2px 0 14px; }
-.tpage-nav .backlink {
-  font-size: 13px; color: var(--link); text-decoration: none;
-}
-.tpage-nav .backlink:hover { text-decoration: underline; }
 .tpage-head { padding-bottom: 14px; }
 .tpage-title-row { display: flex; align-items: center; gap: 10px; }
 .mtitle { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 18px; color: var(--ink); }
