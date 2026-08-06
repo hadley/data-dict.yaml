@@ -5,8 +5,14 @@
    models well — mounted and initialised here by a component that renders its
    skeleton exactly once. */
 
-const ALL_TABLES = (DICT.tables || []).filter((t) => t && t.name);
-const BASE_TITLE = DICT.name ? "Data dictionary — " + DICT.name : "Data dictionary";
+let ALL_TABLES, BASE_TITLE;
+
+function readDict() {
+  ALL_TABLES = (DICT.tables || []).filter((t) => t && t.name);
+  BASE_TITLE = DICT.name ? "Data dictionary — " + DICT.name : "Data dictionary";
+}
+
+readDict();
 
 /* ---- Permalinks -----------------------------------------------------------
    #account            -> open the account table's page

@@ -43,6 +43,9 @@ const HEARTBEAT_FRAME: &str = ":\n\n";
 /// What the server is currently serving.
 struct Page {
     html: String,
+    /// The same export the page was built around, served on its own so the
+    /// browser can take a new dictionary without reloading.
+    json: String,
     /// Whether the last build failed, leaving `html` as the last good page.
     failed: bool,
     /// The last build's diagnostics, rendered for display.
@@ -95,9 +98,10 @@ impl Session {
 
 /// One build's outcome.
 struct Build {
-    /// `None` when the dictionary stopped validating or the page's assets
-    /// couldn't be read; the last good page keeps serving.
-    html: Option<String>,
+    /// The page and the export it was built around. `None` when the dictionary
+    /// stopped validating or the page's assets couldn't be read; the last good
+    /// page keeps serving.
+    page: Option<(String, String)>,
     /// Each table's source file, resolved against the dictionary's directory.
     /// `None` when the export failed, where the previous list stands.
     sources: Option<Vec<PathBuf>>,
@@ -111,7 +115,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
     let mut text = problems.render(RenderStyle::default());
     let Some(export) = export else {
         return Build {
-            html: None,
+            page: None,
             sources: None,
             failed: true,
             text,
@@ -125,7 +129,12 @@ fn build(dict: &Path, assets: &Assets) -> Build {
         .collect();
     match assets.render_page(&dict_json(&export), true) {
         Ok(html) => Build {
-            html: Some(html),
+            // The page's own copy is escaped for its `<script>` block; the one
+            // served on its own is the plain document.
+            page: Some((
+                html,
+                serde_json::to_string(&export).expect("an export always serializes"),
+            )),
             sources: Some(sources),
             failed: problems.status().failed(),
             text,
@@ -133,7 +142,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
         Err(err) => {
             text.push(format!("could not read the page's assets: {err}"));
             Build {
-                html: None,
+                page: None,
                 sources: Some(sources),
                 failed: true,
                 text,
@@ -150,7 +159,7 @@ pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
     }
     // A page that never built has nothing to serve, so this fails like `render`
     // rather than starting up empty; a later failure keeps the last good page.
-    let Some(html) = first.html else {
+    let Some((html, json)) = first.page else {
         return ExitCode::FAILURE;
     };
     let listener = match bind(port) {
@@ -173,6 +182,7 @@ pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
         assets,
         page: Mutex::new(Page {
             html,
+            json,
             failed: first.failed,
             text: first.text,
         }),
@@ -202,6 +212,10 @@ fn handle(session: &Arc<Session>, mut stream: TcpStream) -> std::io::Result<()> 
         "/" => {
             let html = session.page.lock().unwrap().html.clone();
             respond(&mut stream, "200 OK", "text/html; charset=utf-8", &html)
+        }
+        "/dict.json" => {
+            let json = session.page.lock().unwrap().json.clone();
+            respond(&mut stream, "200 OK", "application/json", &json)
         }
         "/problems" => {
             let body = {
@@ -314,11 +328,12 @@ fn apply(session: &Arc<Session>, build: Build) {
     for line in &build.text {
         eprintln!("{line}");
     }
-    let rebuilt = build.html.is_some();
+    let rebuilt = build.page.is_some();
     {
         let mut page = session.page.lock().unwrap();
-        if let Some(html) = build.html {
+        if let Some((html, json)) = build.page {
             page.html = html;
+            page.json = json;
         }
         page.failed = build.failed;
         page.text = build.text;
@@ -355,6 +370,7 @@ mod tests {
             assets: Assets::Embedded,
             page: Mutex::new(Page {
                 html: html.to_string(),
+                json: r#"{"tables":[]}"#.to_string(),
                 failed: false,
                 text: Vec::new(),
             }),
@@ -399,6 +415,17 @@ mod tests {
         }
         let response = get(start(&session), "/problems");
         assert!(response.ends_with(r#"{"failed":true,"text":["S07: bad"]}"#));
+    }
+
+    /// The export is served on its own so a rebuilt dictionary can be taken
+    /// without reloading, and unescaped: it isn't inside a `<script>` here.
+    #[test]
+    fn the_export_is_served_on_its_own() {
+        let session = session("page");
+        session.page.lock().unwrap().json = r#"{"name":"a<b"}"#.to_string();
+        let response = get(start(&session), "/dict.json");
+        assert!(response.contains("Content-Type: application/json"));
+        assert!(response.ends_with(r#"{"name":"a<b"}"#));
     }
 
     #[test]

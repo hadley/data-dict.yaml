@@ -3,8 +3,28 @@
 // tooltip, and one Escape dispatcher. Everything is declared at the top level
 // of a classic script, so the bindings are visible to the scripts that follow.
 
-const DICT = JSON.parse(document.getElementById("dict").textContent);
-window.DICT = DICT;
+/* Rebindable rather than constant so `render --live` can swap a rebuilt
+   dictionary in without reloading the page; everything derived from it is
+   rebuilt by `loadDict` in the same breath. */
+let DICT, glossItems, GLOSS_DEFS, GLOSS_RE;
+
+function loadDict(next) {
+  DICT = next;
+  window.DICT = next;
+  glossItems = (DICT.glossary || []).map((g) => [g.term, g.definition]);
+  GLOSS_DEFS = {};
+  glossItems.forEach(([term, def]) => {
+    GLOSS_DEFS[term.toLowerCase()] = String(def).replace(/\s+/g, " ").trim();
+  });
+  /* Longest first so "size bucket" wins over "size", "HIDI lead" over "lead". */
+  const terms = glossItems.map(([term]) => term).sort((a, b) => b.length - a.length);
+  const quote = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  GLOSS_RE = terms.length
+    ? new RegExp("\\b(" + terms.map(quote).join("|") + ")\\b", "gi")
+    : null;
+}
+
+loadDict(JSON.parse(document.getElementById("dict").textContent));
 
 const el = (tag, cls, txt) => {
   const node = document.createElement(tag);
@@ -24,21 +44,8 @@ const esc = (s) =>
 /* ---- Glossary annotations ------------------------------------------------
    Any glossary term appearing in prose gets a dotted underline and a tooltip.
    Matching is on word boundaries, so identifiers (account_tiles_data,
-   active_arr) and longer words (percentile) are left alone. ---------------- */
-
-const glossItems = (DICT.glossary || []).map((g) => [g.term, g.definition]);
-
-const GLOSS_DEFS = {};
-glossItems.forEach(([term, def]) => {
-  GLOSS_DEFS[term.toLowerCase()] = String(def).replace(/\s+/g, " ").trim();
-});
-/* Longest first so "size bucket" wins over "size", "HIDI lead" over "lead". */
-const GLOSS_RE = (() => {
-  const terms = glossItems.map(([term]) => term).sort((a, b) => b.length - a.length);
-  if (!terms.length) return null;
-  const quote = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp("\\b(" + terms.map(quote).join("|") + ")\\b", "gi");
-})();
+   active_arr) and longer words (percentile) are left alone. The lookup and
+   the pattern are built by `loadDict` above. -------------------------------- */
 
 /* Text with the query occurrence wrapped in <mark>, as a DOM node. The prose
    annotator below builds real DOM; the vnode twin for component use is

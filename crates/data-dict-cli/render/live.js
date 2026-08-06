@@ -76,12 +76,50 @@
     show(failed ? "err" : "warn", failed ? "Not rendered — " + n : n, text.join("\n\n"));
   }
 
+  /* Taking a rebuilt dictionary without reloading keeps the things a reload
+     throws away: the column filter and sort, how far down the page you are,
+     and an open glossary. It reaches straight for the page's own bindings —
+     these are classic scripts sharing one global scope, so `loadDict` and
+     `readDict` rebuild what was derived from the old dictionary, and
+     re-rendering from the root leaves component state alone.
+
+     The diagram is deliberately not part of this. It is an imperative engine
+     that binds its listeners to the nodes it is initialised over, so running
+     it again would double them, and it can't be laid out while hidden because
+     it measures real boxes. So a swap is only taken on a table page, where the
+     diagram is off screen, and the reload it still needs is deferred until you
+     navigate back to it. */
+  let staleDiagram = false;
+
+  function onTablePage() {
+    return location.hash !== "";
+  }
+
+  async function swap() {
+    const next = await (await fetch("/dict.json", { cache: "no-store" })).json();
+    loadDict(next);
+    readDict();
+    preact.render(html`<${App} />`, document.getElementById("app"));
+    staleDiagram = true;
+  }
+
+  function rebuilt() {
+    if (!onTablePage()) return location.reload();
+    // A failed swap must not leave a half-updated page: fall back to the
+    // reload it replaced.
+    swap().then(report, () => location.reload());
+  }
+
+  addEventListener("hashchange", () => {
+    if (staleDiagram && !onTablePage()) location.reload();
+  });
+
   /* EventSource reconnects on its own, so a restarted server reattaches this
      tab. Whatever changed while it was gone is picked up by reloading once the
      connection is back. */
   let dropped = false;
   const events = new EventSource("/events");
-  events.addEventListener("reload", () => location.reload());
+  events.addEventListener("reload", rebuilt);
   events.addEventListener("problems", report);
   events.addEventListener("open", () => {
     if (dropped) location.reload();
