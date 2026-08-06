@@ -24,8 +24,6 @@ This page is the reference for the language. It covers [how an expression is eva
 
 **One table, at two grains.** An expression sees the columns of one table. A bare column reference is read one row at a time, and evaluating the expression against every row in turn is the whole of its meaning; an [aggregate](#aggregate-functions) instead folds a column over every row at once, giving one value for the table. Which grain each part of an expression has is settled before any data is read — see [shapes](#shapes).
 
-There are no subqueries: cross-table rules belong in [`relationships`](spec.md#relationships).
-
 **Deterministic, apart from `NOW()`.** The same row always gives the same result. `NOW()` is the one exception: it reads the current time, so a freshness check like `observed_at >= NOW() - interval(2, weeks)` can pass one day and fail the next even though the data hasn't changed.
 
 **Case sensitivity.** Keywords and function names are case-insensitive, as in SQL — `AND`, `and`, `LENGTH`, and `length` are all accepted. Column names are the exception: unlike SQL's unquoted identifiers, they are case-sensitive, matched exactly against the column names in the data (which may themselves differ only by case), consistent with how `name` is matched everywhere else. Value comparisons (`=`, `LIKE`, `SIMILAR TO`, …) are case-sensitive too.
@@ -57,7 +55,7 @@ An **`enum`** is a `string`, because [its values are always strings](spec.md#rep
 
 A **`struct`** or **`list`** column carries no scalar value of its own, so its bare name may stand only where no type is needed: `address IS NOT NULL` and `COUNT(address)` are fine, and any other use is ill-typed. A `struct`'s fields are reached with [dot access](#field-access), and a field reference has the field's declared type.
 
-A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error (S23): nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
+A column listed by **name only**, with no `type`, has an unknown type. Using one where a type is needed is an error: nothing can be checked about such an expression, and the fix is something the dictionary wants anyway — declare the column's `type`.
 
 An unknown type is only a problem where a type is actually needed. `IS NULL`, `IS NOT NULL`, and [`COUNT`](#count) ask nothing of their operand, so `u IS NOT NULL` — and `COLUMNS(*) IS NOT NULL` on a table with undocumented columns — is fine; `LENGTH(u)` and `u > 5` are not.
 
@@ -92,7 +90,7 @@ Alongside its type, every expression has a **shape**: how many values it stands 
 
 Two rules fix the shape of everything else.
 
-**An aggregate takes a `row` or `const` argument and returns `agg`.** So aggregates can't nest: `AVG(MIN(x))` asks for the average of a single value, and is a shape error (S30).
+**An aggregate takes a `row` or `const` argument and returns `agg`.** So aggregates can't nest: `AVG(MIN(x))` asks for the average of a single value, and is a shape error.
 
 **Every other operator and function takes the largest shape among its operands**, ordering them `const` < `agg` < `row`. So `LENGTH(postcode)` is `row`, `MAX(qty) * 2` is `agg`, and `qty <= MAX(qty)` is `row`.
 
@@ -402,20 +400,19 @@ A function rather than a `DISTINCT` modifier.
 
 A bare `b` already asserts that `b` holds for every row, so `ALL(b)` is rarely worth writing as a whole assertion. Both earn their place inside a larger rule, where the aggregate's single value is compared or combined with something else.
 
+These are not SQL's `ANY` and `ALL`. There those names are quantifiers over a subquery — `x > ALL (SELECT ...)` — and the boolean aggregates are spelled `BOOL_OR` and `BOOL_AND` instead, precisely to avoid the ambiguity.
+
 #### Empty and all-null input {#empty-input}
 
-Aggregates skip nulls, so a column holding nothing but nulls looks much like a table with no rows at all. What comes back is not uniform:
+Aggregates skip nulls, so a column holding nothing but nulls behaves exactly like a table with no rows — every aggregate gives the same answer either way:
 
-|                            | No rows | Every value null   |
-|----------------------------|---------|--------------------|
-| `MIN`, `MAX`, `SUM`, `AVG` | null    | null               |
-| `ANY`, `ALL`               | null    | null               |
-| `COUNT`, `COUNT_DISTINCT`  | 0       | 0                  |
-| `ROW_COUNT`                | 0       | the number of rows |
-
-: {tbl-colwidths="[40,30,30]"}
+* `MIN`, `MAX`, `SUM`, `AVG`, `ANY` and `ALL` return null.
+* `COUNT` and `COUNT_DISTINCT` return 0.
+* `ROW_COUNT` returns the number of rows, which is 0 when there are none; it never looks at values, so all-null rows still count.
 
 Combined with [`CHECK` semantics](#truth-and-null), where a null result passes, this means an aggregate assertion **passes vacuously on an empty table**: `AVG(score) BETWEEN 0 AND 100` holds when there are no scores.
+
+Returning null follows SQL, where folding nothing yields unknown. Dataframe libraries take the other route and return the fold's identity element: R, polars and pandas all give `0` for `SUM`, `false` for `ANY`, and `true` for `ALL`. (R also returns `Inf`/`-Inf` with a warning for `MIN`/`MAX`, where polars and pandas agree with SQL and give null.) In an assertion the difference rarely shows, since null passes and `ALL(b)` holds vacuously either way, but a rule like `SUM(qty) > 0` passes here on an empty table where an R user would expect a violation.
 
 ## Selecting multiple columns
 
@@ -448,15 +445,15 @@ Three rules bound the feature:
 
 * **At most one `COLUMNS(...)`** may appear in an expression, so there's no ambiguity about how two selections would combine.
 * **Every selected column must fit the way the expression uses it**, since the predicate is applied to each in turn. `LENGTH(COLUMNS('name_.*'))` requires that each matched column is a string, just as a bare column reference would.
-* **A regex that matches nothing is a warning** (S22). It's almost always a typo, and the expression would otherwise hold vacuously. `COLUMNS(*)` and an explicit list can't trigger it — an empty list isn't expressible, and an unknown name in a list is an error (S20) rather than a warning.
+* **A regex that matches nothing is a warning.** It's almost always a typo, and the expression would otherwise hold vacuously. `COLUMNS(*)` and an explicit list can't trigger it — an empty list isn't expressible, and an unknown name in a list is an error rather than a warning.
 
 The lambda form (`COLUMNS(c -> ...)`) and the star modifiers (`EXCLUDE`, `REPLACE`, `RENAME`) are **not** supported.
 
 ## Type checking
 
-Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression is S19, an unknown column S20, an ill-typed expression S21, an empty column selection S22, and a nested aggregate S30; see [validation](validation.md) for the full list.
+Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression, an unknown column, an ill-typed expression, an empty column selection, and a nested aggregate are each reported separately; see [validation](validation.md) for the codes and severities.
 
-Five rules decide whether an expression is well formed, and a sixth (S23, above) requires that every operand whose type matters has one. The more the dictionary says about a column, the more of an expression can be checked.
+Five rules decide whether an expression is well formed, and a sixth — that [every operand whose type matters has one](#types) — applies throughout. The more the dictionary says about a column, the more of an expression can be checked.
 
 ### The expression as a whole must be boolean
 
@@ -481,7 +478,7 @@ Its type is the common type of its branches; branches of differing types make th
 
 ### An aggregate can't contain another aggregate
 
-The one rule about [shape](#shapes) rather than type. An aggregate needs a value per row to fold, and another aggregate hands it a single value, so `AVG(MIN(x))` is a shape error (S30). It is the analogue of SQL's "column must appear in the `GROUP BY` clause" and, like the type rules, it fires before any data is read.
+The one rule about [shape](#shapes) rather than type. An aggregate needs a value per row to fold, and another aggregate hands it a single value, so `AVG(MIN(x))` is a shape error. It is the analogue of SQL's "column must appear in the `GROUP BY` clause" and, like the type rules, it fires before any data is read.
 
 Every other combination of shapes is well formed, [mixed grains included](#shapes).
 
