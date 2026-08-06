@@ -107,6 +107,78 @@ fn export_spec_resolves_the_dictionary() {
     insta::assert_snapshot!(export_json(RICH_DICT));
 }
 
+/// A column with no declared `type` makes no claims and is omitted, including
+/// from a `COLUMNS(...)` expansion.
+#[test]
+fn untyped_columns_are_omitted() {
+    let json: serde_json::Value = serde_json::from_str(&export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        tables:
+          - name: animals
+            columns:
+              - name: id
+                type: number(id)
+                examples: [1]
+              - name: scratch
+    "#}))
+    .unwrap();
+    let names: Vec<&str> = json["tables"][0]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|col| col["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["id"]);
+}
+
+/// Every join conjunct exports as a left/right column-reference pair,
+/// oriented to the normalized sides — whichever way round the conjunct was
+/// written, and with a `one-to-many`'s sides swapped. The original
+/// cardinality is kept as `declared_cardinality`.
+#[test]
+fn relationship_pairs_follow_normalized_sides() {
+    let json: serde_json::Value = serde_json::from_str(&export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        tables:
+          - name: periods
+            columns:
+              - name: start
+                type: date
+                constraints: [unique]
+                range: [2000-01-01, 2020-01-01]
+              - name: end
+                type: date
+                range: [2000-01-01, 2020-01-01]
+          - name: visits
+            columns:
+              - name: day
+                type: date
+                range: [2000-01-01, 2020-01-01]
+        relationships:
+          - cardinality: one-to-many
+            join: periods.start <= visits.day AND visits.day <= periods.end
+    "#}))
+    .unwrap();
+    let rel = &json["relationships"][0];
+    assert_eq!(rel["cardinality"], "many-to-one");
+    assert_eq!(rel["declared_cardinality"], "one-to-many");
+    assert_eq!(
+        rel["pairs"],
+        serde_json::json!([
+            {
+                "left": { "table": "visits", "column": "day" },
+                "right": { "table": "periods", "column": "start" }
+            },
+            {
+                "left": { "table": "visits", "column": "day" },
+                "right": { "table": "periods", "column": "end" }
+            }
+        ])
+    );
+}
+
 /// An invalid dictionary exports nothing and reports the same `S##`
 /// diagnostics as `validate-spec`.
 #[test]
@@ -232,6 +304,7 @@ fn export_data_profiles_struct_fields_and_list_containers() {
     let (problems, export) = export_data(&dict);
     assert_eq!(problems.status(), Status::Ok);
     let json = serde_json::to_value(export.unwrap()).unwrap();
+    assert_eq!(json["tables"][0]["rows"], 3);
     let columns = &json["tables"][0]["columns"];
 
     // A struct column carries no profile of its own; its fields do.
@@ -270,6 +343,7 @@ fn export_data_missing_source_warns_and_still_exports() {
     assert_eq!(problems.status(), Status::Warning);
     let export = export.expect("a sourceless table still exports");
     let json = serde_json::to_value(export).unwrap();
+    assert!(json["tables"][0]["rows"].is_null());
     assert!(json["tables"][0]["columns"][0]["profile"].is_null());
     let diagnostic = diagnostic(&dict, &problems.render(common::SNAPSHOT_STYLE).join("\n"));
     diagnostic.assert_contains(&["M04", "has no `source`"]);

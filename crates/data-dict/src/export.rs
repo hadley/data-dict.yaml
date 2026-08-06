@@ -27,20 +27,36 @@ use crate::model::{
 use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
 use crate::{ReadTables, load, validate_and_lower};
 
+/// The version of the export document format itself, carried as the
+/// document's `$version` so consumers can detect shape changes.
+pub const EXPORT_VERSION: &str = "0.1.0";
+
 /// The export document. Field order matches the JSON shape documented in
-/// `site/export.md`; every "or null" key serializes explicitly (no key is
-/// omitted), so consumers see one stable shape.
+/// `site/export.md`. A key with nothing to say — a missing optional, an empty
+/// collection — is omitted rather than serialized as `null`/`[]`; zeroes and
+/// falses are data and always appear.
 #[derive(Debug, Serialize)]
 pub struct Export {
+    #[serde(rename = "$version")]
+    format_version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     learn_more: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<ExportVersion>,
     tables: Vec<ExportTable>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     relationships: Vec<ExportRelationship>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     glossary: Vec<ExportGlossaryEntry>,
 }
 
@@ -55,12 +71,22 @@ enum ExportVersion {
 #[derive(Debug, Serialize)]
 struct ExportTable {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<ExportSource>,
+    /// The source data's row count; export-data only, and absent when the
+    /// table's source couldn't be profiled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rows: Option<usize>,
     columns: Vec<ExportColumn>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     constraints: Vec<ExportAssertion>,
 }
 
@@ -72,22 +98,37 @@ struct ExportSource {
 #[derive(Debug, Serialize)]
 struct ExportColumn {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     display: Option<String>,
     #[serde(rename = "type")]
-    col_type: Option<String>,
+    col_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     units: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     time_zone: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     constraints: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<ExportColumnRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     referenced_by: Vec<ExportColumnRef>,
-    values: Option<Vec<JsonScalar>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    values: Vec<JsonScalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     range: Option<ExportRange>,
-    examples: Option<Vec<JsonScalar>>,
-    fields: Option<Vec<ExportColumn>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    examples: Vec<JsonScalar>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fields: Vec<ExportColumn>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     assertions: Vec<ExportAssertion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     profile: Option<ExportProfile>,
 }
 
@@ -106,25 +147,33 @@ struct ExportRange {
 #[derive(Debug, Serialize)]
 struct ExportAssertion {
     expression: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     columns: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct ExportRelationship {
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     cardinality: &'static str,
-    left: ExportSide,
-    right: ExportSide,
+    /// The cardinality as written in the dictionary — the orientation the
+    /// `join` text documents, before any left/right normalization.
+    declared_cardinality: &'static str,
+    pairs: Vec<ExportPair>,
     join: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     aliases: Vec<ExportAlias>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     conflicts: Vec<String>,
 }
 
+/// One join conjunct as a column correspondence, oriented so `left` is the
+/// normalized "many" side; tables are real (alias-resolved) names.
 #[derive(Debug, Serialize)]
-struct ExportSide {
-    table: String,
-    columns: Vec<String>,
+struct ExportPair {
+    left: ExportColumnRef,
+    right: ExportColumnRef,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,13 +188,41 @@ struct ExportGlossaryEntry {
     definition: String,
 }
 
+/// A column's data profile. The shape follows the column's type, so a key
+/// that could never apply to it doesn't appear at all: numeric and temporal
+/// columns summarize on a scale (observed range, histogram); string, boolean,
+/// and enum columns summarize by value (common values); a list column — and a
+/// column whose Parquet type can't be summarised — reports only its missing
+/// count.
 #[derive(Debug, Serialize)]
-struct ExportProfile {
-    distinct: Option<ExportDistinct>,
-    missing: Option<usize>,
-    sample_values: Vec<JsonScalar>,
-    histogram: Option<ExportHistogram>,
-    common_values: Option<ExportCommonValues>,
+#[serde(untagged)]
+enum ExportProfile {
+    Scaled {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        distinct: Option<ExportDistinct>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        missing: Option<usize>,
+        /// The observed extremes.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        range: Option<ExportRange>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        sample_values: Vec<JsonScalar>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        histogram: Option<ExportHistogram>,
+    },
+    Valued {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        distinct: Option<ExportDistinct>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        missing: Option<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        sample_values: Vec<JsonScalar>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        common_values: Option<ExportCommonValues>,
+    },
+    Minimal {
+        missing: usize,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +234,18 @@ struct ExportDistinct {
 #[derive(Debug, Serialize)]
 struct ExportHistogram {
     bins: Vec<ExportBin>,
+    /// Float values with no place on the number line, counted apart from the
+    /// bins (as `describe` reports them); each appears only when nonzero.
+    #[serde(skip_serializing_if = "is_zero")]
+    nan_count: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    negative_infinity_count: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    positive_infinity_count: usize,
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 #[derive(Debug, Serialize)]
@@ -196,6 +285,13 @@ enum JsonScalar {
 /// The profiles gathered for one table's readable source, keyed by the
 /// column's dotted path (`address.zip` for a struct field).
 type TableProfiles = HashMap<String, ExportProfile>;
+
+/// Everything gathered from one table's readable source: its row count and
+/// the per-column profiles.
+struct TableData {
+    rows: usize,
+    profiles: TableProfiles,
+}
 
 /// Render the dictionary at `dict_path` without reading any data. The document
 /// is `None` when spec validation fails, with the failure in the returned
@@ -250,14 +346,14 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
 
     // Profile only once the data is known to match the dictionary, so every
     // declared column resolves in its table's file.
-    let mut profiles: HashMap<String, TableProfiles> = HashMap::new();
+    let mut profiles: HashMap<String, TableData> = HashMap::new();
     for table in &dict.tables {
         let Some((parquet_path, _)) = readable.get(&table.name.value) else {
             continue;
         };
         match profile_table(table, parquet_path) {
-            Ok(table_profiles) => {
-                profiles.insert(table.name.value.clone(), table_profiles);
+            Ok(table_data) => {
+                profiles.insert(table.name.value.clone(), table_data);
             }
             Err(e) => {
                 problems.push_located(
@@ -276,8 +372,9 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
 
 // --- document assembly -------------------------------------------------
 
-fn build(dict: &DataDict, mut profiles: HashMap<String, TableProfiles>) -> Export {
+fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
     Export {
+        format_version: EXPORT_VERSION,
         name: dict.name.clone(),
         label: dict.label.clone(),
         description: dict.description.clone(),
@@ -293,8 +390,11 @@ fn build(dict: &DataDict, mut profiles: HashMap<String, TableProfiles>) -> Expor
             .tables
             .iter()
             .map(|table| {
-                let mut table_profiles = profiles.remove(&table.name.value).unwrap_or_default();
-                build_table(dict, table, &mut table_profiles)
+                let (rows, mut table_profiles) = match profiles.remove(&table.name.value) {
+                    Some(data) => (Some(data.rows), data.profiles),
+                    None => (None, TableProfiles::new()),
+                };
+                build_table(dict, table, rows, &mut table_profiles)
             })
             .collect(),
         relationships: dict
@@ -313,7 +413,12 @@ fn build(dict: &DataDict, mut profiles: HashMap<String, TableProfiles>) -> Expor
     }
 }
 
-fn build_table(dict: &DataDict, table: &Table, profiles: &mut TableProfiles) -> ExportTable {
+fn build_table(
+    dict: &DataDict,
+    table: &Table,
+    rows: Option<usize>,
+    profiles: &mut TableProfiles,
+) -> ExportTable {
     ExportTable {
         name: table.name.value.clone(),
         label: table.label.as_ref().map(|s| s.value.clone()),
@@ -323,17 +428,30 @@ fn build_table(dict: &DataDict, table: &Table, profiles: &mut TableProfiles) -> 
         source: table.source.as_ref().map(|s| ExportSource {
             parquet: s.parquet.value.clone(),
         }),
-        columns: table
-            .columns
-            .iter()
-            .map(|col| build_column(dict, table, col, &[], profiles))
-            .collect(),
+        rows,
+        columns: build_columns(dict, table, &table.columns, &[], profiles),
         constraints: table
             .constraints
             .iter()
             .map(|a| build_assertion(a, table))
             .collect(),
     }
+}
+
+/// Build one level of the column tree. A column (or field) with no declared
+/// `type` makes no claims and is omitted from the export.
+fn build_columns(
+    dict: &DataDict,
+    table: &Table,
+    columns: &[Column],
+    prefix: &[&str],
+    profiles: &mut TableProfiles,
+) -> Vec<ExportColumn> {
+    columns
+        .iter()
+        .filter(|col| col.col_type.is_some())
+        .map(|col| build_column(dict, table, col, prefix, profiles))
+        .collect()
 }
 
 fn build_column(
@@ -383,13 +501,21 @@ fn build_column(
         description: col.description.clone(),
         details: col.details.clone(),
         display: col.display.clone(),
-        col_type: col.col_type.as_ref().map(|t| t.value.clone()),
+        col_type: col
+            .col_type
+            .as_ref()
+            .map(|t| t.value.clone())
+            .expect("untyped columns are filtered before building"),
         units: col.units.as_ref().map(|u| u.value.clone()),
         time_zone: col.time_zone.as_ref().map(|tz| tz.value.clone()),
         constraints,
         references,
         referenced_by,
-        values: col.values.as_ref().map(representation_scalars),
+        values: col
+            .values
+            .as_ref()
+            .map(representation_scalars)
+            .unwrap_or_default(),
         range: col.range.as_ref().and_then(|range| {
             let [min, max] = range.items.as_slice() else {
                 return None;
@@ -399,13 +525,16 @@ fn build_column(
                 max: scalar_json(&max.value),
             })
         }),
-        examples: col.examples.as_ref().map(representation_scalars),
-        fields: col.fields.as_ref().map(|fields| {
-            fields
-                .iter()
-                .map(|field| build_column(dict, table, field, &path, profiles))
-                .collect()
-        }),
+        examples: col
+            .examples
+            .as_ref()
+            .map(representation_scalars)
+            .unwrap_or_default(),
+        fields: col
+            .fields
+            .as_ref()
+            .map(|fields| build_columns(dict, table, fields, &path, profiles))
+            .unwrap_or_default(),
         assertions: col
             .assertions
             .iter()
@@ -456,19 +585,21 @@ fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
 
 /// Collect every column (and struct field, dotted) `e` references into `out`,
 /// first-appearance order, deduplicated. A `COLUMNS(...)` selection expands to
-/// the table columns it matches, mirroring the S21/S22 checker.
+/// the table columns it matches, mirroring the S21/S22 checker — restricted to
+/// typed columns, since untyped ones are omitted from the export.
 fn collect_columns(e: &Expr, table: &Table, out: &mut Vec<String>) {
+    let typed_columns = || table.columns.iter().filter(|col| col.col_type.is_some());
     match &e.kind {
         ExprKind::Column(path) => push_unique(out, path.join(".")),
         ExprKind::Columns(selector) => match selector {
             ColumnsSelector::All => {
-                for col in &table.columns {
+                for col in typed_columns() {
                     push_unique(out, col.name.value.clone());
                 }
             }
             ColumnsSelector::Regex { pattern, .. } => {
                 if let Ok(re) = regex::Regex::new(pattern) {
-                    for col in &table.columns {
+                    for col in typed_columns() {
                         if re.is_match(&col.name.value) {
                             push_unique(out, col.name.value.clone());
                         }
@@ -547,32 +678,50 @@ fn push_unique(out: &mut Vec<String>, name: String) {
 fn build_relationship(rel: &Relationship) -> Option<ExportRelationship> {
     let join = rel.join.as_ref()?;
     let first = join.conjuncts.first()?;
-    let side = |name: &str| {
-        let mut columns = Vec::new();
-        for conjunct in &join.conjuncts {
-            for qcol in [&conjunct.lhs, &conjunct.rhs] {
-                if qcol.table == name {
-                    push_unique(&mut columns, qcol.column.clone());
-                }
-            }
-        }
-        ExportSide {
-            table: rel.resolve(name).to_string(),
-            columns,
-        }
+    let (declared_cardinality, swap) = match rel.cardinality.value {
+        Cardinality::OneToOne => ("one-to-one", false),
+        Cardinality::ManyToOne => ("many-to-one", false),
+        Cardinality::OneToMany => ("one-to-many", true),
     };
-    let lhs = side(&first.lhs.table);
-    let rhs = side(&first.rhs.table);
-    let (cardinality, left, right) = match rel.cardinality.value {
-        Cardinality::OneToOne => ("one-to-one", lhs, rhs),
-        Cardinality::ManyToOne => ("many-to-one", lhs, rhs),
-        Cardinality::OneToMany => ("many-to-one", rhs, lhs),
+    let cardinality = if swap {
+        "many-to-one"
+    } else {
+        declared_cardinality
     };
+    // The side names as written in the join (aliases included), oriented so
+    // `left_name` is the normalized left side.
+    let (left_name, right_name) = if swap {
+        (&first.rhs.table, &first.lhs.table)
+    } else {
+        (&first.lhs.table, &first.rhs.table)
+    };
+
+    // One pair per conjunct, whichever way round the conjunct was written; a
+    // conjunct that doesn't span both sides pairs nothing.
+    let pairs = join
+        .conjuncts
+        .iter()
+        .filter_map(|conjunct| {
+            let column_on = |name: &str| {
+                [&conjunct.lhs, &conjunct.rhs]
+                    .into_iter()
+                    .find(|qcol| qcol.table == *name)
+                    .map(|qcol| ExportColumnRef {
+                        table: rel.resolve(name).to_string(),
+                        column: qcol.column.clone(),
+                    })
+            };
+            Some(ExportPair {
+                left: column_on(left_name)?,
+                right: column_on(right_name)?,
+            })
+        })
+        .collect();
     Some(ExportRelationship {
         description: rel.description.clone(),
         cardinality,
-        left,
-        right,
+        declared_cardinality,
+        pairs,
         join: rel.join_text.value.clone(),
         aliases: rel
             .aliases
@@ -602,27 +751,29 @@ fn scalar_json(scalar: &Scalar) -> JsonScalar {
 // --- data profiles ------------------------------------------------------
 
 /// Profile every declared column of `table`'s parquet file, keyed by dotted
-/// path. Scalar top-level columns get the full single-pass profile; fields of
-/// `struct` (and `list(struct)`) columns are profiled per value through
-/// [`profile_paths`]; a list-typed column is profiled as the list column
-/// itself — its missing count (null containers) — never its elements; a
-/// `struct` column carries no profile of its own.
+/// path, along with the file's row count. Scalar top-level columns get the
+/// full single-pass profile; fields of `struct` (and `list(struct)`) columns
+/// are profiled per value through [`profile_paths`]; a list-typed column is
+/// profiled as the list column itself — its missing count (null containers) —
+/// never its elements; a `struct` column carries no profile of its own.
+/// Untyped columns are omitted from the export, so they aren't profiled.
 fn profile_table(
     table: &Table,
     parquet_path: &Path,
-) -> Result<TableProfiles, data_dict_parquet::ParquetError> {
+) -> Result<TableData, data_dict_parquet::ParquetError> {
     let mut scalars: Vec<&str> = Vec::new();
     let mut containers: Vec<String> = Vec::new();
     let mut nested: Vec<Vec<String>> = Vec::new();
     for col in &table.columns {
         let name = std::slice::from_ref(&col.name.value);
         match column_shape(col) {
-            Shape::Struct => plan_fields(col, name, &mut nested),
-            Shape::List => {
+            None => {}
+            Some(Shape::Struct) => plan_fields(col, name, &mut nested),
+            Some(Shape::List) => {
                 containers.push(col.name.value.clone());
                 plan_fields(col, name, &mut nested);
             }
-            Shape::Scalar => scalars.push(&col.name.value),
+            Some(Shape::Scalar) => scalars.push(&col.name.value),
         }
     }
 
@@ -630,14 +781,15 @@ fn profile_table(
     if !scalars.is_empty() {
         let profiled = profile(parquet_path, Some(&scalars))?;
         for column in profiled.columns {
-            let name = column.name.clone();
-            out.insert(name, profile_json(&column));
+            if let Some(profile) = profile_json(&column) {
+                out.insert(column.name.clone(), profile);
+            }
         }
     }
     if !nested.is_empty() {
         for (path, profiled) in nested.iter().zip(profile_paths(parquet_path, &nested)?) {
-            if let Some(column) = profiled {
-                out.insert(path.join("."), profile_json(&column));
+            if let Some(profile) = profiled.as_ref().and_then(profile_json) {
+                out.insert(path.join("."), profile);
             }
         }
     }
@@ -656,38 +808,35 @@ fn profile_table(
         for (name, stat) in containers.into_iter().zip(stats) {
             out.insert(
                 name,
-                ExportProfile {
-                    distinct: None,
-                    missing: Some(stat.null_count),
-                    sample_values: Vec::new(),
-                    histogram: None,
-                    common_values: None,
+                ExportProfile::Minimal {
+                    missing: stat.null_count,
                 },
             );
         }
     }
-    Ok(out)
+    Ok(TableData {
+        rows: data_dict_parquet::row_count(parquet_path)?,
+        profiles: out,
+    })
 }
 
-/// How a declared column is profiled, from its `type`. An untyped column makes
-/// no claims and is profiled as whatever its data turns out to be.
+/// How a declared column is profiled, from its `type`; `None` for an untyped
+/// column, which is omitted from the export.
 enum Shape {
     Scalar,
     Struct,
     List,
 }
 
-fn column_shape(col: &Column) -> Shape {
-    let Some(col_type) = &col.col_type else {
-        return Shape::Scalar;
-    };
-    if col_type.value == "struct" {
+fn column_shape(col: &Column) -> Option<Shape> {
+    let col_type = col.col_type.as_ref()?;
+    Some(if col_type.value == "struct" {
         Shape::Struct
     } else if col_type.value.starts_with("list(") {
         Shape::List
     } else {
         Shape::Scalar
-    }
+    })
 }
 
 /// Add the paths of every scalar field under `col` to `paths`, recursing
@@ -703,16 +852,18 @@ fn plan_fields(col: &Column, prefix: &[String], paths: &mut Vec<Vec<String>>) {
             .chain([field.name.value.clone()])
             .collect();
         match column_shape(field) {
-            Shape::Scalar => paths.push(path),
-            Shape::Struct | Shape::List => plan_fields(field, &path, paths),
+            None => {}
+            Some(Shape::Scalar) => paths.push(path),
+            Some(Shape::Struct | Shape::List) => plan_fields(field, &path, paths),
         }
     }
 }
 
-/// Shape one engine profile into the export form. `histogram` comes populated
-/// for kinds on a numeric scale, `common_values` for text and boolean ones;
-/// the other stays null.
-fn profile_json(column: &ColumnProfile) -> ExportProfile {
+/// Shape one engine profile into the export form its kind calls for: scaled
+/// (numeric and temporal), valued (text and boolean), or — for a kind the
+/// engine can't summarize — the minimal missing count, when even that is
+/// known.
+fn profile_json(column: &ColumnProfile) -> Option<ExportProfile> {
     let kind = &column.kind;
     let distinct = column.distinct.map(|distinct| match distinct {
         Distinct::Exact(count) => ExportDistinct {
@@ -724,26 +875,52 @@ fn profile_json(column: &ColumnProfile) -> ExportProfile {
             approximate: true,
         },
     });
-    let histogram = column.histogram.as_ref().and_then(|histogram| {
-        let width = histogram
-            .bins
-            .first()
-            .map(|bin| bin.upper - bin.lower)
-            .unwrap_or(1.0);
-        let bins: Vec<ExportBin> = histogram
-            .bins
-            .iter()
-            .map(|bin| ExportBin {
-                min: rendered_json(edge_scalar(bin.lower, kind, width)),
-                max: rendered_json(edge_scalar(bin.upper, kind, width)),
-                count: bin.count,
-                closed: if bin.lower_inclusive { "both" } else { "right" },
-            })
-            .collect();
-        (!bins.is_empty()).then_some(ExportHistogram { bins })
-    });
-    let common_values =
-        matches!(kind, ValueKind::Text | ValueKind::Bool).then(|| ExportCommonValues {
+    let sample_values: Vec<JsonScalar> = column
+        .examples
+        .iter()
+        .map(|value| rendered_json(render_scalar(value, kind)))
+        .collect();
+
+    if kind.is_binnable() {
+        let range = match (&column.min, &column.max) {
+            (Some(min), Some(max)) => Some(ExportRange {
+                min: rendered_json(render_scalar(min, kind)),
+                max: rendered_json(render_scalar(max, kind)),
+            }),
+            _ => None,
+        };
+        let histogram = column.histogram.as_ref().map(|histogram| {
+            let width = histogram
+                .bins
+                .first()
+                .map(|bin| bin.upper - bin.lower)
+                .unwrap_or(1.0);
+            let bins: Vec<ExportBin> = histogram
+                .bins
+                .iter()
+                .map(|bin| ExportBin {
+                    min: rendered_json(edge_scalar(bin.lower, kind, width)),
+                    max: rendered_json(edge_scalar(bin.upper, kind, width)),
+                    count: bin.count,
+                    closed: if bin.lower_inclusive { "both" } else { "right" },
+                })
+                .collect();
+            ExportHistogram {
+                bins,
+                nan_count: histogram.not_finite.nan_count,
+                negative_infinity_count: histogram.not_finite.negative_infinity_count,
+                positive_infinity_count: histogram.not_finite.positive_infinity_count,
+            }
+        });
+        Some(ExportProfile::Scaled {
+            distinct,
+            missing: column.null_count,
+            range,
+            sample_values,
+            histogram,
+        })
+    } else if matches!(kind, ValueKind::Text | ValueKind::Bool) {
+        let common_values = (!column.value_counts.is_empty()).then(|| ExportCommonValues {
             approximate: column.value_counts.iter().any(|vc| vc.error > 0),
             values: column
                 .value_counts
@@ -754,16 +931,16 @@ fn profile_json(column: &ColumnProfile) -> ExportProfile {
                 })
                 .collect(),
         });
-    ExportProfile {
-        distinct,
-        missing: column.null_count,
-        sample_values: column
-            .examples
-            .iter()
-            .map(|value| rendered_json(render_scalar(value, kind)))
-            .collect(),
-        histogram,
-        common_values,
+        Some(ExportProfile::Valued {
+            distinct,
+            missing: column.null_count,
+            sample_values,
+            common_values,
+        })
+    } else {
+        column
+            .null_count
+            .map(|missing| ExportProfile::Minimal { missing })
     }
 }
 

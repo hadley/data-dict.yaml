@@ -17,7 +17,7 @@ mod value;
 pub use describe::{FileDescription, Scalar, describe, edge_scalar, render_scalar};
 pub use foreign_key::{ForeignKeyCheck, ForeignKeyResult, ForeignKeyStats, foreign_key_stats};
 pub use metadata::{
-    ColumnMeta, ColumnTypeInfo, DataColumn, column_meta, column_tree, column_type_info,
+    ColumnMeta, ColumnTypeInfo, DataColumn, column_meta, column_tree, column_type_info, row_count,
     uniqueness_barriers,
 };
 pub use parquet::errors::ParquetError;

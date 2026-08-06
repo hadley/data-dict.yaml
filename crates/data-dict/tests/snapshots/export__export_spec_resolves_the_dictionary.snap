@@ -3,10 +3,10 @@ source: crates/data-dict/tests/export.rs
 expression: export_json(RICH_DICT)
 ---
 {
+  "$version": "0.1.0",
   "name": "pets",
   "label": "Pet shop",
   "description": "Pets and their owners.",
-  "details": null,
   "origin": "https://example.com/pets-pipeline",
   "learn_more": "http://data-dict.tidyverse.org/",
   "version": {
@@ -15,114 +15,53 @@ expression: export_json(RICH_DICT)
   "tables": [
     {
       "name": "owners",
-      "label": null,
       "description": "One row per owner.",
-      "details": null,
-      "origin": null,
-      "source": null,
       "columns": [
         {
           "name": "owner_id",
-          "label": null,
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "number(id)",
-          "units": null,
-          "time_zone": null,
           "constraints": [
             "primary_key",
             "unique",
             "required"
           ],
-          "references": null,
           "referenced_by": [
             {
               "table": "pets",
               "column": "owner_id"
             }
           ],
-          "values": null,
-          "range": null,
           "examples": [
             1,
             2
-          ],
-          "fields": null,
-          "assertions": [],
-          "profile": null
+          ]
         },
         {
           "name": "address",
-          "label": null,
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "struct",
-          "units": null,
-          "time_zone": null,
-          "constraints": [],
-          "references": null,
-          "referenced_by": [],
-          "values": null,
-          "range": null,
-          "examples": null,
           "fields": [
             {
               "name": "zip",
-              "label": null,
               "description": "Postal code.",
-              "details": null,
-              "display": null,
               "type": "string",
-              "units": null,
-              "time_zone": null,
-              "constraints": [],
-              "references": null,
-              "referenced_by": [],
-              "values": null,
-              "range": null,
               "examples": [
                 "97201"
-              ],
-              "fields": null,
-              "assertions": [],
-              "profile": null
+              ]
             },
             {
               "name": "tags",
-              "label": null,
-              "description": null,
-              "details": null,
-              "display": null,
               "type": "list(enum)",
-              "units": null,
-              "time_zone": null,
-              "constraints": [],
-              "references": null,
-              "referenced_by": [],
               "values": [
                 "a",
                 "b"
-              ],
-              "range": null,
-              "examples": null,
-              "fields": null,
-              "assertions": [],
-              "profile": null
+              ]
             }
-          ],
-          "assertions": [],
-          "profile": null
+          ]
         }
-      ],
-      "constraints": []
+      ]
     },
     {
       "name": "pets",
-      "label": null,
-      "description": null,
-      "details": null,
       "origin": "https://example.com/pets.R",
       "source": {
         "parquet": "pets.parquet"
@@ -130,38 +69,20 @@ expression: export_json(RICH_DICT)
       "columns": [
         {
           "name": "pet_id",
-          "label": null,
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "number(id)",
-          "units": null,
-          "time_zone": null,
           "constraints": [
             "primary_key",
             "unique",
             "required"
           ],
-          "references": null,
-          "referenced_by": [],
-          "values": null,
-          "range": null,
           "examples": [
             10
-          ],
-          "fields": null,
-          "assertions": [],
-          "profile": null
+          ]
         },
         {
           "name": "owner_id",
           "label": "Owner",
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "number(id)",
-          "units": null,
-          "time_zone": null,
           "constraints": [
             "foreign_key",
             "required"
@@ -170,57 +91,27 @@ expression: export_json(RICH_DICT)
             "table": "owners",
             "column": "owner_id"
           },
-          "referenced_by": [],
-          "values": null,
-          "range": null,
           "examples": [
             1
-          ],
-          "fields": null,
-          "assertions": [],
-          "profile": null
+          ]
         },
         {
           "name": "species",
-          "label": null,
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "enum",
-          "units": null,
-          "time_zone": null,
-          "constraints": [],
-          "references": null,
-          "referenced_by": [],
           "values": [
             "cat",
             "dog"
-          ],
-          "range": null,
-          "examples": null,
-          "fields": null,
-          "assertions": [],
-          "profile": null
+          ]
         },
         {
           "name": "weight",
-          "label": null,
-          "description": null,
-          "details": null,
           "display": "restricted",
           "type": "number(quantity)",
           "units": "kg",
-          "time_zone": null,
-          "constraints": [],
-          "references": null,
-          "referenced_by": [],
-          "values": null,
           "range": {
             "min": 0,
             "max": 100
           },
-          "examples": null,
-          "fields": null,
           "assertions": [
             {
               "expression": "weight > 0",
@@ -229,36 +120,20 @@ expression: export_json(RICH_DICT)
                 "weight"
               ]
             }
-          ],
-          "profile": null
+          ]
         },
         {
           "name": "born",
-          "label": null,
-          "description": null,
-          "details": null,
-          "display": null,
           "type": "date",
-          "units": null,
-          "time_zone": null,
-          "constraints": [],
-          "references": null,
-          "referenced_by": [],
-          "values": null,
           "range": {
             "min": "2000-01-01",
             "max": null
-          },
-          "examples": null,
-          "fields": null,
-          "assertions": [],
-          "profile": null
+          }
         }
       ],
       "constraints": [
         {
           "expression": "COLUMNS('_id$') IS NOT NULL",
-          "description": null,
           "columns": [
             "pet_id",
             "owner_id"
@@ -271,21 +146,20 @@ expression: export_json(RICH_DICT)
     {
       "description": "Each pet has one owner.",
       "cardinality": "many-to-one",
-      "left": {
-        "table": "pets",
-        "columns": [
-          "owner_id"
-        ]
-      },
-      "right": {
-        "table": "owners",
-        "columns": [
-          "owner_id"
-        ]
-      },
-      "join": "owners.owner_id = pets.owner_id",
-      "aliases": [],
-      "conflicts": []
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "pets",
+            "column": "owner_id"
+          },
+          "right": {
+            "table": "owners",
+            "column": "owner_id"
+          }
+        }
+      ],
+      "join": "owners.owner_id = pets.owner_id"
     }
   ],
   "glossary": [

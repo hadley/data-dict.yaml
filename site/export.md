@@ -14,20 +14,23 @@ Both levels emit the same JSON document shape; `export-spec` just never populate
 
 ## Output shape
 
+A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
+
 Top level:
 
 ```jsonc
 {
-  "name": "string or null",
-  "label": "string or null",
-  "description": "string or null",
-  "details": "string or null",
-  "origin": "string or null",
-  "learn_more": "string or null",
-  "version": { "number": "1.2.3" } | { "date": "2024-01-31" } | { "hash": "..." } | null,
+  "$version": "0.1.0",           // version of the export document format itself
+  "name?": "string",
+  "label?": "string",
+  "description?": "string",
+  "details?": "string",
+  "origin?": "string",
+  "learn_more?": "string",
+  "version?": { "number": "1.2.3" } | { "date": "2024-01-31" } | { "hash": "..." },
   "tables": [ Table ],
-  "relationships": [ Relationship ],
-  "glossary": [ { "term": "string", "definition": "string" } ]
+  "relationships?": [ Relationship ],
+  "glossary?": [ { "term": "string", "definition": "string" } ]
 }
 ```
 
@@ -36,103 +39,126 @@ Top level:
 ```jsonc
 {
   "name": "string",
-  "label": "string or null",
-  "description": "string or null",
-  "details": "string or null",
-  "origin": "string or null",
-  "source": { "parquet": "path/relative/to/dictionary" } | null,
+  "label?": "string",
+  "description?": "string",
+  "details?": "string",
+  "origin?": "string",
+  "source?": { "parquet": "path/relative/to/dictionary" },
+  "rows?": 123,                  // the source data's row count; export-data only,
+                                 // absent when the table's source wasn't profiled
   "columns": [ Column ],
-  "constraints": [ Assertion ]   // table-level `assert` entries
+  "constraints?": [ Assertion ]  // table-level `assert` entries
 }
 ```
 
-`Column` (recursive: `fields` holds child `Column`s for `struct` and `list(struct)`; a field uses the same shape, with the keys the spec doesn't allow on fields — `label`, `display`, `constraints` — empty or null):
+`Column` (recursive: `fields` holds child `Column`s for `struct` and `list(struct)`; a field uses the same shape, minus the keys the spec doesn't allow on fields — `label`, `display`, `constraints`). A column or field with no declared `type` makes no claims and is omitted from the export entirely, including from `COLUMNS(...)` expansions:
 
 ```jsonc
 {
   "name": "string",
-  "label": "string or null",
-  "description": "string or null",
-  "details": "string or null",
-  "display": "restricted" | null,
-  "type": "string or null",      // canonical type, e.g. "list(number(quantity))";
-                                 // null when the column declares no `type`
-  "units": "string or null",
-  "time_zone": "string or null",
-  "constraints": ["primary_key" | "foreign_key" | "unique" | "required", ...],
+  "label?": "string",
+  "description?": "string",
+  "details?": "string",
+  "display?": "restricted",
+  "type": "string",              // canonical type, e.g. "list(number(quantity))"
+  "units?": "string",
+  "time_zone?": "string",
+  "constraints?": ["primary_key" | "foreign_key" | "unique" | "required", ...],
   // constraints as declared PLUS those implied by other constraints
   // (e.g. primary_key implies both unique and required)
-  "references": { "table": "string", "column": "string" } | null,
+  "references?": { "table": "string", "column": "string" },
   // present when this column is a `foreign_key`: the primary-key column it points at
-  "referenced_by": [ { "table": "string", "column": "string" } ],
-  // present when this column is a `primary_key`: every foreign-key column elsewhere
-  // that references it (empty array if none)
-  "values": [Scalar] | null,      // enum
-  "range": { "min": Scalar, "max": Scalar } | null,
-  "examples": [Scalar] | null,
-  "fields": [ Column ] | null,
-  "assertions": [ Assertion ],    // column-level `assert` entries
-  "profile": Profile | null       // export-data only; null under export-spec
+  "referenced_by?": [ { "table": "string", "column": "string" } ],
+  // present when this column is a `primary_key` that foreign-key columns
+  // elsewhere reference: each of those columns
+  "values?": [Scalar],            // enum
+  "range?": { "min": Scalar, "max": Scalar },
+  "examples?": [Scalar],
+  "fields?": [ Column ],
+  "assertions?": [ Assertion ],   // column-level `assert` entries
+  "profile?": Profile             // export-data only; never present under export-spec
 }
 ```
 
-Both `references` and `referenced_by` are derived from `relationships`, not read directly off the column — they're `null`/`[]` for a column that isn't part of any relationship, even if it's marked `foreign_key`/`primary_key` in isolation (which `validate-spec`'s S01 already treats as an error).
+Both `references` and `referenced_by` are derived from `relationships`, not read directly off the column — they're absent for a column that isn't part of any relationship, even if it's marked `foreign_key`/`primary_key` in isolation (which `validate-spec`'s S01 already treats as an error).
 
 `Assertion`:
 
 ```jsonc
 {
   "expression": "string",         // original `assert` text
-  "description": "string or null",
+  "description?": "string",
   "columns": ["string", ...]      // every column (and struct field, dotted) the expression references
 }
 ```
 
-`Relationship`, normalized so cardinality is always read left-to-right as "many-to-one" (a declared `one-to-many` has its `left`/`right` swapped so `left` is always the "many" side and `right` the "one" side; `one-to-one` is unaffected):
+`Relationship`, normalized so cardinality is always read left-to-right as "many-to-one" (a declared `one-to-many` has each pair's `left`/`right` swapped so `left` is always the "many" side and `right` the "one" side; `one-to-one` is unaffected):
 
 ```jsonc
 {
-  "description": "string or null",
+  "description?": "string",
   "cardinality": "one-to-one" | "many-to-one",
-  "left": { "table": "string", "columns": ["string", ...] },
-  "right": { "table": "string", "columns": ["string", ...] },
+  "declared_cardinality": "one-to-one" | "one-to-many" | "many-to-one",
+  // the cardinality as written — the orientation the `join` text documents
+  "pairs": [ { "left": ColumnRef, "right": ColumnRef } ],
+  // ColumnRef = { "table": "string", "column": "string" }
   "join": "string",               // original join text, unnormalized
-  "aliases": [ { "name": "string", "table": "string" } ],
-  "conflicts": ["string", ...]
+  "aliases?": [ { "name": "string", "table": "string" } ],
+  "conflicts?": ["string", ...]
 }
 ```
 
-`left.table` and `right.table` are real table names — an alias in the `join` is resolved through `aliases`, which is preserved so the original `join` text can still be read.
+`pairs` records which column matches which, one pair per join conjunct. Pair tables are real table names — an alias in the `join` is resolved through `aliases`, which is preserved so the original `join` text can still be read. A range join like `a.date >= b.start AND a.date <= b.end` yields two pairs: `a.date` ↔ `b.start` and `a.date` ↔ `b.end`.
 
-`Profile` (export-data only), one per column, shaped like `describe`'s per-column output:
+`Profile` (export-data only), one per column, carrying the same statistics as `describe`. Its shape follows the column's type, so a key that could never apply to that type doesn't appear at all.
+
+Numeric and temporal columns (`number`, `number(...)`, `date`, `datetime`) summarize on a scale:
 
 ```jsonc
 {
-  "distinct": { "count": 123, "approximate": false } | null,
-  // null for a continuous (float) column, where per-value equality is
+  "distinct?": { "count": 123, "approximate": false },
+  // absent for a continuous (float) column, where per-value equality is
   // misleading — its shape is the histogram
-  "missing": 4,                   // null when the count couldn't be established
-  "sample_values": [Scalar, ...],
-  "histogram": {
+  "missing?": 4,
+  "range?": { "min": Scalar, "max": Scalar },   // the observed extremes
+  "sample_values?": [Scalar, ...],
+  "histogram?": {
     "bins": [
       { "min": 0, "max": 10, "count": 5, "closed": "right" | "both" },
       ...
-    ]
-  } | null,
-  "common_values": {
-    "approximate": false,
-    "values": [ { "value": Scalar, "count": 42 }, ... ]
-  } | null
+    ],
+    // float values with no place on the number line, counted apart from the
+    // bins; each appears only when nonzero
+    "nan_count?": 1,
+    "negative_infinity_count?": 1,
+    "positive_infinity_count?": 1
+  }
 }
 ```
 
-`histogram` is populated for numeric and temporal columns, `common_values` for string, boolean, and enum columns; the other is `null` (an untyped column follows whatever its data turns out to be). Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.
+String, boolean, and enum columns summarize by value:
 
-Nested and untyped columns profile as far as the data allows:
+```jsonc
+{
+  "distinct?": { "count": 123, "approximate": false },
+  "missing?": 4,
+  "sample_values?": [Scalar, ...],
+  "common_values?": {
+    "approximate": false,
+    "values": [ { "value": Scalar, "count": 42 }, ... ]
+  }
+}
+```
 
-* A `struct` column's `profile` is `null` — its fields carry their own profiles instead. A field reached through a list layer (`list(struct)`) is profiled per element, so its counts are over elements rather than rows.
-* A `list`-typed column's `profile` describes the list column itself, not its elements: `missing` counts null containers, and the per-value keys (`distinct`, `sample_values`, `histogram`, `common_values`) stay null/empty. A list-typed *field* inside a struct carries no `profile` at all.
-* A column whose Parquet type can't be summarised (uuid, decimal, json, …) gets a profile with only `missing` populated, when the file's footer supplies it.
+A `list` column reports only its containers — `{ "missing": 4 }`, the null-list count — never its elements.
+
+Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.
+
+Nested columns profile as far as the data allows:
+
+* A `struct` column carries no `profile` — its fields carry their own instead. A field reached through a list layer (`list(struct)`) is profiled per element, so its counts are over elements rather than rows.
+* A list-typed *field* inside a struct carries no `profile` at all (its container nulls aren't countable below the top level).
+* A column whose Parquet type can't be summarised (uuid, decimal, json, …) gets the list shape — `missing` alone, when the file's footer supplies it — or no `profile` at all.
 
 `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
 
