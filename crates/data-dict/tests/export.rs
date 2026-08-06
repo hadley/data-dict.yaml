@@ -351,10 +351,11 @@ fn export_data_missing_source_warns_and_still_exports() {
     common::assert_snapshot!(diagnostic);
 }
 
-/// Data that doesn't match the dictionary fails the export with the same
-/// diagnostics as `validate-meta`/`validate-data`.
+/// The export never validates the data against the dictionary: a declared
+/// column the data doesn't have simply gets no `profile`, and the rest of the
+/// table still profiles.
 #[test]
-fn export_data_fails_on_metadata_mismatch() {
+fn export_data_skips_columns_absent_from_the_data() {
     let dir = temp_dir();
     write_profiled_parquet(&dir.join("data.parquet"));
     let dict = write_dict(
@@ -368,19 +369,17 @@ fn export_data_fails_on_metadata_mismatch() {
                   - name: id
                     type: number(id)
                     examples: [1]
-                  - name: name
-                    type: string
-                    examples: [otter]
-                  - name: weight
-                    type: string
-                    examples: [heavy]
+                  - name: wings
+                    type: number(quantity)
+                    units: pairs
+                    range: [0, 2]
         "},
     );
     let (problems, export) = export_data(&dict);
-    assert!(export.is_none());
-    assert_eq!(problems.status(), Status::Error);
-    let diagnostic = diagnostic(&dict, &problems.render(common::SNAPSHOT_STYLE).join("\n"));
-    diagnostic.assert_contains(&["M01", "the data is `number`"]);
-    #[cfg(unix)]
-    common::assert_snapshot!(diagnostic);
+    assert_eq!(problems.status(), Status::Ok);
+    let json = serde_json::to_value(export.unwrap()).unwrap();
+    assert_eq!(json["tables"][0]["rows"], 3);
+    let columns = &json["tables"][0]["columns"];
+    assert_eq!(columns[0]["profile"]["distinct"]["count"], 3);
+    assert!(columns[1]["profile"].is_null(), "no data, no profile");
 }

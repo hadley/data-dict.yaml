@@ -8,7 +8,7 @@ Export has two levels, mirroring [validation](validation.md):
 
 * **`export-spec`** renders the dictionary itself: every table, column, relationship, and glossary entry, fully resolved. It reads only the `data-dict.yaml` file, never the data. Internally this runs the same `validate-spec` pass and serializes the resulting model, so `export-spec` fails with the same `S##` diagnostics as `validate-spec` if the file is invalid.
 
-* **`export-data`** does everything `export-spec` does, and also profiles each table's source data: distinct/missing counts, sample values, and a histogram (numeric and temporal columns) or top values (string, boolean, and enum columns) per column — the same profiling `describe` performs on a single Parquet file, run here across every table via each one's `source`. This is the only level that reads the data, so it can be expensive. It runs the full metadata- and data-level checks before profiling and fails with `M##`/`D##` diagnostics the same way `validate-meta`/`validate-data` do — but unlike those commands, a source that's missing (M04) or unreadable (M05) for one table is reported as a warning and that table's `profile` fields are simply left null, rather than stopping the whole export (so a partially-sourced dictionary still exports everything it can).
+* **`export-data`** does everything `export-spec` does, and also profiles each table's source data: distinct/missing counts, sample values, and a histogram (numeric and temporal columns) or top values (string, boolean, and enum columns) per column — the same profiling `describe` performs on a single Parquet file, run here across every table via each one's `source`. This is the only level that reads the data, so it can be expensive. It does *not* validate the data against the dictionary — that's `validate-meta`/`validate-data`'s job: a source that's missing (M04) or unreadable (M05) is reported as a warning and that table's profiles are omitted, and a declared column the data doesn't have simply gets no `profile`, so a partially-sourced dictionary still exports everything it can.
 
 Both levels emit the same JSON document shape; `export-spec` just never populates the `profile` fields.
 
@@ -116,7 +116,7 @@ A `Relationship` is normalized so cardinality is always read left-to-right as "m
 
 ### Profile
 
-A `Profile` (export-data only) accompanies one column, carrying the same statistics as `describe`. Its shape follows the column's type, so a key that could never apply to that type doesn't appear at all.
+A `Profile` (export-data only) accompanies one column, carrying the same statistics as `describe`. Its shape follows the column's type, so a key that could never apply to that type doesn't appear at all. (Strictly, the shape follows the *data's* type — the two agree whenever the data conforms to the dictionary, which `validate-meta` can confirm.)
 
 Numeric and temporal columns (`number`, `number(...)`, `date`, `datetime`) summarize on a scale:
 

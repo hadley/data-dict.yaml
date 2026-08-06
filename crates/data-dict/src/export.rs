@@ -2,12 +2,11 @@
 //! `site/export.md`).
 //!
 //! [`export_spec`] resolves the dictionary alone; [`export_data`] additionally
-//! validates and profiles each table's source data. Both return the run's
-//! [`ProblemSet`] plus the document, which is `None` when the level's
-//! validation failed — the same failure the corresponding `validate-*` level
-//! reports. At the data level a table whose `source` is missing or unreadable
-//! is reported as a warning and exported without its profiles, rather than
-//! failing the export.
+//! profiles each table's source data. Both validate the spec first and return
+//! the run's [`ProblemSet`] plus the document, which is `None` when that
+//! fails — the same failure `validate-spec` reports. The data itself is never
+//! validated against the dictionary: a table whose `source` is missing or
+//! unreadable is reported as a warning and exported without its profiles.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,8 +14,8 @@ use std::path::Path;
 use serde::Serialize;
 
 use data_dict_parquet::{
-    ColumnNeeds, ColumnProfile, ColumnRequest, Distinct, ValueKind, edge_scalar, profile,
-    profile_paths, render_scalar,
+    ColumnNeeds, ColumnProfile, ColumnRequest, DataColumn, Distinct, ValueKind, edge_scalar,
+    profile, profile_paths, render_scalar,
 };
 
 use crate::assert_expr::{ColumnsSelector, Expr, ExprKind};
@@ -24,8 +23,8 @@ use crate::model::{
     Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
     Table, Version,
 };
-use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
-use crate::{ReadTables, load, validate_and_lower};
+use crate::problem::{ProblemKind, ProblemSet, Severity};
+use crate::{load, validate_and_lower};
 
 /// The version of the export document format itself, carried as the
 /// document's `$version` so consumers can detect shape changes.
@@ -308,11 +307,13 @@ pub fn export_spec(dict_path: &Path) -> (ProblemSet, Option<Export>) {
     (problems, Some(export))
 }
 
-/// Render the dictionary and profile each table's source data. Runs the full
-/// metadata- and data-level checks first and returns no document when they
-/// error — except a missing (M04) or unreadable (M05) `source`, which is
-/// reported as a warning and leaves that table's `profile` fields null, so a
-/// partially-sourced dictionary still exports everything it can.
+/// Render the dictionary and profile each table's source data. Validates the
+/// spec only — the data itself is never validated against the dictionary
+/// (that's `validate-meta`/`validate-data`): a source that's missing (M04) or
+/// unreadable (M05) is reported as a warning and that table's profiles are
+/// omitted, and a declared column the data doesn't have simply gets no
+/// `profile`, so a partially-sourced dictionary still exports everything it
+/// can.
 pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
     let (mut problems, doc) = match load(dict_path) {
         Ok(loaded) => loaded,
@@ -323,35 +324,15 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
     };
 
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
-    let mut readable: ReadTables = HashMap::new();
+
+    let mut profiles: HashMap<String, TableData> = HashMap::new();
     for table in &dict.tables {
         let Some((parquet_path, actual)) =
             crate::read_parquet(table, base_dir, Severity::Warning, &mut problems)
         else {
             continue;
         };
-        crate::validate_meta::meta_issues(table, &actual, &mut problems);
-        if let Err(e) =
-            crate::validate_data::value_issues(table, &parquet_path, &actual, &mut problems)
-        {
-            problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
-        }
-        let columns = actual.iter().map(|col| col.name.clone()).collect();
-        readable.insert(table.name.value.clone(), (parquet_path, columns));
-    }
-    crate::validate_data::foreign_key_issues(&dict, &readable, &mut problems);
-    if problems.status().failed() {
-        return (problems, None);
-    }
-
-    // Profile only once the data is known to match the dictionary, so every
-    // declared column resolves in its table's file.
-    let mut profiles: HashMap<String, TableData> = HashMap::new();
-    for table in &dict.tables {
-        let Some((parquet_path, _)) = readable.get(&table.name.value) else {
-            continue;
-        };
-        match profile_table(table, parquet_path) {
+        match profile_table(table, &parquet_path, &actual) {
             Ok(table_data) => {
                 profiles.insert(table.name.value.clone(), table_data);
             }
@@ -750,21 +731,27 @@ fn scalar_json(scalar: &Scalar) -> JsonScalar {
 
 // --- data profiles ------------------------------------------------------
 
-/// Profile every declared column of `table`'s parquet file, keyed by dotted
+/// Profile the declared columns of `table`'s parquet file, keyed by dotted
 /// path, along with the file's row count. Scalar top-level columns get the
 /// full single-pass profile; fields of `struct` (and `list(struct)`) columns
 /// are profiled per value through [`profile_paths`]; a list-typed column is
 /// profiled as the list column itself — its missing count (null containers) —
 /// never its elements; a `struct` column carries no profile of its own.
-/// Untyped columns are omitted from the export, so they aren't profiled.
+/// The data is not validated against the dictionary here: a declared column
+/// the data doesn't have (`actual` is what it does have) is skipped, as are
+/// untyped columns, which the export omits.
 fn profile_table(
     table: &Table,
     parquet_path: &Path,
+    actual: &[DataColumn],
 ) -> Result<TableData, data_dict_parquet::ParquetError> {
     let mut scalars: Vec<&str> = Vec::new();
     let mut containers: Vec<String> = Vec::new();
     let mut nested: Vec<Vec<String>> = Vec::new();
     for col in &table.columns {
+        if !actual.iter().any(|data| data.name == col.name.value) {
+            continue;
+        }
         let name = std::slice::from_ref(&col.name.value);
         match column_shape(col) {
             None => {}
