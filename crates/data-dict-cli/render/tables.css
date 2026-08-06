@@ -167,7 +167,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
    gets a short box and several of them share a line. */
 .tpage-related {
   flex: 0 1 auto; max-width: 420px;
-  border: 1px solid var(--rule); border-radius: 8px;
+  border-left: 1px solid var(--rule);
   padding: 10px 12px;
 }
 .tpage-related[hidden] { display: none; }
