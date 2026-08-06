@@ -3,13 +3,25 @@
 :root {
   --row-h: 30px; /* leaves ~8px above and below the text, matching --row-pad */
   --row-pad: 9px;
-  --head-bg: light-dark(#1d6b6b, #1b4f4c);
+  /* mixed off the Solarized accents in app.css, towards whatever sits behind */
+  --head-bg: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 80%, black),
+    color-mix(in oklab, var(--accent1-hue) 40%, var(--paper)));
   --head-ink: light-dark(#ffffff, #e7f1ef);
   --demo-head: light-dark(#6b7684, #3a434d);
   --demo-rule: light-dark(#c9c4b8, #454e58);
-  --tint-edge: light-dark(#cfe4e0, #1d4441); /* row touched by the hovered relationship */
-  --tint-search: light-dark(#fbeccc, #3d3419); /* row matching the search */
-  --tint-search-on: light-dark(#f7dca6, #5b4a1f); /* the match you selected */
+  /* row touched by the hovered relationship */
+  --tint-edge: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 20%, white),
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+  /* row matching the search */
+  --tint-search: light-dark(
+    color-mix(in oklab, var(--mark-hue) 20%, white),
+    color-mix(in oklab, var(--mark-hue) 20%, var(--paper)));
+  /* the match you selected */
+  --tint-search-on: light-dark(
+    color-mix(in oklab, var(--mark-hue) 40%, white),
+    color-mix(in oklab, var(--mark-hue) 40%, var(--paper)));
 }
 
 /* ---- diagram surface ---------------------------------------------------- */
@@ -161,18 +173,18 @@
 .row .key.live:hover { box-shadow: inset 0 0 0 1px currentColor; }
 /* a badge clicked to hold its highlight on */
 .row .key.held {
-  color: var(--on-accent);
-  background: var(--accent);
+  color: var(--on-accent1);
+  background: var(--accent1);
   box-shadow: none;
 }
-.row .key.fk.held { background: var(--many); }
+.row .key.fk.held { background: var(--accent2); }
 
 /* ---- wires -------------------------------------------------------------- */
 
 .wire { fill: none; stroke: var(--ink-soft); stroke-width: 1.4px; transition: stroke 90ms, stroke-width 90ms; }
 .hit { fill: none; stroke: transparent; stroke-width: 16px; }
 .edge { transition: opacity 110ms; }
-.edge.hover .wire { stroke: var(--accent); stroke-width: 2.6px; }
+.edge.hover .wire { stroke: var(--accent1); stroke-width: 2.6px; }
 
 /* hovering one relationship pushes the others back */
 #wires.dim .edge:not(.hover),
@@ -189,8 +201,8 @@
   fill: var(--ink-soft);
   stroke: none;
 }
-.markers.hover .marker.many { fill: var(--accent); }
-.markers.hover .marker.one { fill: var(--accent); }
+.markers.hover .marker.many { fill: var(--accent1); }
+.markers.hover .marker.one { fill: var(--accent1); }
 
 .node.dragging {
   box-shadow: 0 2px 4px var(--shadow-near), 0 18px 34px -14px var(--shadow-lift);
@@ -247,13 +259,13 @@
 .node > h2 .eye:hover { opacity: 1; }
 .node > h2 .eye[aria-pressed="true"] {
   opacity: 1;
-  background: color-mix(in srgb, var(--head-ink) 24%, transparent);
+  background: color-mix(in oklab, var(--head-ink) 20%, transparent);
 }
 
 /* a table the board is being laid out around */
 .node.picked {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 1px 2px var(--shadow-near),
+  border-color: var(--accent1);
+  box-shadow: 0 0 0 3px var(--accent1-soft), 0 1px 2px var(--shadow-near),
     0 6px 16px -10px var(--shadow-far);
 }
 
@@ -295,13 +307,13 @@
   white-space: nowrap;
 }
 #tidy:hover,
-#showall:hover { border-color: var(--accent); }
+#showall:hover { border-color: var(--accent1); }
 /* nothing has been dragged, so there is nothing to tidy */
 #tidy[disabled] { opacity: 0.45; cursor: default; }
 #tidy[disabled]:hover { border-color: var(--rule); }
 /* only there while something is off the board */
 #showall[hidden] { display: none; }
-#showall { color: var(--accent); border-color: var(--accent-soft); }
+#showall { color: var(--accent1); border-color: var(--accent1-soft); }
 
 #find {
   user-select: text;
@@ -319,7 +331,7 @@
 #find::placeholder { color: var(--ink-faint); }
 #find:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent1);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
@@ -356,7 +368,7 @@
   white-space: nowrap;
 }
 #hits button:hover { background: var(--hover-row); }
-#hits button[aria-current="true"] { background: var(--accent-soft); }
+#hits button[aria-current="true"] { background: var(--accent1-soft); }
 
 /* Highlighted rows all speak the same language: a background, no border. The
    pinned variants are spelled out so they outrank .row.pinned.linked above, and

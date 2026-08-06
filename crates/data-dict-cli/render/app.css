@@ -13,15 +13,51 @@
   --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
   --rule: light-dark(#d6d0c4, #333b44);
   --row-line: light-dark(#e4e0d7, #2a3138);
-  --accent: light-dark(#1d6b6b, #43a8a0);
-  --accent-soft: light-dark(#cfe3e0, #1b3f3d);
-  --on-accent: light-dark(#ffffff, #0f1d1c); /* text on an accent fill */
-  --many: light-dark(#b4622a, #d98b52); /* the "many" end of a relationship */
-  --fk-badge: light-dark(#f3e2d6, #3f2a1d);
+  /* ---- accents ------------------------------------------------------------
+     Solarized's eight. Everything coloured on the page is one of them as it
+     stands, or one of them mixed by one of four amounts and nothing in between:
+
+       80%  towards black or white — a colour that has to carry text
+       40%  towards the surface    — a fill you are meant to notice
+       20%  towards the surface    — an ordinary fill
+       10%  towards the surface    — a fill that is on all the time
+
+     Marks that aren't text and aren't a fill — a histogram bar, a border — take
+     the Solarized value untouched. Holding to those four is what keeps a
+     palette this size from drifting into forty near-identical shades. */
+  --yellow: #b58900;
+  --orange: #cb4b16;
+  --red: #dc322f;
+  --magenta: #d33682;
+  --violet: #6c71c4;
+  --blue: #268bd2;
+  --cyan: #2aa198;
+  --green: #859900;
+
+  --accent1-hue: var(--blue); /* title, key badges, headings, links, focus, bars */
+  --accent2-hue: var(--orange); /* foreign keys, the many end, the hovered bar, search hits */
+
+  --accent1: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 80%, black),
+    color-mix(in oklab, var(--accent1-hue) 80%, white));
+  --accent1-soft: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 20%, white),
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+  --on-accent1: light-dark(#ffffff, #14142c); /* text on an accent1 fill */
+  --accent2: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 80%, black),
+    color-mix(in oklab, var(--accent2-hue) 80%, white));
+  --accent2-soft: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 20%, white),
+    color-mix(in oklab, var(--accent2-hue) 20%, var(--paper)));
   --grid-dot: light-dark(#cdc6b6, #2c343c);
   --scroll-thumb: light-dark(#cdc9c1, #3f4751);
-  --hover-row: light-dark(#f4f8f7, #223032);
-  --focus-ring: light-dark(rgba(29, 107, 107, 0.14), rgba(67, 168, 160, 0.22));
+  /* every row that takes part in a relationship wears this, so it is the
+     quietest step on the ladder */
+  --hover-row: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 10%, white),
+    color-mix(in oklab, var(--accent1-hue) 10%, var(--paper)));
+  --focus-ring: color-mix(in oklab, var(--accent1-hue) 20%, transparent);
   --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
   --shadow-far: light-dark(rgba(28, 36, 48, 0.25), rgba(0, 0, 0, 0.5));
   --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
@@ -32,14 +68,13 @@
 
   /* the tables app's vocabulary, mapped onto the same palette */
   --chip: light-dark(#e9ecf2, #21262d);
-  --link: light-dark(#4f78b3, #7da7d9);
-  --type-ink: light-dark(#0e7490, #35c2d6);
-  --tag-ink: light-dark(#9d5d00, #d9a05b);
-  --mark: light-dark(rgba(29, 107, 107, 0.18), rgba(67, 168, 160, 0.3));
-  --hist-bar: #6ea8dc;
-  --hist-bar-hot: #e8896b;
-  --hist-band: light-dark(rgba(232, 137, 107, 0.17), rgba(232, 137, 107, 0.26));
-  --null-bar: light-dark(#d80d0d, #e05252);
+  --link: var(--accent1); /* a link is the accent doing its plainest job */
+  --tag-ink: var(--accent2-hue);
+  --mark: color-mix(in oklab, var(--accent2-hue) 40%, transparent);
+  --hist-bar: var(--accent1-hue);
+  --hist-bar-hot: var(--accent2-hue);
+  --hist-band: color-mix(in oklab, var(--accent2-hue) 20%, transparent);
+  --null-bar: var(--red);
   --null-fill: light-dark(#e3e3e3, #444c55);
   --null-edge: light-dark(#bcbcbc, #5a626c);
   --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
@@ -66,7 +101,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-h1.title { color: var(--accent); font-size: 29px; font-weight: 700; margin: 0; }
+h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; }
 .homelink { font-size: 13px; color: var(--link); text-decoration: none; }
 .homelink:hover { text-decoration: underline; }
 .homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
@@ -83,14 +118,14 @@ h1.title { color: var(--accent); font-size: 29px; font-weight: 700; margin: 0; }
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--accent1);
+  background: var(--accent1-soft);
   border-radius: 3px;
   padding: 1px 4px;
 }
-.key.fk { color: var(--many); background: var(--fk-badge); }
+.key.fk { color: var(--accent2); background: var(--accent2-soft); }
 
-.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn:hover { border-color: var(--accent1); color: var(--accent1); }
 .icon-btn svg { display: block; width: 19px; height: 19px; }
 .icon-btn[hidden] { display: none; }
 .lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
@@ -143,7 +178,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   border-bottom: 1px solid var(--row-line);
   color: var(--ink);
 }
-#tip .tip-head code { color: var(--accent); }
+#tip .tip-head code { color: var(--accent1); }
 /* the aside keeps its line; the code beside it is what wraps */
 #tip .tip-sub { color: var(--ink-faint); white-space: nowrap; }
 #tip p { margin: 0; color: var(--ink-soft); }

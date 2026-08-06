@@ -375,13 +375,13 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
               <span class="anchor-mark">#</span>
             </a>`
           : html`<span class="col-name">(unnamed)</span>`}
-        ${c.type && html`<span class="col-type"><${Marked} text=${c.type} ql=${hl} /></span>`}
         ${keys.map((k) =>
           k === "primary_key"
             ? html`<span class="key">PK</span>`
             : html`<span class="key fk">FK</span>`)}
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
+      ${c.type && html`<${MetaLine} label="type" items=${[c.type]} hl=${hl} />`}
       ${constraints.length > 0 &&
         html`<${MetaLine} label="constraints" hl=${hl}
           items=${constraints.map((k) => k.replace(/_/g, " "))} />`}
