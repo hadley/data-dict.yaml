@@ -192,14 +192,18 @@ abbr.gterm:hover { text-decoration-color: var(--accent); }
 
 .col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
 .col-item:last-child { border-bottom: none; }
-/* the permalinked column: "you are here", distinct from a text match. The
-   item already bleeds into both gutters, so the tint spans the full row. */
+/* The permalinked column: "you are here", Lifted off the list. */
 .col-item.is-target {
-  background: var(--chip);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 4px 4px 0;
-  padding-left: 10px;
+  position: relative;
+  z-index: 1;
+  margin: 7px -21px;
+  padding: 16px 21px;
+  border-radius: 10px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  box-shadow: 0 1px 2px var(--shadow-near), 0 8px 22px -8px var(--shadow-far);
 }
+.col-item:has(+ .is-target) { border-bottom-color: transparent; padding-bottom: 5px }
 
 /* ---- glossary modal ---- */
 .modal-overlay {
