@@ -76,37 +76,49 @@ function matchTable(t, ql) {
   return { self, cols };
 }
 
+/* Which marker a chip wears. The export normalises every relationship so its
+   `left` side is the many end, so the side the other table sits on says which
+   way the marker widens: towards the table the chip names when that is the many
+   end, back towards the table you are reading when it isn't. */
+function joinMarker(rel, otherIsLeft) {
+  const [leftKind, rightKind] = String(rel.cardinality || "").split("-to-");
+  if (leftKind === "one" && rightKind === "one") return ICONS.oneToOne;
+  return (otherIsLeft ? leftKind : rightKind) === "many" ? ICONS.manyRight : ICONS.manyLeft;
+}
+
 /* Relationships arrive resolved into column pairs — one per joined column, so
    a composite key is several pairs and each column reports its own join. */
 function joinsForColumn(tbl, col) {
   const out = [];
   (DICT.relationships || []).forEach((rel) => {
-    const oneToOne = /one-to-one/i.test(rel.cardinality || "");
     (rel.pairs || []).forEach(({ left, right }) => {
-      const other = left.table === tbl && left.column === col ? right
-                  : right.table === tbl && right.column === col ? left
-                  : null;
-      if (other) out.push({ other: other.table, oneToOne, rels: [rel] });
+      const mine = left.table === tbl && left.column === col ? "left"
+                 : right.table === tbl && right.column === col ? "right"
+                 : null;
+      if (!mine) return;
+      const other = mine === "left" ? right : left;
+      out.push({ other: other.table, marker: joinMarker(rel, mine === "right"), rels: [rel] });
     });
   });
   return out;
 }
 
-/* Every table this one joins to, alphabetical, one chip each. Two tables
-   joined more than one way get a single chip carrying every relationship, so
-   its hover reports them all. */
+/* Every table this one joins to, alphabetical, one chip each. Two tables joined
+   more than one way get a single chip carrying every relationship, so its hover
+   reports them all; the marker follows the first of them. */
 function relatedTables(tbl) {
   const seen = new Map();
   (DICT.relationships || []).forEach((rel) => {
-    const oneToOne = /one-to-one/i.test(rel.cardinality || "");
     (rel.pairs || []).forEach(({ left, right }) => {
-      const other = left.table === tbl ? right.table
-                  : right.table === tbl ? left.table
-                  : null;
-      if (!other) return;
+      const mine = left.table === tbl ? "left" : right.table === tbl ? "right" : null;
+      if (!mine) return;
+      const other = mine === "left" ? right.table : left.table;
       const seenBefore = seen.get(other);
-      if (!seenBefore) seen.set(other, { other, oneToOne, rels: [rel] });
-      else if (!seenBefore.rels.includes(rel)) seenBefore.rels.push(rel);
+      if (!seenBefore) {
+        seen.set(other, { other, marker: joinMarker(rel, mine === "right"), rels: [rel] });
+      } else if (!seenBefore.rels.includes(rel)) {
+        seenBefore.rels.push(rel);
+      }
     });
   });
   return [...seen.values()].sort((a, b) => a.other.localeCompare(b.other));
@@ -120,7 +132,7 @@ function JoinChip({ join }) {
     onMouseEnter=${(e) => showTip(joinTip(join.rels), e)}
     onMouseMove=${moveTip} onMouseLeave=${hideTip}
     onClick=${() => { hideTip(); go("#" + join.other); }}>
-    <${Icon} svg=${join.oneToOne ? ICONS.oneToOne : ICONS.oneToMany} />
+    <${Icon} svg=${join.marker} />
     <span>${join.other}</span>
   </span>`;
 }
@@ -185,7 +197,6 @@ function RelationshipsDiagram() {
           </div>
         </div>
       </div>
-      <div class="legend" id="legend" />
     </section>`,
     []
   );

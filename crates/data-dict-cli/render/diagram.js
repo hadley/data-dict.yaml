@@ -482,7 +482,10 @@ const routeLength = (route) =>
 // -------------------------------------------------------------------- markers
 
 // One marker per wire, sitting on the line and turned to follow it: a triangle
-// pointing at the "many" end, or a rounded rectangle when both ends are "one".
+// widening towards the "many" end, or a rounded rectangle when both ends are
+// "one". The wide end carries the meaning, the way a crow's foot does — one row
+// at the point, many at the base — so the glyph opens out towards the side that
+// holds the many rows.
 const MARKER = { long: 15, wide: 11 };
 
 function markerShape(kinds) {
@@ -490,7 +493,7 @@ function markerShape(kinds) {
   if (kinds.every((kind) => kind === "one")) {
     return { tag: "rect", attrs: { x: -l / 2, y: -w / 2, width: l, height: w, rx: w / 2 }, kind: "one" };
   }
-  return { tag: "path", attrs: { d: `M${l / 2},0L${-l / 2},${-w / 2}L${-l / 2},${w / 2}Z` }, kind: "many" };
+  return { tag: "path", attrs: { d: `M${-l / 2},0L${l / 2},${-w / 2}L${l / 2},${w / 2}Z` }, kind: "many" };
 }
 
 // Where on the drawn path the marker sits, and which way the path is heading
@@ -1135,7 +1138,7 @@ async function draw(was = null) {
         path.setAttribute("d", route);
         hit.setAttribute("d", route);
 
-        // Point the triangle at the "many" end, whichever way the wire runs.
+        // Widen the triangle towards the "many" end, whichever way the wire runs.
         const at = markerSpot(path, (i + 1) / (strands.length + 1));
         const heading = strand.backwards ? at.angle + 180 : at.angle;
         marker.setAttribute("transform", `translate(${at.x}, ${at.y}) rotate(${heading})`);
@@ -1190,24 +1193,6 @@ function countCrossings(drawn) {
   }
   return n;
 }
-
-// The legend is drawn with the same marker shapes as the wires.
-document.getElementById("legend").innerHTML = [
-  [["one", "many"], "one-to-many, pointing at the many end"],
-  [["one", "one"], "one-to-one"],
-]
-  .map(([kinds, label]) => {
-    const shape = markerShape(kinds);
-    const attrs = Object.entries(shape.attrs)
-      .map(([k, v]) => `${k}="${v}"`)
-      .join(" ");
-    return (
-      `<span><svg width="34" height="16" viewBox="-17 -8 34 16" aria-hidden="true">` +
-      `<line class="wire" x1="-16" y1="0" x2="16" y2="0"/>` +
-      `<${shape.tag} ${attrs} class="marker ${shape.kind}"/></svg> ${label}</span>`
-    );
-  })
-  .join("");
 
 // Tidy only offers itself once a table has been dragged: until then the
 // layout is already tidy.

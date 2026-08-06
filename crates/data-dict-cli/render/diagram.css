@@ -12,15 +12,6 @@
   --tint-search-on: light-dark(#f7dca6, #5b4a1f); /* the match you selected */
 }
 
-.legend {
-  display: flex;
-  gap: 18px;
-  font-size: 11.5px;
-  color: var(--ink-faint);
-}
-.legend span { display: flex; align-items: center; gap: 6px; }
-.legend svg .wire { stroke: var(--ink-faint); stroke-width: 1.4px; }
-
 /* ---- diagram surface ---------------------------------------------------- */
 
 /* One scrollport for the whole board, so the page doesn't grow with the schema.
