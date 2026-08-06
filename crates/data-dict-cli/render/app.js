@@ -336,9 +336,11 @@ function splitConstraints(constraints) {
 
 function ColumnItem({ table: t, column: c, hl, isTarget }) {
   const ref = useRef(null);
+  /* Keyed on becoming the target rather than on mounting, so a link followed
+     from the table you are already reading scrolls too. */
   useEffect(() => {
     if (isTarget) ref.current.scrollIntoView({ block: "center" });
-  }, []);
+  }, [isTarget]);
   const joins = joinsForColumn(t.name, c.name);
   const { keys, rest: constraints } = splitConstraints(c.constraints);
   const p = c.profile;
@@ -405,15 +407,21 @@ function RelatedTablesBox({ table: t }) {
 function TablePage({ table: t, targetCol }) {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState("original");
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
 
   /* Only this page's own filter is highlighted. The search that brought you
      here has done its job by then, and marking its terms all over a table you
      came to read is noise. */
   const ql = filter.trim().toLowerCase();
   const cols = (t.columns || []).filter(Boolean);
+
+  /* A link to a column scrolls to that column, so the page must not also start
+     at the top — the column's own effect runs first and this would undo it. A
+     link naming a column the table hasn't got scrolls nowhere, so that still
+     starts at the top. */
+  const willJump = !!targetCol && cols.some((c) => c.name === targetCol);
+  useEffect(() => {
+    if (!willJump) window.scrollTo(0, 0);
+  }, []);
   const shown = sortCols(cols, sort, t.rows).filter((c) => {
     if (!ql) return true;
     const text = [c.name, c.label, c.type, plain(c.description), (c.constraints || []).join(" "),
