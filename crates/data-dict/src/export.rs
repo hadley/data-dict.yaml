@@ -60,6 +60,24 @@ pub struct Export {
     glossary: Vec<ExportGlossaryEntry>,
 }
 
+impl Export {
+    /// Each table's source file, in declaration order and still relative to
+    /// the dictionary's own directory. Tables without a `source` contribute
+    /// nothing, and a path repeated across tables is returned once.
+    pub fn source_paths(&self) -> Vec<&Path> {
+        let mut paths: Vec<&Path> = Vec::new();
+        for table in &self.tables {
+            if let Some(source) = &table.source {
+                let path = Path::new(&source.parquet);
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+        paths
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum ExportVersion {

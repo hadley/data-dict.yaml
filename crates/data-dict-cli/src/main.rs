@@ -5,6 +5,11 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use data_dict::{ProblemSet, RenderStyle};
 
+mod assets;
+mod live;
+
+use assets::Assets;
+
 #[derive(Parser)]
 #[command(name = "data-dict", version, about)]
 struct Cli {
@@ -76,6 +81,20 @@ struct RenderArgs {
     /// `.html` extension)
     #[arg(short, long)]
     output: Option<PathBuf>,
+    /// Serve the page and reload the browser when the dictionary or its source
+    /// data changes
+    ///
+    /// The page is served from memory and never written to disk, so `--live`
+    /// takes no `--output`. It stops on ctrl-c.
+    #[arg(long, conflicts_with = "output")]
+    live: bool,
+    /// Port for `--live` (default: the first free port from 7590)
+    #[arg(long, requires = "live", value_name = "PORT")]
+    port: Option<u16>,
+    /// Build the page from the CSS and JS in this directory instead of the
+    /// copies compiled in
+    #[arg(long, hide = true, value_name = "DIR")]
+    assets: Option<PathBuf>,
 }
 
 /// Shared arguments for `validate-meta` and `validate-data`.
@@ -254,10 +273,11 @@ fn run_export(args: ExportArgs, export: ExportFn) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Render a dictionary to a self-contained HTML page. The dictionary is
-/// exported with `export_auto` — data profiles appear exactly when at least
-/// one table's source file is present — and the export fails the run the same
-/// way `export-spec` would: diagnostics on stderr and nothing written.
+/// Render a dictionary to a self-contained HTML page, or with `--live` serve
+/// it and reload the browser as it changes. The dictionary is exported with
+/// `export_auto` — data profiles appear exactly when at least one table's
+/// source file is present — and the export fails the run the same way
+/// `export-spec` would: diagnostics on stderr and nothing written.
 fn run_render(args: RenderArgs) -> ExitCode {
     let dict = match resolve_dict_path(args.path) {
         Ok(dict) => dict,
@@ -266,6 +286,13 @@ fn run_render(args: RenderArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if args.live {
+        // Only `--live` looks for the page's assets on disk: its whole point
+        // is a short loop, and editing them should not need a rebuild.
+        let assets = args.assets.map_or_else(Assets::detect, Assets::Dir);
+        return live::run(&dict, args.port, assets);
+    }
+    let assets = args.assets.map_or(Assets::Embedded, Assets::Dir);
     let (problems, export) = data_dict::export_auto(&dict);
     for line in problems.render(stderr_style()) {
         eprintln!("{line}");
@@ -273,14 +300,15 @@ fn run_render(args: RenderArgs) -> ExitCode {
     let Some(export) = export else {
         return ExitCode::FAILURE;
     };
-    // `<` is escaped so nothing in the dictionary can close the page's
-    // `<script>` block or open a comment (`</script>`, `<!--`); in JSON, `<`
-    // only ever appears inside strings, where `<` spells the same text.
-    let json = serde_json::to_string(&export)
-        .expect("an export always serializes")
-        .replace('<', "\\u003c");
+    let page = match assets.render_page(&assets::dict_json(&export), false) {
+        Ok(page) => page,
+        Err(err) => {
+            eprintln!("could not read the page's assets: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
     let output = args.output.unwrap_or_else(|| dict.with_extension("html"));
-    match std::fs::write(&output, render_html(&json)) {
+    match std::fs::write(&output, page) {
         Ok(()) => {
             println!("wrote {}", output.display());
             ExitCode::SUCCESS
@@ -290,37 +318,6 @@ fn run_render(args: RenderArgs) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-/// The page's parts, tracked as separate files and stitched at build time.
-const RENDER_PAGE: &str = include_str!("../render/index.html");
-const RENDER_APP_CSS: &str = include_str!("../render/app.css");
-const RENDER_DIAGRAM_CSS: &str = include_str!("../render/diagram.css");
-const RENDER_TABLES_CSS: &str = include_str!("../render/tables.css");
-const RENDER_DAGRE_JS: &str = include_str!("../render/dagre.js");
-const RENDER_LAYOUT_JS: &str = include_str!("../render/layout-dagre.js");
-const RENDER_PREACT_JS: &str = include_str!("../render/preact.js");
-const RENDER_SHARED_JS: &str = include_str!("../render/shared.js");
-const RENDER_COMPONENTS_JS: &str = include_str!("../render/components.js");
-const RENDER_DIAGRAM_JS: &str = include_str!("../render/diagram.js");
-const RENDER_APP_JS: &str = include_str!("../render/app.js");
-
-/// Substitute the page template's `{{…}}` markers. The dictionary JSON goes
-/// in last so a marker spelled in someone's prose is embedded as written
-/// rather than expanded.
-fn render_html(dict_json: &str) -> String {
-    RENDER_PAGE
-        .replace("{{APP_CSS}}", RENDER_APP_CSS)
-        .replace("{{DIAGRAM_CSS}}", RENDER_DIAGRAM_CSS)
-        .replace("{{TABLES_CSS}}", RENDER_TABLES_CSS)
-        .replace("{{DAGRE_JS}}", RENDER_DAGRE_JS)
-        .replace("{{LAYOUT_JS}}", RENDER_LAYOUT_JS)
-        .replace("{{PREACT_JS}}", RENDER_PREACT_JS)
-        .replace("{{SHARED_JS}}", RENDER_SHARED_JS)
-        .replace("{{COMPONENTS_JS}}", RENDER_COMPONENTS_JS)
-        .replace("{{DIAGRAM_JS}}", RENDER_DIAGRAM_JS)
-        .replace("{{APP_JS}}", RENDER_APP_JS)
-        .replace("{{DICT_JSON}}", dict_json)
 }
 
 /// Colour diagnostics only when stderr (where they are printed) is a terminal,

@@ -1,0 +1,517 @@
+//! `render --live`: serve the page from memory and reload the browser whenever
+//! anything it was built from changes.
+//!
+//! The server is written on `std::net` rather than pulled from a crate: the
+//! only client is a browser on loopback and the surface is three GETs — the
+//! page, the event stream it subscribes to, and the diagnostics it fetches.
+//! Changes are found by polling modification times, because the files a build
+//! reads are few and known: the dictionary, each table's source data, and (for
+//! [`Assets::Dir`]) the page's own CSS and JS.
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
+
+use data_dict::RenderStyle;
+
+use crate::assets::{Assets, dict_json};
+
+/// Where the browser is sent first. Fixed, so a pinned tab survives a restart.
+const DEFAULT_PORT: u16 = 7590;
+/// How many ports past [`DEFAULT_PORT`] to try, so a second `--live` on the
+/// same machine still starts.
+const PORT_TRIES: u16 = 10;
+/// How often the watched files are checked for a new modification time.
+const POLL: Duration = Duration::from_millis(200);
+/// How long to wait after spotting a change, so a burst of writes rebuilds
+/// once rather than once per file.
+const SETTLE: Duration = Duration::from_millis(60);
+/// How often a comment frame goes out on an idle stream, so a browser that has
+/// gone away is dropped rather than held forever.
+const HEARTBEAT: Duration = Duration::from_secs(15);
+/// How long a client has to send its request line before it is abandoned.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A comment frame: ignored by the browser, but a write that fails identifies
+/// a stream whose other end is gone.
+const HEARTBEAT_FRAME: &str = ":\n\n";
+
+/// What the server is currently serving.
+struct Page {
+    html: String,
+    /// Whether the last build failed, leaving `html` as the last good page.
+    failed: bool,
+    /// The last build's diagnostics, rendered for display.
+    text: Vec<String>,
+}
+
+/// Everything the accept loop and the watch loop share.
+struct Session {
+    dict: PathBuf,
+    assets: Assets,
+    page: Mutex<Page>,
+    clients: Mutex<Vec<TcpStream>>,
+}
+
+impl Session {
+    /// Every file whose modification time is worth watching. `sources` are the
+    /// current table sources, which are only known from a build that worked.
+    fn watch_list(&self, sources: &[PathBuf]) -> Vec<PathBuf> {
+        let mut paths = vec![self.dict.clone()];
+        paths.extend(sources.iter().cloned());
+        paths.extend(self.assets.files());
+        paths
+    }
+
+    /// Hold a connection open as an event stream. The read timeout is cleared
+    /// because nothing is ever read back from it.
+    fn subscribe(&self, mut stream: TcpStream) -> std::io::Result<()> {
+        stream.set_read_timeout(None)?;
+        stream.write_all(
+            b"HTTP/1.1 200 OK\r\n\
+              Content-Type: text/event-stream\r\n\
+              Cache-Control: no-store\r\n\
+              Connection: keep-alive\r\n\r\n",
+        )?;
+        stream.flush()?;
+        self.clients.lock().unwrap().push(stream);
+        Ok(())
+    }
+
+    /// Write one frame to every open stream, dropping those that have gone.
+    fn broadcast(&self, frame: &str) {
+        self.clients.lock().unwrap().retain_mut(|client| {
+            client
+                .write_all(frame.as_bytes())
+                .and_then(|()| client.flush())
+                .is_ok()
+        });
+    }
+}
+
+/// One build's outcome.
+struct Build {
+    /// `None` when the dictionary stopped validating or the page's assets
+    /// couldn't be read; the last good page keeps serving.
+    html: Option<String>,
+    /// Each table's source file, resolved against the dictionary's directory.
+    /// `None` when the export failed, where the previous list stands.
+    sources: Option<Vec<PathBuf>>,
+    failed: bool,
+    text: Vec<String>,
+}
+
+/// Export the dictionary and render the page around it.
+fn build(dict: &Path, assets: &Assets) -> Build {
+    let (problems, export) = data_dict::export_auto(dict);
+    let mut text = problems.render(RenderStyle::default());
+    let Some(export) = export else {
+        return Build {
+            html: None,
+            sources: None,
+            failed: true,
+            text,
+        };
+    };
+    let base = dict.parent().unwrap_or_else(|| Path::new(""));
+    let sources = export
+        .source_paths()
+        .into_iter()
+        .map(|path| base.join(path))
+        .collect();
+    match assets.render_page(&dict_json(&export), true) {
+        Ok(html) => Build {
+            html: Some(html),
+            sources: Some(sources),
+            failed: problems.status().failed(),
+            text,
+        },
+        Err(err) => {
+            text.push(format!("could not read the page's assets: {err}"));
+            Build {
+                html: None,
+                sources: Some(sources),
+                failed: true,
+                text,
+            }
+        }
+    }
+}
+
+/// Serve the dictionary at `dict` until interrupted.
+pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
+    let first = build(dict, &assets);
+    for line in &first.text {
+        eprintln!("{line}");
+    }
+    // A page that never built has nothing to serve, so this fails like `render`
+    // rather than starting up empty; a later failure keeps the last good page.
+    let Some(html) = first.html else {
+        return ExitCode::FAILURE;
+    };
+    let listener = match bind(port) {
+        Ok(listener) => listener,
+        Err(err) => {
+            eprintln!("could not listen on port {}: {err}", port_label(port));
+            return ExitCode::FAILURE;
+        }
+    };
+    let url = match listener.local_addr() {
+        Ok(addr) => format!("http://{addr}"),
+        Err(err) => {
+            eprintln!("could not read the server's address: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let session = Arc::new(Session {
+        dict: dict.to_path_buf(),
+        assets,
+        page: Mutex::new(Page {
+            html,
+            failed: first.failed,
+            text: first.text,
+        }),
+        clients: Mutex::new(Vec::new()),
+    });
+
+    println!("serving {} at {url}", dict.display());
+    println!("watching for changes — press ctrl-c to stop");
+    let accepting = Arc::clone(&session);
+    thread::spawn(move || accept(&accepting, listener));
+    open_browser(&url);
+    watch(&session, first.sources.unwrap_or_default())
+}
+
+fn accept(session: &Arc<Session>, listener: TcpListener) {
+    for stream in listener.incoming().flatten() {
+        // A browser closing a tab mid-request is ordinary, not worth reporting.
+        let _ = handle(session, stream);
+    }
+}
+
+fn handle(session: &Arc<Session>, mut stream: TcpStream) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
+    let mut request = String::new();
+    BufReader::new(&stream).read_line(&mut request)?;
+    match request.split_whitespace().nth(1).unwrap_or("/") {
+        "/" => {
+            let html = session.page.lock().unwrap().html.clone();
+            respond(&mut stream, "200 OK", "text/html; charset=utf-8", &html)
+        }
+        "/problems" => {
+            let body = {
+                let page = session.page.lock().unwrap();
+                serde_json::json!({ "failed": page.failed, "text": page.text }).to_string()
+            };
+            respond(&mut stream, "200 OK", "application/json", &body)
+        }
+        "/events" => session.subscribe(stream),
+        _ => respond(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            "not found\n",
+        ),
+    }
+}
+
+fn respond(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &str,
+) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {len}\r\n\
+         Cache-Control: no-store\r\n\
+         Connection: close\r\n\r\n{body}",
+        len = body.len()
+    )?;
+    stream.flush()
+}
+
+/// An SSE frame. The `data` line is required: the browser won't dispatch an
+/// event whose data buffer is empty, even when the name carries the message.
+fn event(name: &str) -> String {
+    format!("event: {name}\ndata: 1\n\n")
+}
+
+/// Listen on `port`, or on the first free port from [`DEFAULT_PORT`].
+fn bind(port: Option<u16>) -> std::io::Result<TcpListener> {
+    match port {
+        Some(port) => TcpListener::bind((Ipv4Addr::LOCALHOST, port)),
+        None => bind_from(DEFAULT_PORT, PORT_TRIES),
+    }
+}
+
+fn bind_from(start: u16, tries: u16) -> std::io::Result<TcpListener> {
+    let mut last = None;
+    for port in start..start.saturating_add(tries) {
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+            Ok(listener) => return Ok(listener),
+            Err(err) => last = Some(err),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no port was tried")))
+}
+
+fn port_label(port: Option<u16>) -> String {
+    match port {
+        Some(port) => port.to_string(),
+        None => format!("{DEFAULT_PORT}–{}", DEFAULT_PORT + PORT_TRIES - 1),
+    }
+}
+
+/// The modification time of every watched file. A file that isn't there is
+/// recorded as `None`, so creating it registers as a change.
+fn stamps(paths: &[PathBuf]) -> Vec<Option<SystemTime>> {
+    paths
+        .iter()
+        .map(|path| {
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok()
+        })
+        .collect()
+}
+
+/// Rebuild and notify the browser whenever a watched file changes.
+fn watch(session: &Arc<Session>, sources: Vec<PathBuf>) -> ! {
+    let mut sources = sources;
+    let mut watched = session.watch_list(&sources);
+    let mut seen = stamps(&watched);
+    let mut beat = Instant::now();
+    loop {
+        thread::sleep(POLL);
+        if stamps(&watched) != seen {
+            thread::sleep(SETTLE);
+            let build = build(&session.dict, &session.assets);
+            if let Some(found) = &build.sources {
+                sources = found.clone();
+            }
+            apply(session, build);
+            watched = session.watch_list(&sources);
+            seen = stamps(&watched);
+            beat = Instant::now();
+        } else if beat.elapsed() >= HEARTBEAT {
+            session.broadcast(HEARTBEAT_FRAME);
+            beat = Instant::now();
+        }
+    }
+}
+
+/// Publish a build: a page that rendered reloads the browser, and one that
+/// didn't reports over the page already there.
+fn apply(session: &Arc<Session>, build: Build) {
+    for line in &build.text {
+        eprintln!("{line}");
+    }
+    let rebuilt = build.html.is_some();
+    {
+        let mut page = session.page.lock().unwrap();
+        if let Some(html) = build.html {
+            page.html = html;
+        }
+        page.failed = build.failed;
+        page.text = build.text;
+    }
+    if rebuilt {
+        println!("reloaded {}", session.dict.display());
+    }
+    session.broadcast(&event(if rebuilt { "reload" } else { "problems" }));
+}
+
+/// Show the page, best-effort: a browser that won't launch is no reason to
+/// stop serving, since the URL has already been printed.
+fn open_browser(url: &str) {
+    let mut command = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    } else {
+        Command::new("xdg-open")
+    };
+    let _ = command.arg(url).spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    fn session(html: &str) -> Arc<Session> {
+        Arc::new(Session {
+            dict: PathBuf::from("data-dict.yaml"),
+            assets: Assets::Embedded,
+            page: Mutex::new(Page {
+                html: html.to_string(),
+                failed: false,
+                text: Vec::new(),
+            }),
+            clients: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Start a server on an ephemeral port and return where to reach it.
+    fn start(session: &Arc<Session>) -> u16 {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let session = Arc::clone(session);
+        thread::spawn(move || accept(&session, listener));
+        port
+    }
+
+    fn get(port: u16, path: &str) -> String {
+        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        stream.flush().unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    #[test]
+    fn the_root_serves_the_current_page() {
+        let session = session("<!doctype html><p>hello");
+        let response = get(start(&session), "/");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(response.ends_with("<!doctype html><p>hello"));
+    }
+
+    #[test]
+    fn problems_are_served_as_json() {
+        let session = session("page");
+        {
+            let mut page = session.page.lock().unwrap();
+            page.failed = true;
+            page.text = vec!["S07: bad".to_string()];
+        }
+        let response = get(start(&session), "/problems");
+        assert!(response.ends_with(r#"{"failed":true,"text":["S07: bad"]}"#));
+    }
+
+    #[test]
+    fn an_unknown_path_is_not_found() {
+        let response = get(start(&session("page")), "/nope");
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    }
+
+    #[test]
+    fn a_subscriber_is_sent_every_frame() {
+        let session = session("page");
+        let port = start(&session);
+        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        write!(stream, "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        stream.flush().unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(line, "HTTP/1.1 200 OK\r\n");
+        // Read to the end of the headers, so what follows is the first frame.
+        loop {
+            let mut header = String::new();
+            reader.read_line(&mut header).unwrap();
+            if header == "\r\n" {
+                break;
+            }
+            assert!(!header.is_empty(), "the stream closed inside the headers");
+        }
+
+        // The subscriber is registered by the time the headers are out, but the
+        // push comes from another thread; retry until it lands.
+        for _ in 0..100 {
+            if session.clients.lock().unwrap().len() == 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        session.broadcast(&event("reload"));
+
+        let mut frame = String::new();
+        reader.read_line(&mut frame).unwrap();
+        assert_eq!(frame, "event: reload\n");
+    }
+
+    #[test]
+    fn a_stream_that_has_gone_away_is_dropped() {
+        let session = session("page");
+        let port = start(&session);
+        {
+            let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            write!(stream, "GET /events HTTP/1.1\r\n\r\n").unwrap();
+            stream.flush().unwrap();
+            for _ in 0..100 {
+                if session.clients.lock().unwrap().len() == 1 {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(session.clients.lock().unwrap().len(), 1);
+        }
+        // The first write after the close may still be buffered by the OS, so
+        // the drop can take a second frame to be noticed.
+        for _ in 0..50 {
+            session.broadcast(HEARTBEAT_FRAME);
+            if session.clients.lock().unwrap().is_empty() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("a closed stream was never dropped");
+    }
+
+    #[test]
+    fn a_taken_port_falls_through_to_the_next() {
+        let taken = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = taken.local_addr().unwrap().port();
+        let listener = bind_from(port, PORT_TRIES).unwrap();
+        assert_ne!(listener.local_addr().unwrap().port(), port);
+    }
+
+    #[test]
+    fn no_free_port_is_an_error() {
+        let taken = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = taken.local_addr().unwrap().port();
+        assert!(bind_from(port, 1).is_err());
+    }
+
+    /// A missing file is a stamp too, so writing one for the first time — a
+    /// source that arrives after the dictionary naming it — is a change.
+    #[test]
+    fn a_file_appearing_registers_as_a_change() {
+        let path = std::env::temp_dir().join("data-dict-live-stamp-test.yaml");
+        let _ = std::fs::remove_file(&path);
+        let watched = vec![path.clone()];
+        let before = stamps(&watched);
+        assert_eq!(before, vec![None]);
+        std::fs::write(&path, "name: x\n").unwrap();
+        assert_ne!(stamps(&watched), before);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn the_watch_list_covers_the_dictionary_its_sources_and_its_assets() {
+        let session = session("page");
+        let sources = vec![PathBuf::from("data/otters.parquet")];
+        assert_eq!(
+            session.watch_list(&sources),
+            vec![
+                PathBuf::from("data-dict.yaml"),
+                PathBuf::from("data/otters.parquet")
+            ],
+            "embedded assets can't change while the process runs"
+        );
+    }
+}
