@@ -18,11 +18,6 @@ details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outli
 .tpage-details details.xdetails { margin: 0 0 13px; }
 .tpage-details .xdetails-body { font-size: 13.5px; max-width: none; }
 
-/* sampled values on a column, tucked away until asked for */
-details.xdetails.samples { margin: 5px 0 0; }
-details.xdetails.samples .samples-body { margin-top: 4px; max-width: none; }
-details.xdetails.samples .col-meta { margin-top: 0; }
-
 .toolbar { margin-bottom: 14px; }
 .toolbar input[type=search] {
   width: 100%;
@@ -247,6 +242,13 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .col-meta { color: var(--ink-soft); font-size: 11.5px; margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }
 .col-meta code { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+/* reveals the rest of a column's sampled values, and puts them away again */
+.more-less {
+  margin-left: 6px; padding: 0; border: none; background: none;
+  color: var(--link); font: inherit; cursor: pointer;
+}
+.more-less:hover { text-decoration: underline; }
+.more-less:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .joins-line .lbl { margin-right: 0; }
 .join-chip { display: inline-flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; color: var(--ink); cursor: pointer; transition: border-color .1s ease, color .1s ease; }

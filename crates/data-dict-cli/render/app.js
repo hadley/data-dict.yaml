@@ -353,7 +353,8 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
       ${p && p.distinct && p.distinct.count != null &&
         html`<${MetaText} label="distinct values"
           text=${(p.distinct.approximate ? "~" : "") + p.distinct.count.toLocaleString()} />`}
-      ${c.examples && c.examples.length > 0 && html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} />`}
+      ${c.examples && c.examples.length > 0 &&
+        html`<${MetaLine} label="examples" items=${c.examples} hl=${hl} code=${false} />`}
       ${c.units != null && html`<${MetaText} label="units" text=${String(c.units)} />`}
       ${p && p.sample_values && p.sample_values.length > 0 &&
         html`<${SampleValues} values=${p.sample_values} hl=${hl} />`}

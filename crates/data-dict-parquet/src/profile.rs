@@ -35,8 +35,9 @@ const TRACKED_VALUES: usize = 1_000;
 const SAMPLED_VALUES: usize = 128;
 /// Most frequent values reported.
 const TOP_VALUES: usize = 20;
-/// Examples reported.
-const EXAMPLES: usize = 5;
+/// Examples reported. Enough that a consumer can show a useful handful and
+/// still have more to reveal on demand.
+const EXAMPLES: usize = 20;
 /// Histogram bins spanning a column's range.
 const BINS: usize = 20;
 
@@ -66,6 +67,13 @@ pub struct ColumnProfile {
     pub histogram: Option<Histogram>,
     /// Up to [`EXAMPLES`] representative values, spread along the sorted
     /// distinct values.
+    ///
+    /// Reported exactly, never rounded — unlike a histogram's bin edges, which
+    /// are rounded to the bin width because there the number only has to name
+    /// a boundary. An example is a real value out of the column, and how much
+    /// precision it carries is part of what it tells you: `1.0` and
+    /// `1.0000000001` say different things about the data, and rounding would
+    /// hide the difference.
     pub examples: Vec<Value>,
 }
 

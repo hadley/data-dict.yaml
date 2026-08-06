@@ -158,6 +158,8 @@ String, boolean, and enum columns summarize by value:
 }
 ```
 
+`sample_values` are up to 20 representative values, spread along the column's sorted distinct values rather than drawn from its start, and reported exactly — never rounded, since how much precision a value carries is part of what it tells you. They are omitted for a column that declares its `values`: that declaration is exhaustive, so it already gives the reader every value the column can hold, in full rather than as a sample.
+
 A `list` column reports only its containers — `{ "missing": 4 }`, the null-list count — never its elements.
 
 Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.

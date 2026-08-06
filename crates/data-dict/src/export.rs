@@ -243,6 +243,19 @@ enum ExportProfile {
     },
 }
 
+impl ExportProfile {
+    /// Drop the sample values. For a column that declares its `values` they
+    /// say nothing: the declaration is exhaustive, so the reader already has
+    /// every value the column can hold, in full rather than as a sample.
+    fn drop_samples(&mut self) {
+        match self {
+            ExportProfile::Scaled { sample_values, .. }
+            | ExportProfile::Valued { sample_values, .. } => sample_values.clear(),
+            ExportProfile::Minimal { .. } => {}
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ExportDistinct {
     count: usize,
@@ -290,7 +303,7 @@ struct ExportValueCount {
 }
 
 /// A literal JSON value: the only scalar type in the document.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 #[serde(untagged)]
 enum JsonScalar {
     Bool(bool),
@@ -559,6 +572,18 @@ fn build_column(
         Vec::new()
     };
 
+    let values = col
+        .values
+        .as_ref()
+        .map(representation_scalars)
+        .unwrap_or_default();
+    let mut profile = profiles.remove(&path.join("."));
+    if let Some(profile) = &mut profile
+        && !values.is_empty()
+    {
+        profile.drop_samples();
+    }
+
     ExportColumn {
         name: col.name.value.clone(),
         label: col.label.clone(),
@@ -575,11 +600,7 @@ fn build_column(
         constraints,
         references,
         referenced_by,
-        values: col
-            .values
-            .as_ref()
-            .map(representation_scalars)
-            .unwrap_or_default(),
+        values,
         range: col.range.as_ref().and_then(|range| {
             let [min, max] = range.items.as_slice() else {
                 return None;
@@ -604,7 +625,7 @@ fn build_column(
             .iter()
             .map(|a| build_assertion(a, table))
             .collect(),
-        profile: profiles.remove(&path.join(".")),
+        profile,
     }
 }
 

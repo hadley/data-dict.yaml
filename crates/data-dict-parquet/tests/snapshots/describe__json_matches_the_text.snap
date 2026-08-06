@@ -148,8 +148,10 @@ expression: "sanitize(&json, &path)"
       },
       "examples": [
         36.7,
+        39.1,
         39.5,
         46.5,
+        48.7,
         50.0,
         59.6
       ]
@@ -271,9 +273,13 @@ expression: "sanitize(&json, &path)"
       },
       "examples": [
         3250,
+        3450,
         3625,
+        3650,
         3750,
+        3800,
         4675,
+        4850,
         6300
       ]
     },

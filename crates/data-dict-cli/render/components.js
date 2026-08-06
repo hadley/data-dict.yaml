@@ -63,24 +63,44 @@ function DetailsBlock({ source, hl }) {
 
 /* ---- metadata lines ------------------------------------------------------ */
 
-function MetaLine({ label, items, hl }) {
+/* A run of values on a meta line. An enum's declared values are set in code,
+   which is how the dictionary writes them; examples and values drawn from the
+   data are ordinary text, so they read as a list rather than as literals. */
+function ValueList({ items, hl, code }) {
+  return items.map((v, i) => {
+    const text = html`<${Marked} text=${String(v)} ql=${hl} />`;
+    return html`${i ? (code ? " " : ", ") : ""}${code ? html`<code>${text}</code>` : text}`;
+  });
+}
+
+function MetaLine({ label, items, hl, code = true }) {
   return html`<div class="col-meta">
     ${label && html`<span class="lbl">${label}:</span>`}
-    ${items.map((v, i) => html`${i ? " " : ""}<code><${Marked} text=${String(v)} ql=${hl} /></code>`)}
+    <${ValueList} items=${items} hl=${hl} code=${code} />
   </div>`;
 }
 
-/* A meta line whose value is plain text rather than code chips. */
+/* A meta line whose value is plain text rather than a list. */
 function MetaText({ label, text }) {
   return html`<div class="col-meta"><span class="lbl">${label}:</span>${text}</div>`;
 }
 
-/* Values seen in the data, tucked behind a disclosure so the row stays short. */
+/* How many sampled values a column shows before you ask for the rest. */
+const SAMPLES_SHOWN = 6;
+
+/* Values seen in the data, read like examples. The profile carries far more
+   than fits on one line, so the tail is revealed on demand. */
 function SampleValues({ values, hl }) {
-  return html`<details class="xdetails samples">
-    <summary>sample values</summary>
-    <div class="samples-body"><${MetaLine} label="" items=${values} hl=${hl} /></div>
-  </details>`;
+  const [all, setAll] = useState(false);
+  const shown = all ? values : values.slice(0, SAMPLES_SHOWN);
+  return html`<div class="col-meta">
+    <span class="lbl">sample values:</span>
+    <${ValueList} items=${shown} hl=${hl} code=${false} />
+    ${values.length > SAMPLES_SHOWN &&
+      html`<button type="button" class="more-less" onClick=${() => setAll(!all)}>
+        ${all ? "less" : "more"}
+      </button>`}
+  </div>`;
 }
 
 /* ---- formatting ---------------------------------------------------------- */
