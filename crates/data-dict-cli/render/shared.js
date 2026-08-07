@@ -197,7 +197,29 @@ function joinTip(rels) {
   for (const rel of rels) {
     box.appendChild(tipHead(rel.join, rel.declared_cardinality));
     if (rel.description) box.appendChild(tipProse(rel.description));
+    /* a chip is the only place a relationship appears, so its `todo` has no
+       icon of its own to hover and rides along here instead */
+    if (rel.todo) box.appendChild(todoNote(rel.todo));
   }
+  return box;
+}
+
+/* A `todo` inside a tooltip that is already about something else, labelled so
+   it doesn't read as part of the description above it. */
+function todoNote(source) {
+  const box = el("div", "tip-todo tip-todo-note");
+  box.appendChild(el("span", "tip-todo-lbl", "todo"));
+  box.appendChild(prose(source));
+  return box;
+}
+
+/* What a `todo` records. The note arrives as rendered HTML and is usually a
+   list of tasks rather than a sentence, so it is placed as prose rather than
+   squeezed onto the head's line. */
+function todoTip(source) {
+  const box = el("div", "tip-todo");
+  box.appendChild(tipHead("todo", "unresolved"));
+  box.appendChild(prose(source));
   return box;
 }
 

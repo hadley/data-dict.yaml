@@ -150,6 +150,7 @@ function Header({ onGlossary, atTable }) {
           ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
           : "Data dictionary"}
       </h1>
+      <${TodoFlag} source=${DICT.todo} />
       ${atTable &&
         html`<a class="homelink" href="#" title="Back to every table"
           onClick=${(e) => { e.preventDefault(); goHome(); }}>home</a>`}
@@ -261,6 +262,7 @@ function TableGroup({ table: t, ql, m }) {
         <${NameLabel} label=${t.label}>
           <a class="tname" href=${href}><${Marked} text=${t.name} ql=${ql} /></a>
         <//>
+        <${TodoFlag} source=${t.todo} />
       </td>
       <td class="num size">
         <span class="srows">${t.rows == null ? "—" : t.rows.toLocaleString()}</span>
@@ -379,6 +381,7 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
           k === "primary_key"
             ? html`<span class="key">PK</span>`
             : html`<span class="key fk">FK</span>`)}
+        <${TodoFlag} source=${c.todo} />
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
       ${c.type && html`<${MetaLine} label="type" items=${[c.type]} hl=${hl} />`}
@@ -459,6 +462,7 @@ function TablePage({ table: t, targetCol }) {
         <div class="tpage-headmain">
           <div class="tpage-title-row">
             <span class="mtitle"><${NameLabel} label=${t.label}><span>${t.name}</span><//></span>
+            <${TodoFlag} source=${t.todo} />
           </div>
           <div class="tpage-substat">${substat}</div>
           <div class="tpage-main">

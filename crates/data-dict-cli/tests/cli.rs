@@ -353,6 +353,46 @@ fn render_without_data_is_quiet_and_unprofiled() {
     );
 }
 
+/// Unresolved `todo`s ride into the page so the flag beside a name has
+/// something to show, and are still reported as warnings on the way.
+#[test]
+fn render_carries_todos_into_the_page() {
+    let dir = temp_dir("render-todo");
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        indoc::indoc! {"
+            $version: \"0.1.0\"
+            $learn_more: http://data-dict.tidyverse.org/
+            description: Pups.
+            todo: Confirm the years covered.
+            tables:
+              - name: pups
+                todo: Check the grain.
+                columns:
+                  - name: pup_count
+                    type: number
+                    examples: [1]
+                    todo: Add a description.
+        "},
+    )
+    .unwrap();
+
+    let output = run_in(&dir, &["render"]);
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("S31"), "{stderr}");
+
+    // rendered to HTML, then embedded with every `<` as `\u003c`
+    let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
+    for todo in [
+        r"\u003cp>Confirm the years covered.\u003c/p>",
+        r"\u003cp>Check the grain.\u003c/p>",
+        r"\u003cp>Add a description.\u003c/p>",
+    ] {
+        assert!(html.contains(todo), "missing {todo}");
+    }
+}
+
 /// `-o` writes the page somewhere else.
 #[test]
 fn render_output_flag_overrides_the_path() {
