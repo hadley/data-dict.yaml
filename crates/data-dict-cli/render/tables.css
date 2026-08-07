@@ -136,10 +136,14 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
    together by nature, so the border is what actually separates them; the fill
    is what stops the page reading as one flat sheet. */
 .lead, .tpage-top, .tpage-list {
-  background: var(--card);
   border: 1px solid var(--rule);
   border-radius: 10px;
 }
+/* The description cards take the warm panel, so prose reads as its own surface
+   without taking a colour. Opacity can't do this job: card and paper are ~20/255
+   apart, so no alpha is visible against it. */
+.lead, .tpage-top { background: var(--panel); }
+.tpage-list { background: var(--card); }
 .lead { padding: 14px 16px; margin-bottom: 20px; }
 .lead > :last-child, .lead p:last-child { margin-bottom: 0; }
 /* The rows bleed 13px outward to let a highlighted one span the full width, so

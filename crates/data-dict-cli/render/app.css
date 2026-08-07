@@ -74,6 +74,10 @@
   /* A panel set into a card, halfway between the card and the page behind it. */
   --inset: light-dark(#f8f6f4, #191e23);
 
+  /* The surfaces that hold prose: a warm step off the card, so a block of writing
+     doesn't sit on the same white as a list of data. */
+  --panel: light-dark(#f9f6f2, #191e23);
+
   /* the tables app's vocabulary, mapped onto the same palette */
   --chip: light-dark(#e9ecf2, #21262d);
   --link: var(--accent1); /* a link is the accent doing its plainest job */
