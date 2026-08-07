@@ -13,6 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: r-lib/actions/setup-r@v2
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -21,30 +23,12 @@ jobs:
         run: cargo build -p data-dict-cli --release
 
       - name: Sync examples
-        id: sync
-        run: |
-          data_dict="$PWD/target/release/data-dict"
-          checkouts="$(mktemp -d)"
-          failed=""
-          while IFS='=' read -r name repo; do
-            case "$name" in ''|'#'*) continue;; esac
-            echo "::group::$name"
-            src="$checkouts/$name"
-            # The whole repo, so the tables' source data is there to validate.
-            git clone --quiet --depth 1 "https://github.com/$repo.git" "$src"
-            # validate-data implies the spec and metadata levels.
-            if "$data_dict" validate-data "$src/data-dict.yaml"; then
-              { echo "# source: https://github.com/$repo"; echo; cat "$src/data-dict.yaml"; } \
-                > "site/examples/$name.yaml"
-            else
-              echo "::error title=$name::validate-data failed; keeping the copy already in site/examples"
-              failed="$failed $name"
-            fi
-            echo "::endgroup::"
-          done < example-repos.txt
-          echo "failed=${failed# }" >> "$GITHUB_OUTPUT"
+        run: Rscript examples.R sync
 
+      # Examples that did validate are worth committing even when another
+      # failed and turned the run red.
       - name: Commit if changed
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -56,9 +40,3 @@ jobs:
             git commit -m "Update examples: ${changed}"
             git push
           fi
-
-      - name: Report examples that failed validation
-        if: steps.sync.outputs.failed != ''
-        run: |
-          echo "::error::Examples failing validate-data:${{ steps.sync.outputs.failed }}"
-          exit 1

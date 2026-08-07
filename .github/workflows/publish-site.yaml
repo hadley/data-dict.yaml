@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: r-lib/actions/setup-r@v2
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -32,26 +34,7 @@ jobs:
       # The pages are generated, not committed, so they always come from the
       # renderer on this commit.
       - name: Render examples
-        run: |
-          data_dict="$PWD/target/release/data-dict"
-          checkouts="$(mktemp -d)"
-          mkdir -p site/examples/rendered
-          while IFS='=' read -r name repo; do
-            case "$name" in ''|'#'*) continue;; esac
-            echo "::group::$name"
-            src="$checkouts/$name"
-            # The whole repo, so the tables' source data is there to profile
-            # into the page.
-            git clone --quiet --depth 1 "https://github.com/$repo.git" "$src"
-            # Render the copy in site/examples: that is the one the site shows,
-            # and update-examples has validated it.
-            cp "site/examples/$name.yaml" "$src/data-dict.yaml"
-            if ! "$data_dict" render "$src/data-dict.yaml" \
-              --output "site/examples/rendered/$name.html"; then
-              echo "::warning title=$name::could not be rendered; the site will ship without its page"
-            fi
-            echo "::endgroup::"
-          done < example-repos.txt
+        run: Rscript examples.R render
 
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
