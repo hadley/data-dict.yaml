@@ -219,6 +219,36 @@
 
 /* the name takes the space it needs, the size and the eye sit together at the
    right-hand end of the heading */
+/* The name and its chevron are one target, opening the table's page. They keep the
+   heading's own colour — the chevron is what says it goes anywhere — and the
+   pointer only turns from `grab` here, since the heading is still the drag handle
+   everywhere else. */
+.node > h2 a.tlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.node > h2 a.tlink .tn { overflow: hidden; text-overflow: ellipsis; }
+.node > h2 a.tlink:hover .tn { text-decoration: underline; }
+.node > h2 a.tlink:hover .go { opacity: 1; }
+.node > h2 a.tlink:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+/* The chevron sits in the same quiet register as the heading's other marks. */
+.node > h2 .go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 9px;
+  height: 9px;
+  opacity: 0.55;
+}
+.node > h2 .go svg { width: 100%; height: 100%; fill: currentColor; }
+
 .node > h2 .count {
   margin-left: auto;
   font-family: ui-sans-serif, sans-serif;

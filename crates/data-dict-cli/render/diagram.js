@@ -96,7 +96,13 @@ for (const table of dict.tables) {
   const size = table.rows ? `${table.rows.toLocaleString()} × ${cols}` : `${cols} cols`;
   const sizeTitle = `${table.rows ? `${table.rows.toLocaleString()} rows × ` : ""}${cols} columns`;
   box.innerHTML =
-    `<h2>${esc(table.name)}` +
+    // The name and its chevron open the table's page. `draggable` is off for the
+    // same reason the column names' is: the heading is how a table is dragged, and
+    // a link would drag itself instead.
+    `<h2><a class="tlink" draggable="false" href="#${esc(table.name)}">` +
+    `<span class="tn">${esc(table.name)}</span>` +
+    `<span class="go" aria-hidden="true">` +
+    `<svg viewBox="0 0 16 16"><path d="M12.15,8c0,.19-.04.36-.11.53s-.19.32-.35.47l-5.77,5.66c-.23.23-.52.34-.86.34-.22,0-.42-.05-.61-.16s-.34-.26-.45-.44-.16-.39-.16-.61c0-.34.13-.64.39-.9l5.04-4.89L4.24,3.12c-.26-.26-.39-.56-.39-.89,0-.22.05-.43.16-.62s.26-.33.45-.44.39-.16.61-.16c.34,0,.62.11.86.34l5.77,5.66c.16.15.27.31.34.47s.11.34.11.53Z"/></svg></span></a>` +
     `<span class="count">${table.demo ? "example · " : ""}${size}</span>` +
     `<button class="eye" type="button" aria-pressed="false"` +
     ` title="Lay the diagram out around this table">` +
@@ -943,10 +949,14 @@ stage.addEventListener("pointerdown", (event) => {
   const handle = event.target.closest(DRAG_HANDLE);
   // The eye sits in the handle, and a press on it is a click, not a drag.
   if (!handle || event.button !== 0 || event.target.closest(".eye")) return;
+  // A modified press on the heading's link is the browser's to answer — opening
+  // the table in a new tab or window — so the drag never starts.
+  const link = event.target.closest("a.tlink");
+  if (link && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
   const box = handle.parentElement;
   const node = placed?.nodes[box.dataset.table];
   if (!node) return;
-  dragged = { el: box, node, from: { x: event.clientX, y: event.clientY }, at: { x: node.x, y: node.y } };
+  dragged = { el: box, node, link, from: { x: event.clientX, y: event.clientY }, at: { x: node.x, y: node.y } };
   // A dragged table comes to the front and stays there. Renumbering when the
   // counter climbs too far keeps every box below the tooltip and the controls,
   // which a long session of dragging used to overtake.
@@ -969,8 +979,16 @@ stage.addEventListener("pointermove", (event) => {
   follow();
 });
 for (const done of ["pointerup", "pointercancel"]) {
-  stage.addEventListener(done, () => {
+  stage.addEventListener(done, (event) => {
     if (dragged?.moved) saveArrangement();
+    // Dragging captures the pointer to the heading, which is where the click that
+    // follows is delivered — the link inside it never sees one. So a press that
+    // ended where it began follows the link itself, and one that moved is a drag
+    // and opens nothing. Keyboard activation is untouched: it fires a real click
+    // on the link, with no pointer to capture.
+    else if (dragged?.link && event.type === "pointerup") {
+      location.hash = dragged.link.getAttribute("href");
+    }
     dragged?.el.classList.remove("dragging");
     dragged = null;
   });
