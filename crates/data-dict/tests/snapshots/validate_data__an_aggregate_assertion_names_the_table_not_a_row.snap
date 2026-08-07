@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: SUM(a) > 100
+    columns:
+      - name: a
+        type: number(quantity)
+        range: [-1000000, 1000000]
+      - name: b
+        type: number(quantity)
+        range: [-1000000, 1000000]
+────────────────────────────────────────
+error[D07]: An aggregate assertion must hold for the table.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: SUM(a) > 100
+   |                 ^^^^^^^^^^^^ is false for this table

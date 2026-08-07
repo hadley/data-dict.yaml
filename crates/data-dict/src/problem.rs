@@ -209,6 +209,36 @@ pub enum ProblemKind {
         references: String,
         reason: String,
     },
+    /// `D07` — a row-level `assert` expression is false for some rows. `rows`
+    /// lists the first few (1-based) and `samples` the values their columns
+    /// held; `count` is the total.
+    AssertionViolated {
+        assertion: String,
+        count: usize,
+        rows: Vec<usize>,
+        samples: Vec<String>,
+    },
+    /// `D07` — an aggregate `assert` expression is false for the table. An
+    /// aggregate is one verdict about every row at once, so no row is to blame.
+    AssertionFalse { assertion: String },
+    /// `D08` — an `assert` expression names a column that can't be read as the
+    /// type the dictionary declares, so it was never evaluated.
+    AssertionNotChecked {
+        assertion: String,
+        column: String,
+        reason: String,
+    },
+    /// `D09` — integer arithmetic in an `assert` expression left the 64-bit
+    /// range. `row` is where it happened, absent for an aggregate assertion.
+    AssertionOverflow {
+        assertion: String,
+        row: Option<usize>,
+    },
+    /// `D10` — an `assert` expression divided by zero, in `/` or `MOD`.
+    AssertionDividedByZero {
+        assertion: String,
+        row: Option<usize>,
+    },
 }
 
 impl ProblemKind {
@@ -228,6 +258,10 @@ impl ProblemKind {
             ProblemKind::ValuesOutsideEnum { .. } => "D04",
             ProblemKind::ForeignKeyNotFound { .. } => "D05",
             ProblemKind::ReferentialIntegrityNotVerified { .. } => "D06",
+            ProblemKind::AssertionViolated { .. } | ProblemKind::AssertionFalse { .. } => "D07",
+            ProblemKind::AssertionNotChecked { .. } => "D08",
+            ProblemKind::AssertionOverflow { .. } => "D09",
+            ProblemKind::AssertionDividedByZero { .. } => "D10",
             _ => return None,
         })
     }
@@ -247,7 +281,12 @@ impl ProblemKind {
             | ProblemKind::UniquenessNotVerified { .. }
             | ProblemKind::ValuesOutsideEnum { .. }
             | ProblemKind::ForeignKeyNotFound { .. }
-            | ProblemKind::ReferentialIntegrityNotVerified { .. } => Level::Data,
+            | ProblemKind::ReferentialIntegrityNotVerified { .. }
+            | ProblemKind::AssertionViolated { .. }
+            | ProblemKind::AssertionFalse { .. }
+            | ProblemKind::AssertionNotChecked { .. }
+            | ProblemKind::AssertionOverflow { .. }
+            | ProblemKind::AssertionDividedByZero { .. } => Level::Data,
             _ => return None,
         })
     }

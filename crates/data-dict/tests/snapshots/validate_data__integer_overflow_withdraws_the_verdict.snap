@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: a * 2 > 0
+    columns:
+      - name: a
+        type: number(quantity)
+        range: [-1000000, 1000000]
+      - name: b
+        type: number(quantity)
+        range: [-1000000, 1000000]
+────────────────────────────────────────
+error[D09]: An assertion's arithmetic must stay within 64-bit integers.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: a * 2 > 0
+   |                 ^^^^^^^^^ overflows a 64-bit integer at row 2

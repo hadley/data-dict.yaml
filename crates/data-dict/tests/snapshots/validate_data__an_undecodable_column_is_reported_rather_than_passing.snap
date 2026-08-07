@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: a > 0
+    columns:
+      - name: a
+        type: number(quantity)
+        range: [0, 100]
+────────────────────────────────────────
+error[D08]: An assertion must be evaluable against the data.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: a > 0
+   |                 ^^^^^ cannot read `a`: a decimal this wide has no exact 64-bit form
+   |
+   = help: Correct the column's declared `type`, or drop the assertion until the data can support it.

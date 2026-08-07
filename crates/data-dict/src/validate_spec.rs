@@ -282,8 +282,14 @@ fn check_columns(
 
 /// A [`CheckEnv`] over one table: it resolves column kinds and parses the date
 /// literals an assertion may compare against a `date`/`datetime` column.
-struct TableEnv<'a> {
+pub(crate) struct TableEnv<'a> {
     table: &'a Table,
+}
+
+impl<'a> TableEnv<'a> {
+    pub(crate) fn new(table: &'a Table) -> TableEnv<'a> {
+        TableEnv { table }
+    }
 }
 
 impl TableEnv<'_> {
