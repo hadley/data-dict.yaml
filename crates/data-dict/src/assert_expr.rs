@@ -1084,10 +1084,25 @@ fn signature(name: &str) -> Option<Sig> {
     })
 }
 
+/// What the expression as a whole is allowed to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Root {
+    /// An assertion states a rule, so it must be a truth value.
+    Boolean,
+    /// Any type will do. `data-dict translate --expr` uses this: translating
+    /// `a + b` is a reasonable thing to ask for, and its type is reported.
+    Any,
+}
+
 /// Check a parsed assertion against `env`, returning every finding in source
 /// order. The expression must evaluate to a boolean, at most one `COLUMNS(...)`
 /// may appear, and every operand whose type matters must have a known one.
 pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
+    check_root(expr, env, Root::Boolean)
+}
+
+/// [`check`], with the choice of whether the whole expression must be boolean.
+pub fn check_root(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> Vec<Finding> {
     let mut cx = Checker {
         env,
         findings: Vec::new(),
@@ -1097,16 +1112,20 @@ pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
     cx.shape(&expr.root);
     // The assertion as a whole must be boolean. A bare top-level COLUMNS(...)
     // stands for each selected column, so every one of those must be boolean.
-    if let ExprKind::Columns(sel) = &expr.root.kind {
-        cx.require_columns(&expr.root, sel, &[Ty::Bool], "an assertion");
+    if root == Root::Boolean {
+        if let ExprKind::Columns(sel) = &expr.root.kind {
+            cx.require_columns(&expr.root, sel, &[Ty::Bool], "an assertion");
+        } else if ty == Ty::Unknown {
+            cx.report_unknown(&expr.root);
+        } else if !matches!(ty, Ty::Bool | Ty::Any) {
+            cx.report(
+                "S21",
+                format!("this assertion is {}, not a boolean", ty.noun()),
+                &expr.root,
+            );
+        }
     } else if ty == Ty::Unknown {
         cx.report_unknown(&expr.root);
-    } else if !matches!(ty, Ty::Bool | Ty::Any) {
-        cx.report(
-            "S21",
-            format!("this assertion is {}, not a boolean", ty.noun()),
-            &expr.root,
-        );
     }
     // At most one COLUMNS(...) may appear; flag every one past the first.
     if cx.columns_spans.len() > 1 {

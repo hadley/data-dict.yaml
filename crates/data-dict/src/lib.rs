@@ -24,6 +24,7 @@ pub mod join_expr;
 pub mod lower;
 pub mod model;
 pub mod problem;
+pub mod translate;
 pub mod validate_data;
 pub mod validate_meta;
 pub mod validate_spec;

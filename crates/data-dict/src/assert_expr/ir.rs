@@ -29,6 +29,37 @@ pub struct TypedAssertion {
     pub root: TypedExpr,
 }
 
+impl TypedAssertion {
+    /// Every column the expression reads, in the order it first names them,
+    /// including the ones a `COLUMNS(...)` resolved to. A caller knows from
+    /// this which columns to select or load before evaluating the expression.
+    pub fn columns(&self) -> Vec<ColumnRef> {
+        let mut out = Vec::new();
+        collect(&self.root, &mut out);
+        if let Some(selection) = &self.selection {
+            for column in &selection.columns {
+                push_once(&mut out, column.clone());
+            }
+        }
+        return out;
+
+        fn collect(e: &TypedExpr, out: &mut Vec<ColumnRef>) {
+            if let NodeKind::Column(c) = &e.kind {
+                push_once(out, c.clone());
+            }
+            for child in e.children() {
+                collect(child, out);
+            }
+        }
+
+        fn push_once(out: &mut Vec<ColumnRef>, column: ColumnRef) {
+            if !out.iter().any(|c| c.path == column.path) {
+                out.push(column);
+            }
+        }
+    }
+}
+
 /// A resolved `COLUMNS(...)`: how it was written, and what it picked out.
 #[derive(Debug, Clone)]
 pub struct Selection {
@@ -71,6 +102,71 @@ pub enum Type {
     Datetime,
     Interval,
     Any,
+}
+
+impl TypedExpr {
+    /// This node's operands, for a walk over the tree.
+    pub fn children(&self) -> Vec<&TypedExpr> {
+        match &self.kind {
+            NodeKind::Int(_)
+            | NodeKind::Float(_)
+            | NodeKind::Str(_)
+            | NodeKind::Bool(_)
+            | NodeKind::Null
+            | NodeKind::Date(_)
+            | NodeKind::Datetime(_)
+            | NodeKind::Column(_)
+            | NodeKind::Selected
+            | NodeKind::Now => Vec::new(),
+            NodeKind::Neg(x) | NodeKind::Not(x) => vec![x],
+            NodeKind::Arith { lhs, rhs, .. } | NodeKind::Compare { lhs, rhs, .. } => vec![lhs, rhs],
+            NodeKind::And(l, r) | NodeKind::Or(l, r) => vec![l, r],
+            NodeKind::IsNull { operand, .. } => vec![operand],
+            NodeKind::Between {
+                operand, lo, hi, ..
+            } => vec![operand, lo, hi],
+            NodeKind::In { operand, list, .. } => {
+                let mut out = vec![operand.as_ref()];
+                out.extend(list.iter());
+                out
+            }
+            NodeKind::Like {
+                operand, pattern, ..
+            } => match pattern {
+                LikePattern::Dynamic(p) => vec![operand, p],
+                _ => vec![operand],
+            },
+            NodeKind::SimilarTo {
+                operand, pattern, ..
+            } => vec![operand, pattern],
+            NodeKind::Func { args, .. } => args.iter().collect(),
+            NodeKind::Interval { n, .. } => vec![n],
+            NodeKind::Case { whens, els } => {
+                let mut out = Vec::new();
+                for (c, r) in whens {
+                    out.push(c);
+                    out.push(r);
+                }
+                out.extend(els.as_deref());
+                out
+            }
+        }
+    }
+}
+
+impl Type {
+    /// The language's name for this type, for reporting.
+    pub fn name(self) -> &'static str {
+        match self {
+            Type::Number => "number",
+            Type::String => "string",
+            Type::Bool => "boolean",
+            Type::Date => "date",
+            Type::Datetime => "datetime",
+            Type::Interval => "interval",
+            Type::Any => "any",
+        }
+    }
 }
 
 /// A column or struct field, with the type the dictionary declares for it.

@@ -414,7 +414,7 @@ fn collect_columns(e: &TypedExpr, out: &mut Vec<ColumnRef>) {
     if let NodeKind::Column(c) = &e.kind {
         index_of(out, c);
     }
-    for child in children(e) {
+    for child in e.children() {
         collect_columns(child, out);
     }
 }
@@ -429,7 +429,7 @@ fn collect_aggregates(e: &TypedExpr, out: &mut Vec<(usize, usize)>) {
         out.push(e.span);
         return;
     }
-    for child in children(e) {
+    for child in e.children() {
         collect_aggregates(child, out);
     }
 }
@@ -438,54 +438,7 @@ fn find_span(e: &TypedExpr, span: (usize, usize)) -> Option<&TypedExpr> {
     if e.span == span {
         return Some(e);
     }
-    children(e).into_iter().find_map(|c| find_span(c, span))
-}
-
-fn children(e: &TypedExpr) -> Vec<&TypedExpr> {
-    match &e.kind {
-        NodeKind::Int(_)
-        | NodeKind::Float(_)
-        | NodeKind::Str(_)
-        | NodeKind::Bool(_)
-        | NodeKind::Null
-        | NodeKind::Date(_)
-        | NodeKind::Datetime(_)
-        | NodeKind::Column(_)
-        | NodeKind::Selected
-        | NodeKind::Now => Vec::new(),
-        NodeKind::Neg(x) | NodeKind::Not(x) => vec![x],
-        NodeKind::Arith { lhs, rhs, .. } | NodeKind::Compare { lhs, rhs, .. } => vec![lhs, rhs],
-        NodeKind::And(l, r) | NodeKind::Or(l, r) => vec![l, r],
-        NodeKind::IsNull { operand, .. } => vec![operand],
-        NodeKind::Between {
-            operand, lo, hi, ..
-        } => vec![operand, lo, hi],
-        NodeKind::In { operand, list, .. } => {
-            let mut out = vec![operand.as_ref()];
-            out.extend(list.iter());
-            out
-        }
-        NodeKind::Like {
-            operand, pattern, ..
-        } => match pattern {
-            LikePattern::Dynamic(p) => vec![operand, p],
-            _ => vec![operand],
-        },
-        NodeKind::SimilarTo {
-            operand, pattern, ..
-        } => vec![operand, pattern],
-        NodeKind::Func { args, .. } => args.iter().collect(),
-        NodeKind::Interval { n, .. } => vec![n],
-        NodeKind::Case { whens, els } => {
-            let mut out = Vec::new();
-            for (c, r) in whens {
-                out.push(c);
-                out.push(r);
-            }
-            out.extend(els.as_deref());
-            out
-        }
-    }
+    e.children().into_iter().find_map(|c| find_span(c, span))
 }
 
 /// Everything one row's evaluation needs.
