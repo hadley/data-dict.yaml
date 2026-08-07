@@ -38,7 +38,7 @@
 }
 
 #canvas {
-  height: min(70vh, 620px);
+  height: min(87.5vh, 775px);
   overflow: auto;
   background-color: var(--paper);
   /* faint dot grid, pinned to the board so it pans with it */
