@@ -5,6 +5,7 @@
 //! arrays where arrays are expected). Unexpected shapes are silently dropped
 //! rather than panicking — they should be unreachable.
 
+use quarto_source_map::SourceInfo;
 use quarto_yaml::YamlWithSourceInfo;
 
 use crate::assert_expr::AssertExpr;
@@ -37,6 +38,13 @@ pub fn lower(root: &YamlWithSourceInfo, problems: &mut ProblemSet) -> DataDict {
             relationships.push(lower_relationship(item, problems));
         }
     }
+
+    let todo = root.as_hash().and_then(|entries| {
+        entries
+            .iter()
+            .find(|e| e.key.yaml.as_str() == Some("todo"))
+            .and_then(|e| lower_todo(&e.value, e.value_span.clone()))
+    });
 
     let string_value = |key: &str| {
         root.get_hash_value(key)
@@ -71,6 +79,7 @@ pub fn lower(root: &YamlWithSourceInfo, problems: &mut ProblemSet) -> DataDict {
         tables,
         relationships,
         glossary,
+        todo,
     }
 }
 
@@ -93,6 +102,14 @@ fn lower_version(node: &YamlWithSourceInfo) -> Option<Version> {
         "hash" => Some(Version::Hash(text)),
         _ => None,
     }
+}
+
+/// Lower a `todo` value — a single string — with its span.
+fn lower_todo(value: &YamlWithSourceInfo, value_span: SourceInfo) -> Option<Spanned<String>> {
+    value
+        .yaml
+        .as_str()
+        .map(|s| Spanned::new(s.to_string(), value_span))
 }
 
 fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<Table> {
@@ -144,11 +161,16 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
                 )
             })
     };
+    let todo = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("todo"))
+        .and_then(|e| lower_todo(&e.value, e.value_span.clone()));
     let origin = node
         .get_hash_value("origin")
         .and_then(|n| n.yaml.as_str())
         .map(str::to_string);
     Some(Table {
+        span: node.source_info.clone(),
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         columns,
         constraints,
@@ -157,6 +179,7 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
         description: keyed_string("description"),
         details: keyed_string("details"),
         origin,
+        todo,
     })
 }
 
@@ -176,6 +199,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
     let mut units: Option<Spanned<String>> = None;
     let mut time_zone: Option<Spanned<String>> = None;
     let mut fields: Option<Vec<Column>> = None;
+    let mut todo: Option<Spanned<String>> = None;
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
             continue;
@@ -257,6 +281,9 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     fields = Some(fs);
                 }
             }
+            "todo" => {
+                todo = lower_todo(&entry.value, entry.value_span.clone());
+            }
             _ => {}
         }
     }
@@ -275,6 +302,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
         units,
         time_zone,
         fields,
+        todo,
     })
 }
 
@@ -378,6 +406,7 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
     let mut join_text: Option<Spanned<String>> = None;
     let mut conflicts: Vec<Spanned<String>> = Vec::new();
     let mut aliases: Vec<Alias> = Vec::new();
+    let mut todo: Option<Spanned<String>> = None;
 
     for entry in entries {
         let Some(key) = entry.key.yaml.as_str() else {
@@ -421,6 +450,9 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
                     }
                 }
             }
+            "todo" => {
+                todo = lower_todo(&entry.value, entry.value_span.clone());
+            }
             _ => {}
         }
     }
@@ -451,5 +483,6 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
         join,
         conflicts,
         aliases,
+        todo,
     }
 }

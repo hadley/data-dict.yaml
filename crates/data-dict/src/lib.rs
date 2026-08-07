@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod assert_expr;
+pub mod draft;
 pub mod export;
 mod expr_lex;
 pub mod join_expr;
@@ -26,6 +27,7 @@ pub mod validate_data;
 pub mod validate_meta;
 pub mod validate_spec;
 
+pub use draft::{DraftError, DraftOutcome, draft};
 pub use export::{Export, export_auto, export_data, export_spec};
 pub use problem::{Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status};
 pub use quarto_source_map::SourceContext;

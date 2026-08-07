@@ -8,9 +8,9 @@
 #     This is appropriate while the spec is pre-1.0; bump the schema with the
 #     spec when new fields are added.
 #   - The column subschema is a single flat object. Type-specific rules
-#     (e.g. `values` required for `type: enum`, `range` only valid on ordered
-#     / date types) are enforced by the validator (S07, S08) rather than
-#     structurally, to avoid repeating the same object shape for each type.
+#     (e.g. `values` required for `type: enum`, `range` not valid on `string`)
+#     are enforced by the validator (S07, S08) rather than structurally, to
+#     avoid repeating the same object shape for each type.
 #   - Cross-table / cross-field semantics (foreign-key targets really exist,
 #     `join` expressions parse, `conflicts` columns appear in both sides) are
 #     out of scope for the schema and belong in a separate validator.
@@ -43,6 +43,11 @@ object:
     # the dataset. Unenforced: no S-check, never fetched or resolved.
     origin: string
 
+    # A note of work that remains to be done. Accepted at every describing
+    # level (dataset, table, column, field, relationship); each remaining
+    # note is reported by S31.
+    todo: string
+
     tables:
       arrayOf:
         object:
@@ -61,6 +66,7 @@ object:
             description: string
             details: string
             origin: string
+            todo: string
 
             source:
               object:
@@ -85,6 +91,7 @@ object:
                     label: string
                     description: string
                     details: string
+                    todo: string
                     display:
                       enum: [restricted]
                     units: string
@@ -149,6 +156,7 @@ object:
           required: [cardinality, join]
           properties:
             description: string
+            todo: string
             cardinality:
               enum: [one-to-one, one-to-many, many-to-one]
             join: string

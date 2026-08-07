@@ -1,0 +1,39 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: content
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+todo: |
+  - Write a `description` of the dataset.
+
+tables:
+  - name: habitats
+    source:
+      parquet: habitats.parquet
+    todo: |
+      - Record a `primary_key`, if present.
+    columns:
+      - name: habitat
+        type: string
+        examples:
+          - exposed offshore reef with strong tidal currents year-round
+          - protected harbor with artificial breakwaters and pilings
+          - rocky intertidal zone with extensive kelp forest canopy
+          - sheltered estuarine mudflats fringed by eelgrass meadows
+        todo: |
+          - Add a `description`.
+          - Only 4 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
+      - name: zip
+        type: string
+        examples: ["02134", "60614", "73301", "94110"]
+        todo: |
+          - Add a `description`.
+          - Only 4 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present

@@ -140,6 +140,71 @@ fn enum_labels_survive_the_map_form() {
     assert!(columns[1].get("value_labels").is_none());
 }
 
+/// A `todo` exports wherever the spec allows one — the dataset, a table, a
+/// column, a struct field, a relationship — rendered from Markdown like the
+/// other prose, so the list form `draft` writes arrives as a list. A level
+/// without one exports no `todo` at all.
+#[test]
+fn todos_export_at_every_level() {
+    let json: serde_json::Value = serde_json::from_str(&export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        todo: Confirm the years covered.
+        tables:
+          - name: survey
+            todo: Check the grain.
+            columns:
+              - name: survey_id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1]
+              - name: counted
+                type: number
+                examples: [1]
+                todo: |
+                  - Add a `description`.
+                  - Confirm whether 0 means none seen.
+              - name: place
+                type: struct
+                fields:
+                  - name: river
+                    type: string
+                    examples: [Esk]
+                    todo: Is this the river or the reach?
+          - name: site
+            columns:
+              - name: survey_id
+                type: number(id)
+                constraints: [foreign_key]
+                examples: [1]
+        relationships:
+          - join: site.survey_id = survey.survey_id
+            cardinality: many-to-one
+            todo: Confirm no sites predate their survey.
+    "#}))
+    .unwrap();
+
+    assert_eq!(json["todo"], "<p>Confirm the years covered.</p>");
+    let survey = &json["tables"][0];
+    assert_eq!(survey["todo"], "<p>Check the grain.</p>");
+    assert_eq!(
+        survey["columns"][1]["todo"],
+        "<ul>\n<li>Add a <code>description</code>.</li>\n\
+         <li>Confirm whether 0 means none seen.</li>\n</ul>"
+    );
+    assert_eq!(
+        survey["columns"][2]["fields"][0]["todo"],
+        "<p>Is this the river or the reach?</p>"
+    );
+    assert_eq!(
+        json["relationships"][0]["todo"],
+        "<p>Confirm no sites predate their survey.</p>"
+    );
+
+    assert!(survey["columns"][0].get("todo").is_none());
+    assert!(json["tables"][1].get("todo").is_none());
+}
+
 /// A column with no declared `type` makes no claims and is omitted, including
 /// from a `COLUMNS(...)` expansion.
 #[test]

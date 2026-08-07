@@ -42,8 +42,8 @@ The `data-dict` CLI validates dictionaries at [three levels](https://data-dict.t
   dictionary and its data change.
 * Summarise the columns of a Parquet file — types, distinct and missing
   counts, histograms and common values (`describe`).
-* Print an embedded agent skill for reading or writing data dictionaries
-  (`skill-read` / `skill-write`).
+* Print an embedded agent skill for reading or creating data dictionaries
+  (`skill-read` / `skill-create`).
 * Print the full specification (`spec`).
 
 ### Install
@@ -75,6 +75,7 @@ Usage: data-dict <COMMAND>
 
 Commands:
   describe       Summarise the columns of a parquet file
+  draft          Generate a starting data-dict.yaml from parquet files
   validate-spec  Validate a data-dict.yaml file or directory against the spec [default: .]
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary
@@ -83,7 +84,7 @@ Commands:
   render         Render a data dictionary as a self-contained HTML page [default: .]
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
-  skill-write    Skill for creating or updating a data dictionary
+  skill-create   Skill for creating a data dictionary
   help           Print this message or the help of the given subcommand(s)
 ```
 

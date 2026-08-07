@@ -36,6 +36,8 @@ pub struct DataDict {
     pub relationships: Vec<Relationship>,
     /// Glossary entries, in source order.
     pub glossary: Vec<GlossaryEntry>,
+    /// The dataset-level `todo`, when present (see S31).
+    pub todo: Option<Spanned<String>>,
 }
 
 /// The dictionary's own `version`: exactly one of the three kinds (S17).
@@ -105,6 +107,9 @@ pub struct Assertion {
 
 #[derive(Debug, Clone)]
 pub struct Table {
+    /// The whole table entry node, so a consumer can find where one table ends
+    /// in the source (e.g. `draft` appending after the last entry).
+    pub span: SourceInfo,
     pub name: Spanned<String>,
     pub columns: Vec<Column>,
     /// Table-level assertions (span multiple columns).
@@ -119,6 +124,7 @@ pub struct Table {
     pub description: Option<Spanned<String>>,
     pub details: Option<Spanned<String>>,
     pub origin: Option<String>,
+    pub todo: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +163,7 @@ pub struct Column {
     /// `fields` key was absent; `Some` means it was present (possibly empty,
     /// which S07 rejects).
     pub fields: Option<Vec<Column>>,
+    pub todo: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +295,7 @@ pub struct Relationship {
     pub conflicts: Vec<Spanned<String>>,
     /// Alias declarations, in source order. Scoped to this relationship.
     pub aliases: Vec<Alias>,
+    pub todo: Option<Spanned<String>>,
 }
 
 impl Relationship {

@@ -1,0 +1,53 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: "draft_new(&dir, &[path])"
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+todo: |
+  - Write a `description` of the dataset.
+
+tables:
+  - name: penguins
+    source:
+      parquet: penguins.parquet
+    todo: |
+      - Record a `primary_key`, if present.
+    columns:
+      - name: species
+        type: string
+        examples: [Adelie, Chinstrap, Gentoo]
+        todo: |
+          - Add a `description`.
+          - Only 3 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
+      - name: bill_length_mm
+        type: number
+        range: [36.7, 59.6]
+        examples: [36.7, 39.5, 46.5, 48.7, 59.6]
+        todo: |
+          - Add a `description`.
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
+      - name: body_mass_g
+        type: number
+        range: [3250, 6300]
+        examples: [3250, 3625, 3750, 4675, 6300]
+        todo: |
+          - Add a `description`.
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required, unique] # all values distinct & present
+            - constraints: [primary_key] # all values distinct & present
+            - constraints: [required] # all values present
+      - name: sex
+        type: string
+        examples: [female, male]
+        todo: |
+          - Add a `description`.
+          - Only 2 distinct values. Is this an enum? If so change `string` to
+            `enum` and `examples` to `values`.

@@ -16,7 +16,9 @@ Both levels emit the same JSON document shape; `export-spec` just never populate
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
 
-Prose fields — every `description` and `details`, and each glossary `definition` — are written as Markdown in the dictionary and arrive here rendered to HTML (any raw HTML in the source is escaped rather than passed through), so consumers can place them straight into a page without a Markdown implementation of their own.
+Prose fields — every `description`, `details`, and `todo`, and each glossary `definition` — are written as Markdown in the dictionary and arrive here rendered to HTML (any raw HTML in the source is escaped rather than passed through), so consumers can place them straight into a page without a Markdown implementation of their own.
+
+`todo` is carried wherever the spec allows it — the dataset, a table, a column or struct field, a relationship — so a consumer can show a dictionary's unfinished work in place rather than only in a validator's output, where `validate-spec` reports each one as an S31 warning. It is often a list of several tasks, since that's how `draft` writes it.
 
 ### Top level
 
@@ -27,6 +29,7 @@ Prose fields — every `description` and `details`, and each glossary `definitio
   "label?": "string",
   "description?": "string",
   "details?": "string",
+  "todo?": "string",
   "origin?": "string",
   "learn_more?": "string",
   "version?": { "number": "1.2.3" } | { "date": "2024-01-31" } | { "hash": "..." },
@@ -44,6 +47,7 @@ Prose fields — every `description` and `details`, and each glossary `definitio
   "label?": "string",
   "description?": "string",
   "details?": "string",
+  "todo?": "string",
   "origin?": "string",
   "source?": { "parquet": "path/relative/to/dictionary" },
   "rows?": 123,                  // the source data's row count; export-data only,
@@ -63,6 +67,7 @@ A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(s
   "label?": "string",
   "description?": "string",
   "details?": "string",
+  "todo?": "string",
   "display?": "restricted",
   "type": "string",              // canonical type, e.g. "list(number(quantity))"
   "units?": "string",
@@ -107,6 +112,7 @@ A `Relationship` is normalized so cardinality is always read left-to-right as "m
 ```jsonc
 {
   "description?": "string",
+  "todo?": "string",
   "cardinality": "one-to-one" | "many-to-one",
   "declared_cardinality": "one-to-one" | "one-to-many" | "many-to-one",
   // the cardinality as written — the orientation the `join` text documents

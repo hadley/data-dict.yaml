@@ -229,6 +229,7 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
     validate_s26_alias_shadows_table(dict, out);
     validate_s27_unused_alias(dict, out);
     validate_s16_single_table_description(dict, out);
+    validate_s31_todos(dict, out);
 
     let mut seen_tables: HashMap<String, SourceInfo> = HashMap::new();
     for table in &dict.tables {
@@ -859,7 +860,24 @@ fn validate_s29_key_constraints(table: &Table, col: &Column, out: &mut ProblemSe
 
 // --- S07 --------------------------------------------------------------
 
+/// The types whose representation key is `range`, and which therefore require
+/// one.
 const RANGE_TYPES: &[&str] = &["number(ordinal)", "number(quantity)", "date", "datetime"];
+
+/// Whether the type may carry a `range` at all: the types that require one,
+/// plus the numeric types that require `examples` but may pair a range with
+/// them. Only `string` is left out — its bounds would order lexicographically,
+/// which is rarely what a reader wants.
+fn allows_range(effective_type: &str) -> bool {
+    RANGE_TYPES.contains(&effective_type) || matches!(effective_type, "number" | "number(id)")
+}
+
+/// Whether the type may carry `examples`: the types that require them, plus the
+/// ordered types that may pair examples with their `range`.
+fn allows_examples(effective_type: &str) -> bool {
+    RANGE_TYPES.contains(&effective_type)
+        || matches!(effective_type, "string" | "number" | "number(id)")
+}
 
 /// "A" or "An" before a backtick-quoted type name, based on the first letter
 /// of the unquoted name (not the backtick).
@@ -871,8 +889,8 @@ fn article(type_name: &str) -> &'static str {
 }
 
 /// Returns whether the column carries the representation its type requires and
-/// no other — i.e. whether checking that representation's values (S12) makes
-/// sense.
+/// none its type disallows — i.e. whether checking those representations'
+/// values (S12) makes sense.
 fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet) -> bool {
     let Some(col_type) = &col.col_type else {
         return true;
@@ -961,14 +979,6 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
                 at(&values.span),
             );
         }
-        if let Some(examples) = &col.examples {
-            out.push_spec_error(
-                "S07",
-                format!("{art} `{type_name}` column must use `range`, not `examples`."),
-                found("examples"),
-                at(&examples.span),
-            );
-        }
     } else if effective_type == "boolean" {
         // Neither scalar boolean nor list(boolean) takes representation keys.
         for (span, key) in [
@@ -986,7 +996,8 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
             }
         }
     } else {
-        // string, number, number(id), and list(boolean): examples required.
+        // string, number, number(id): examples required. The numeric two may
+        // also carry a `range`; only `string` may not.
         if col.examples.is_none() {
             out.push_spec_error(
                 "S07",
@@ -1003,7 +1014,9 @@ fn validate_s07_representation(table: &Table, col: &Column, out: &mut ProblemSet
                 at(&values.span),
             );
         }
-        if let Some(range) = &col.range {
+        if let Some(range) = &col.range
+            && !allows_range(effective_type)
+        {
             out.push_spec_error(
                 "S07",
                 format!("{art} `{type_name}` column must not use `range`."),
@@ -1219,23 +1232,30 @@ fn validate_s11_column_name(table: &Table, col: &Column, out: &mut ProblemSet) -
 
 // --- S12 --------------------------------------------------------------
 
-/// The representation list whose values are type-checked for a given column
-/// type, or `None` for types that carry no typed representation (`enum`,
-/// `boolean`, `struct`, `list(struct)`, and any unrecognized type). Mirrors
-/// S07: each type owns exactly one representation key, and we only check the
-/// one it owns so that a misplaced key reports as S07 rather than cascading
-/// into S12. For list types the element type determines the key and the
-/// expected value kind.
-fn typed_representation(col: &Column) -> Option<(&'static str, &str, &Representation)> {
-    let type_name = col.col_type.as_ref()?.value.as_str();
+/// Every representation the column carries whose values are type-checked, with
+/// the type they must match. Empty for types that carry no typed representation
+/// (`enum`, `boolean`, `struct`, `list(struct)`, and any unrecognized type).
+/// Mirrors S07: only a key the type permits is checked here, so a misplaced one
+/// reports as S07 rather than cascading into S12. A numeric or temporal column
+/// may carry both `range` and `examples`, so this can yield two. For list types
+/// the element type determines the expected value kind.
+fn typed_representations(col: &Column) -> Vec<(&'static str, &str, &Representation)> {
+    let Some(type_name) = col.col_type.as_ref().map(|t| t.value.as_str()) else {
+        return Vec::new();
+    };
     let effective = innermost_element_type(type_name);
-    match effective {
-        "number(ordinal)" | "number(quantity)" | "date" | "datetime" => {
-            Some(("range", effective, col.range.as_ref()?))
-        }
-        "string" | "number" | "number(id)" => Some(("examples", effective, col.examples.as_ref()?)),
-        _ => None,
+    let mut found = Vec::new();
+    if let Some(range) = &col.range
+        && allows_range(effective)
+    {
+        found.push(("range", effective, range));
     }
+    if let Some(examples) = &col.examples
+        && allows_examples(effective)
+    {
+        found.push(("examples", effective, examples));
+    }
+    found
 }
 
 /// Returns whether every value in the column's typed representation matches its
@@ -1245,37 +1265,36 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
         return true;
     };
     let type_name = col_type.value.as_str();
-    let Some((key, effective_type, rep)) = typed_representation(col) else {
-        return true;
-    };
     let tz_present = col.time_zone.is_some();
     let mut ok = true;
-    for v in &rep.items {
-        if value_matches_type(effective_type, &v.value, tz_present) {
-            continue;
-        }
-        ok = false;
-        out.push_spec_error(
-            "S12",
-            format!(
-                "Each `{}` value of a `{}` column must be {}.",
-                key,
-                type_name,
-                expected_noun(effective_type, tz_present),
-            ),
-            format!("is {}", v.value.noun()),
-            [
-                table.name.span.clone(),
-                col.name.span.clone(),
-                col_type.span.clone(),
-                rep.key_span.clone(),
-                v.span.clone(),
-            ],
-        );
-        if effective_type == "string"
-            && let Some(hint) = quoting_hint(&v.value)
-        {
-            out.hint_last(hint);
+    for (key, effective_type, rep) in typed_representations(col) {
+        for v in &rep.items {
+            if value_matches_type(effective_type, &v.value, tz_present) {
+                continue;
+            }
+            ok = false;
+            out.push_spec_error(
+                "S12",
+                format!(
+                    "Each `{}` value of a `{}` column must be {}.",
+                    key,
+                    type_name,
+                    expected_noun(effective_type, tz_present),
+                ),
+                format!("is {}", v.value.noun()),
+                [
+                    table.name.span.clone(),
+                    col.name.span.clone(),
+                    col_type.span.clone(),
+                    rep.key_span.clone(),
+                    v.span.clone(),
+                ],
+            );
+            if effective_type == "string"
+                && let Some(hint) = quoting_hint(&v.value)
+            {
+                out.hint_last(hint);
+            }
         }
     }
     ok
@@ -1412,7 +1431,7 @@ fn validate_s13_range_order(table: &Table, col: &Column, out: &mut ProblemSet) {
     };
     let Some(range) = &col.range else { return };
     let effective = innermost_element_type(type_name);
-    if !RANGE_TYPES.contains(&effective) || range.items.len() != 2 {
+    if !allows_range(effective) || range.items.len() != 2 {
         return;
     }
     let (lo, hi) = (&range.items[0], &range.items[1]);
@@ -1518,6 +1537,44 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
             format!("{init}, and `{}`", keys[keys.len() - 1])
         }
     }
+}
+
+// --- S31 --------------------------------------------------------------
+
+/// Warn for every `todo` left anywhere in the dictionary: the dataset, each
+/// table, column, and struct field (recursively), and each relationship.
+fn validate_s31_todos(dict: &DataDict, out: &mut ProblemSet) {
+    report_todo(&dict.todo, &[], out);
+    for table in &dict.tables {
+        report_todo(&table.todo, &[&table.name.span], out);
+        report_column_todos(table, &table.columns, out);
+    }
+    for rel in &dict.relationships {
+        report_todo(&rel.todo, &[&rel.join_text.span], out);
+    }
+}
+
+fn report_column_todos(table: &Table, columns: &[Column], out: &mut ProblemSet) {
+    for col in columns {
+        report_todo(&col.todo, &[&table.name.span, &col.name.span], out);
+        if let Some(fields) = &col.fields {
+            report_column_todos(table, fields, out);
+        }
+    }
+}
+
+/// One S31 warning per `todo`, anchored at its note with the `enclosing`
+/// nodes (the table, and column for a column todo) shown as context.
+fn report_todo(todo: &Option<Spanned<String>>, enclosing: &[&SourceInfo], out: &mut ProblemSet) {
+    let Some(todo) = todo else { return };
+    let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| (*s).clone()).collect();
+    spans.push(todo.span.clone());
+    out.push_spec_warning(
+        "S31",
+        "Every `todo` must be resolved.",
+        "unresolved todo",
+        spans,
+    );
 }
 
 // --- S09 --------------------------------------------------------------

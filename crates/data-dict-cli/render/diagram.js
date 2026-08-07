@@ -523,10 +523,11 @@ function tipForWire(rel) {
   const box = el("div");
   if (rel.description) {
     box.appendChild(tipProse(rel.description));
-    return box;
+  } else {
+    box.appendChild(tipHead(rel.join));
+    box.appendChild(el("p", null, rel.declared_cardinality));
   }
-  box.appendChild(tipHead(rel.join));
-  box.appendChild(el("p", null, rel.declared_cardinality));
+  if (rel.todo) box.appendChild(todoNote(rel.todo));
   return box;
 }
 
@@ -540,14 +541,16 @@ function tipFor(target) {
     const sub = facts.table.label ? `${facts.table.label} · ${facts.size}` : facts.size;
     box.appendChild(tipHead(facts.table.name, sub));
     if (facts.table.description) box.appendChild(tipProse(facts.table.description));
+    if (facts.table.todo) box.appendChild(todoNote(facts.table.todo));
     return box;
   }
   const name = target.querySelector(".name");
   const cut = name.scrollWidth > name.clientWidth + 1;
-  if (!cut && !facts.column.label && !facts.column.description) return null;
+  if (!cut && !facts.column.label && !facts.column.description && !facts.column.todo) return null;
   if (cut) box.appendChild(tipHead(facts.column.name, facts.column.type ?? ""));
   if (facts.column.label) box.appendChild(el("p", "tip-label", facts.column.label));
   if (facts.column.description) box.appendChild(tipProse(facts.column.description));
+  if (facts.column.todo) box.appendChild(todoNote(facts.column.todo));
   return box;
 }
 

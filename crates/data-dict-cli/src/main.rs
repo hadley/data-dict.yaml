@@ -32,6 +32,25 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a starting data-dict.yaml from parquet files
+    ///
+    /// Profiles each file and writes one table per file (named after its
+    /// stem), with inferred column types, observed ranges and examples, and a
+    /// `todo` note for everything only a human can decide — descriptions,
+    /// enum candidates, constraints, the primary key. The output passes
+    /// `validate-spec` with no errors (each `todo` is a warning), so work
+    /// through the todos incrementally under it.
+    ///
+    /// If the output file already exists, tables are appended for the inputs
+    /// it doesn't have yet; the existing text is preserved byte for byte.
+    Draft {
+        /// Parquet files to describe, one table per file
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Where to write; `-` for stdout
+        #[arg(short, long, default_value = "./data-dict.yaml")]
+        output: PathBuf,
+    },
     /// Validate a data-dict.yaml file or directory against the spec [default: .]
     ValidateSpec { path: Option<PathBuf> },
     /// Validate a dataset's column names and types against a data dictionary
@@ -54,8 +73,8 @@ enum Command {
     Spec,
     /// Skill for reading and understanding a data dictionary
     SkillRead,
-    /// Skill for creating or updating a data dictionary
-    SkillWrite,
+    /// Skill for creating a data dictionary
+    SkillCreate,
     /// Run the language server over stdio (used by editor extensions).
     #[cfg(feature = "lsp")]
     #[command(hide = true)]
@@ -110,7 +129,7 @@ struct ValidateArgs {
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
-const WRITE_SKILL: &str = include_str!("../skills/write-data-dict.md");
+const CREATE_SKILL: &str = include_str!("../skills/create-data-dict.md");
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -120,6 +139,7 @@ fn main() -> ExitCode {
     };
     match command {
         Command::Describe { path, column, json } => run_describe(&path, column.as_deref(), json),
+        Command::Draft { paths, output } => run_draft(&paths, &output),
         Command::ValidateSpec { path } => {
             let path = match resolve_dict_path(path) {
                 Ok(path) => path,
@@ -152,8 +172,8 @@ fn main() -> ExitCode {
             print!("{READ_SKILL}");
             ExitCode::SUCCESS
         }
-        Command::SkillWrite => {
-            print!("{WRITE_SKILL}");
+        Command::SkillCreate => {
+            print!("{CREATE_SKILL}");
             ExitCode::SUCCESS
         }
         #[cfg(feature = "lsp")]
@@ -221,6 +241,68 @@ fn run_describe(path: &Path, column: Option<&str>, json: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Draft a dictionary for `paths`, writing to `output` (`-` for stdout).
+/// An existing output file switches to append mode: only tables the
+/// dictionary doesn't already have are added, and its text is left untouched.
+fn run_draft(paths: &[PathBuf], output: &Path) -> ExitCode {
+    let to_stdout = output == Path::new("-");
+    let existing = if to_stdout {
+        None
+    } else {
+        match std::fs::read_to_string(output) {
+            Ok(content) => Some(content),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => {
+                eprintln!("{}: {err}", output.display());
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+    let output_dir = if to_stdout {
+        PathBuf::from(".")
+    } else {
+        match output.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    };
+
+    let outcome = match data_dict::draft(paths, &output_dir, existing.as_deref()) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for name in &outcome.skipped {
+        eprintln!("skipped `{name}`: the dictionary already has that table");
+    }
+    if to_stdout {
+        print!("{}", outcome.content);
+        return ExitCode::SUCCESS;
+    }
+    if outcome.added.is_empty() {
+        println!("{}: nothing to add", output.display());
+        return ExitCode::SUCCESS;
+    }
+    if let Err(err) = std::fs::write(output, &outcome.content) {
+        eprintln!("{}: {err}", output.display());
+        return ExitCode::FAILURE;
+    }
+    let noun = if outcome.added.len() == 1 {
+        "table"
+    } else {
+        "tables"
+    };
+    println!(
+        "{}: added {} {noun} ({})",
+        output.display(),
+        outcome.added.len(),
+        outcome.added.join(", ")
+    );
+    ExitCode::SUCCESS
 }
 
 fn resolve_dict_path(path: Option<PathBuf>) -> Result<PathBuf, String> {

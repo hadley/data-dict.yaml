@@ -65,7 +65,7 @@ fn sanitize(s: &str, fixture_path: &str) -> String {
     s.replace(fixture_path, "<fixture>")
 }
 
-// --- describe ----------------------------------------------------------
+// --- shared parquet fixtures -------------------------------------------
 
 /// A unique temp directory for one test's fixtures.
 fn temp_dir(name: &str) -> PathBuf {
@@ -105,6 +105,76 @@ fn run_in(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
         .output()
         .expect("failed to run data-dict")
 }
+
+// --- draft -----------------------------------------------------------------
+
+/// `draft` writes ./data-dict.yaml by default, validates cleanly, appends new
+/// tables on a second run, and reports when there is nothing to add.
+#[test]
+fn draft_writes_appends_and_reports_nothing_to_add() {
+    let dir = temp_dir("draft-cycle");
+    write_parquet(&dir.join("otters.parquet"), "otter_id", &[1, 1, 2, 2]);
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1]);
+
+    let output = run_in(&dir, &["draft", "otters.parquet"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("added 1 table (otters)"), "{stdout}");
+    let first = std::fs::read_to_string(dir.join("data-dict.yaml")).unwrap();
+    assert!(first.contains("- name: otters"));
+
+    let output = run_in(&dir, &["validate-spec", "data-dict.yaml"]);
+    assert!(output.status.success(), "a fresh draft should validate");
+
+    let output = run_in(&dir, &["draft", "otters.parquet", "pups.parquet"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stdout.contains("added 1 table (pups)"), "{stdout}");
+    assert!(stderr.contains("skipped `otters`"), "{stderr}");
+    let second = std::fs::read_to_string(dir.join("data-dict.yaml")).unwrap();
+    assert!(
+        second.starts_with(&first),
+        "appending must preserve the existing text"
+    );
+
+    let output = run_in(&dir, &["draft", "otters.parquet"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("nothing to add"), "{stdout}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("data-dict.yaml")).unwrap(),
+        second,
+        "a no-op run must not rewrite the file"
+    );
+}
+
+/// `-o -` prints the draft to stdout and writes no file.
+#[test]
+fn draft_to_stdout_writes_no_file() {
+    let dir = temp_dir("draft-stdout");
+    write_parquet(&dir.join("otters.parquet"), "otter_id", &[1, 1, 2, 2]);
+    let output = run_in(&dir, &["draft", "otters.parquet", "-o", "-"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.starts_with("$version:"), "{stdout}");
+    assert!(!dir.join("data-dict.yaml").exists());
+}
+
+/// Two inputs with the same stem fail before anything is written.
+#[test]
+fn draft_duplicate_stems_fail() {
+    let dir = temp_dir("draft-dup");
+    std::fs::create_dir_all(dir.join("a")).unwrap();
+    std::fs::create_dir_all(dir.join("b")).unwrap();
+    let output = run_in(&dir, &["draft", "a/otters.parquet", "b/otters.parquet"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("otters"), "{stderr}");
+    assert!(!dir.join("data-dict.yaml").exists());
+}
+
+// --- describe ----------------------------------------------------------
 
 /// `describe` prints the header and a per-column summary; `--json` carries
 /// the same data structured.
@@ -281,6 +351,46 @@ fn render_without_data_is_quiet_and_unprofiled() {
         !html.contains(r#""profile""#),
         "no profiles on the spec path"
     );
+}
+
+/// Unresolved `todo`s ride into the page so the flag beside a name has
+/// something to show, and are still reported as warnings on the way.
+#[test]
+fn render_carries_todos_into_the_page() {
+    let dir = temp_dir("render-todo");
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        indoc::indoc! {"
+            $version: \"0.1.0\"
+            $learn_more: http://data-dict.tidyverse.org/
+            description: Pups.
+            todo: Confirm the years covered.
+            tables:
+              - name: pups
+                todo: Check the grain.
+                columns:
+                  - name: pup_count
+                    type: number
+                    examples: [1]
+                    todo: Add a description.
+        "},
+    )
+    .unwrap();
+
+    let output = run_in(&dir, &["render"]);
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("S31"), "{stderr}");
+
+    // rendered to HTML, then embedded with every `<` as `\u003c`
+    let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
+    for todo in [
+        r"\u003cp>Confirm the years covered.\u003c/p>",
+        r"\u003cp>Check the grain.\u003c/p>",
+        r"\u003cp>Add a description.\u003c/p>",
+    ] {
+        assert!(html.contains(todo), "missing {todo}");
+    }
 }
 
 /// `-o` writes the page somewhere else.

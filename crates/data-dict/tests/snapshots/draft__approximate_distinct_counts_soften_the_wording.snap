@@ -1,0 +1,27 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: content
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+todo: |
+  - Write a `description` of the dataset.
+
+tables:
+  - name: visits
+    source:
+      parquet: visits.parquet
+    todo: |
+      - Record a `primary_key`, if present.
+    columns:
+      - name: visit_code
+        type: string
+        examples: [visit-0002, visit-0342, visit-0666, visit-0892, visit-1197]
+        todo: |
+          - Add a `description`.
+          - Specify `constraints`. Some options suggested by the data (distinct
+            count is approximate):
+            - constraints: [required, unique] # values look distinct & present
+            - constraints: [primary_key] # values look distinct & present
+            - constraints: [required] # all values present

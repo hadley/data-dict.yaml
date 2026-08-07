@@ -50,6 +50,14 @@
   --accent2-soft: light-dark(
     color-mix(in oklab, var(--accent2-hue) 20%, white),
     color-mix(in oklab, var(--accent2-hue) 20%, var(--paper)));
+  /* unresolved work — the one thing on the page that is a caveat rather than a
+     fact, so it takes the palette's yellow and no other colour does */
+  --warn: light-dark(
+    color-mix(in oklab, var(--yellow) 80%, black),
+    color-mix(in oklab, var(--yellow) 80%, white));
+  --warn-soft: light-dark(
+    color-mix(in oklab, var(--yellow) 20%, white),
+    color-mix(in oklab, var(--yellow) 20%, var(--paper)));
   --grid-dot: light-dark(#cdc6b6, #2c343c);
   --scroll-thumb: light-dark(#cdc9c1, #3f4751);
   /* every row that takes part in a relationship wears this, so it is the
@@ -125,6 +133,28 @@ h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; 
 }
 .key.fk { color: var(--accent2); background: var(--accent2-soft); }
 
+/* The mark an unresolved `todo` leaves on the thing that carries it. Quiet
+   until pointed at: it is a note to whoever is still writing the dictionary,
+   not something the reader has to act on. The note itself is in the tooltip. */
+.todo-flag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--warn);
+  cursor: help;
+}
+.todo-flag svg { display: block; width: 13px; height: 13px; }
+.todo-flag:hover, .todo-flag:focus-visible { background: var(--warn-soft); }
+.todo-flag:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
+/* beside the dataset's name it sits against 29px type, and centres on it
+   rather than on the baseline the rest of the head shares */
+.head-title .todo-flag { align-self: center; }
+.head-title .todo-flag svg { width: 16px; height: 16px; }
+/* the index's name cell is text, not a flex row, so the gap is its own */
+.tlist .name .todo-flag { margin-left: 5px; vertical-align: -2px; }
+
 .icon-btn:hover { border-color: var(--accent1); color: var(--accent1); }
 .icon-btn svg { display: block; width: 19px; height: 19px; }
 .icon-btn[hidden] { display: none; }
@@ -187,6 +217,17 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 #tip .tip-head ~ .tip-head { margin-top: 9px; }
 #tip .tip-label { font-style: italic; }
 #tip .gt-term { font-weight: 700; }
+
+/* A `todo`, whether it is the whole tooltip (hovering the flag) or a note
+   under a join's description. Its own colour carries the warning that the
+   flag's did, and the list `draft` usually writes is set as a list. */
+#tip .tip-todo .tip-head code { color: var(--warn); }
+#tip .tip-todo .prose { display: block; margin-top: 5px; color: var(--ink-soft); }
+#tip .tip-todo-note { margin-top: 9px; }
+#tip .tip-todo-lbl { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--warn); }
+#tip .tip-todo :is(p, ul, ol) { margin: 0; }
+#tip .tip-todo :is(ul, ol) { padding-left: 1.2em; }
+#tip .tip-todo li + li { margin-top: 2px; }
 
 @media (max-width: 720px) {
   main { padding: 26px 18px 60px; }

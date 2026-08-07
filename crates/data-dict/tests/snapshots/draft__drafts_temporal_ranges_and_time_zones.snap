@@ -1,0 +1,42 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: "draft_new(&dir, &[path])"
+---
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+
+todo: |
+  - Write a `description` of the dataset.
+
+tables:
+  - name: sightings
+    source:
+      parquet: sightings.parquet
+    todo: |
+      - Record a `primary_key`, if present.
+    columns:
+      - name: event_date
+        type: date
+        range: [2020-01-01, 2024-01-01]
+        todo: |
+          - Add a `description`.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
+      - name: seen_utc
+        type: datetime
+        time_zone: UTC
+        range: [2020-01-01T00:00:00, 2023-12-31T23:59:59]
+        todo: |
+          - Add a `description`.
+          - Needs a `time_zone`?
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present
+      - name: seen_local
+        type: datetime
+        time_zone: naive
+        range: [2020-01-01T08:00:00.123, 2024-01-01T08:00:00]
+        todo: |
+          - Add a `description`.
+          - Needs a `time_zone`?
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present

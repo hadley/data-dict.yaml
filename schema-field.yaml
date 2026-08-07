@@ -19,6 +19,7 @@ object:
         - null
     description: string
     details: string
+    todo: string
     units: string
     # Shape (S15) and placement (S14) are checked semantically
     time_zone: string
