@@ -22,6 +22,8 @@ website:
         text: Specification
       - href: expressions.md
         text: Expressions
+      - href: expression-execution.md
+        text: Executing expressions
       - href: validation.md
         text: Validation
       - href: export.md

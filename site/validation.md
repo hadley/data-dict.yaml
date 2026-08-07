@@ -97,6 +97,10 @@ How Parquet's nested shapes read as data-dict types, for the M01 comparison:
 | D04 | Value outside enum | E | An `enum` column contains a (non-null) value that is not one of its declared `values`. Applies inside nested types too: the elements of a `list(enum)` column, and every `enum` field reachable through `struct` fields (recursively, including through `list(struct)`), are checked against their declared `values`. |
 | D05 | Foreign key not found | E | A `foreign_key` column contains a (non-null) value that does not appear in the `primary_key` column it references. Only [comparable types](#comparable-types) are checked; null/missing values are exempt (a null foreign key references nothing). Only single-column foreign keys are checked. |
 | D06 | Referential integrity not verified | W | A `foreign_key` column, or the `primary_key` it references, uses a type whose values can't be reliably compared, so the reference was not checked. |
+| D07 | Assertion violated | E | An `assert` [expression](expressions.md) is false. A row-level assertion reports how many rows it is false for and identifies the first few; an aggregate assertion is a single verdict about the table, so it reports only that it is false. A row passes when the expression is true **or** null, so an assertion is never also a null check (see [evaluation](expression-execution.md#what-counts-as-a-violation)). |
+| D08 | Assertion not checked | E | An `assert` expression references a column that can't be read as the type the dictionary declares for it, so the assertion was not evaluated. An unevaluated rule has not been satisfied, so this is an error rather than a silent pass: the dictionary states a rule the data cannot be held to, and one of the two has to change. |
+| D09 | Assertion overflowed | E | Integer arithmetic in an `assert` expression left the 64-bit range, so the expression no longer computes what it says. |
+| D10 | Assertion divided by zero | E | An `assert` expression divided by zero, in `/` or in `MOD`. Reported rather than yielding null, because a null result would make the row *pass* — leaving the rule unenforced on exactly the rows a zero denominator makes suspect. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
@@ -115,6 +119,14 @@ For **Parquet**:
 For a non-comparable column, running the check anyway could silently miss duplicates and pass a dataset that should fail, so the check is skipped with a D03 warning instead. A composite primary key is skipped whole if any of its columns is non-comparable.
 
 The foreign-key check (D05) is governed by the same comparability rule: the foreign-key column and the primary-key column it references are compared by the same normalized value form, so both must be comparable. The two columns need not share a physical representation: values are compared as values, so a key stored as `INT64` can be referenced by an `INT32` column, and a byte-encoded decimal by an int-encoded one. When the two columns have no common comparable form at all (say, a string referencing a number), no value can match, and every non-null child value is reported. If either column uses a non-comparable type, the reference could silently mismatch, so the check is skipped with a D06 warning instead.
+
+### Assertions {#assertions}
+
+An `assert` expression is checked for form at the spec level (S19–S23, S30) and evaluated against the data here. Only an expression that passed every spec check is evaluated, so D07–D09 never report a problem with the expression itself — only with the data it describes.
+
+`NOW()` is bound once for the whole `validate-data` run, so every assertion in the run agrees on the current time. [Executing expressions](expression-execution.md) is the reference for what evaluation means.
+
+D08, D09 and D10 are the three ways an assertion can fail to reach a verdict: its columns can't be read as their declared types, or [its arithmetic has no result](expression-execution.md#no-result). All three are errors, and D09 or D10 replaces the D07 that assertion would otherwise report. A rule that could not be computed has neither held nor been broken, and none of the three is allowed to read as a pass.
 
 ### Enum membership {#enum-membership}
 
