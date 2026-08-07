@@ -1,0 +1,19 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: a
+        type: number
+        examples: [1, 2]
+        constraints:
+          - assert: a < 9223372036854775808
+────────────────────────────────────────
+error[S19]: 
+  --> dict.yaml:10:25
+   |
+LL |           - assert: a < 9223372036854775808
+   |                         ^ `assert` expression does not parse: `9223372036854775808` is too large for a 64-bit integer

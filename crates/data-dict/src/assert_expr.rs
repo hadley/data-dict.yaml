@@ -58,9 +58,7 @@ pub struct Expr {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
-    Number {
-        is_int: bool,
-    },
+    Number(NumLit),
     Str(String),
     Bool(bool),
     Null,
@@ -146,6 +144,15 @@ pub struct Named {
     pub end: usize,
 }
 
+/// A numeric literal's value. The language has one `number` type; these are the
+/// two representations it is held in, which decide whether arithmetic over it
+/// stays exact (see the spec's "Integers and floats").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NumLit {
+    Int(i64),
+    Float(f64),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArithOp {
     Add,
@@ -190,6 +197,7 @@ const RESERVED: &[&str] = &[
 
 struct Parser<'a> {
     src: &'a [u8],
+    text: &'a str,
     pos: usize,
 }
 
@@ -197,6 +205,7 @@ impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
         Self {
             src: s.as_bytes(),
+            text: s,
             pos: 0,
         }
     }
@@ -223,6 +232,15 @@ impl<'a> Parser<'a> {
         ParseError {
             message: msg.into(),
             at: self.pos,
+        }
+    }
+
+    /// Like [`err`](Self::err), but pointing at `at` rather than the current
+    /// position — for a token already consumed, whose start is the useful span.
+    fn err_at(&self, at: usize, msg: impl Into<String>) -> ParseError {
+        ParseError {
+            message: msg.into(),
+            at,
         }
     }
 
@@ -526,8 +544,23 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
         }
+        // Only ASCII digits and one `.` were consumed, so the range is in bounds
+        // and on char boundaries.
+        let text = &self.text[start..self.pos];
+        let value = if is_int {
+            let n = text.parse::<i64>().map_err(|_| {
+                self.err_at(start, format!("`{text}` is too large for a 64-bit integer"))
+            })?;
+            NumLit::Int(n)
+        } else {
+            let x = text.parse::<f64>().unwrap_or(f64::INFINITY);
+            if !x.is_finite() {
+                return Err(self.err_at(start, format!("`{text}` is too large for a number")));
+            }
+            NumLit::Float(x)
+        };
         Ok(Expr {
-            kind: ExprKind::Number { is_int },
+            kind: ExprKind::Number(value),
             start,
             end: self.pos,
         })
@@ -1163,7 +1196,7 @@ impl Checker<'_> {
 
     fn infer(&mut self, e: &Expr) -> Ty {
         match &e.kind {
-            ExprKind::Number { .. } => Ty::Number,
+            ExprKind::Number(_) => Ty::Number,
             ExprKind::Str(_) => Ty::String,
             ExprKind::Bool(_) => Ty::Bool,
             ExprKind::Null => Ty::Any,
@@ -1266,13 +1299,16 @@ impl Checker<'_> {
             }
             return Ty::Any;
         }
-        // Date/datetime plus or minus an interval yields the same date kind.
+        // A date or datetime shifted by an interval is a datetime, whatever it
+        // started as: an interval can be shorter than a day, and a date has no
+        // time of day to absorb it. This follows DuckDB and PostgreSQL, which
+        // both give a timestamp back.
         if matches!(op, ArithOp::Add | ArithOp::Sub) {
-            for (date_ty, other_ty) in [(lt, rt), (rt, lt)] {
-                if matches!(date_ty, Ty::Date | Ty::Datetime)
-                    && matches!(other_ty, Ty::Interval | Ty::Any)
+            for (temporal, other) in [(lt, rt), (rt, lt)] {
+                if matches!(temporal, Ty::Date | Ty::Datetime)
+                    && matches!(other, Ty::Interval | Ty::Any)
                 {
-                    return date_ty;
+                    return Ty::Datetime;
                 }
             }
         }
@@ -1556,7 +1592,7 @@ impl Checker<'_> {
     /// this is a separate walk from [`Checker::infer`].
     fn shape(&mut self, e: &Expr) -> Shape {
         match &e.kind {
-            ExprKind::Number { .. }
+            ExprKind::Number(_)
             | ExprKind::Str(_)
             | ExprKind::Bool(_)
             | ExprKind::Null
@@ -1985,6 +2021,57 @@ mod tests {
         assert!(AssertExpr::parse("qty > AND").is_err());
     }
 
+    fn number_literal(s: &str) -> NumLit {
+        let e = AssertExpr::parse(s).unwrap();
+        let ExprKind::Compare { rhs, .. } = &e.root.kind else {
+            panic!("expected a comparison")
+        };
+        match rhs.kind {
+            ExprKind::Number(n) => n,
+            ref other => panic!("expected a number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn number_literals_carry_their_value() {
+        assert_eq!(number_literal("qty > 42"), NumLit::Int(42));
+        assert_eq!(number_literal("qty > 0"), NumLit::Int(0));
+        assert_eq!(number_literal("qty > 0.5"), NumLit::Float(0.5));
+        assert_eq!(number_literal("qty > 12.75"), NumLit::Float(12.75));
+        assert_eq!(number_literal("qty > 42.0"), NumLit::Float(42.0));
+        // The largest i64: one more is rejected below.
+        assert_eq!(
+            number_literal("qty > 9223372036854775807"),
+            NumLit::Int(i64::MAX)
+        );
+    }
+
+    #[test]
+    fn a_leading_minus_is_not_part_of_the_literal() {
+        let e = AssertExpr::parse("qty > -1").unwrap();
+        let ExprKind::Compare { rhs, .. } = &e.root.kind else {
+            panic!()
+        };
+        let ExprKind::Neg(inner) = &rhs.kind else {
+            panic!("expected unary minus")
+        };
+        assert!(matches!(inner.kind, ExprKind::Number(NumLit::Int(1))));
+    }
+
+    #[test]
+    fn rejects_integer_literal_too_large() {
+        let err = AssertExpr::parse("qty > 9223372036854775808").unwrap_err();
+        assert!(err.message.contains("too large for a 64-bit integer"));
+        assert_eq!(err.at, 6, "the span points at the literal, not past it");
+    }
+
+    #[test]
+    fn rejects_float_literal_too_large() {
+        let huge = format!("qty > {}.0", "9".repeat(400));
+        let err = AssertExpr::parse(&huge).unwrap_err();
+        assert!(err.message.contains("too large for a number"));
+    }
+
     // --- checking ---
 
     #[test]
@@ -2076,6 +2163,29 @@ mod tests {
             f.iter()
                 .any(|f| f.code == "S21" && f.message.contains("interval unit"))
         );
+    }
+
+    #[test]
+    fn a_date_shifted_by_an_interval_is_a_datetime() {
+        // Every unit is allowed on a date, sub-day included: the result carries
+        // a time of day, as it does in DuckDB and PostgreSQL.
+        for expr in [
+            "d - interval(2, hours) < NOW()",
+            "d + interval(90, minutes) < NOW()",
+            "interval(30, seconds) + d < NOW()",
+            "d - interval(2, days) < NOW()",
+            "d + interval(1, weeks) < NOW()",
+        ] {
+            assert!(check_str(expr).is_empty(), "{expr} should be clean");
+        }
+    }
+
+    #[test]
+    fn a_shifted_date_still_compares_with_a_date() {
+        // `date` and `datetime` are comparable, so shifting a date and comparing
+        // it against one stays well-typed.
+        assert!(check_str("d + interval(2, days) >= start_date").is_empty());
+        assert!(check_str("ts >= d - interval(12, hours)").is_empty());
     }
 
     #[test]

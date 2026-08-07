@@ -639,7 +639,7 @@ fn collect_columns(e: &Expr, table: &Table, out: &mut Vec<String>) {
                 collect_columns(els, table, out);
             }
         }
-        ExprKind::Number { .. }
+        ExprKind::Number(_)
         | ExprKind::Str(_)
         | ExprKind::Bool(_)
         | ExprKind::Null
