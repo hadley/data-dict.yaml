@@ -42,6 +42,13 @@
 //! the parsed tree against a [`CheckEnv`] and emits the S20–S23/S30
 //! [`Finding`]s.
 
+mod ir;
+
+pub use ir::{
+    ColumnRef, DatetimeConst, IntervalUnit, LikePattern, NodeKind, Op, Selection, SelectorForm,
+    Type, TypedAssertion, TypedExpr, lower,
+};
+
 /// A parsed assertion expression: the root node of the tree.
 #[derive(Debug, Clone)]
 pub struct AssertExpr {
@@ -884,10 +891,11 @@ pub trait CheckEnv {
     /// Every column on the table, in declaration order, with its kind. Used to
     /// resolve a `COLUMNS(...)` selection to the columns it matches.
     fn columns(&self) -> Vec<(String, ColumnKind)>;
-    /// Whether `s` parses as an ISO 8601 date.
-    fn is_date(&self, s: &str) -> bool;
-    /// Whether `s` parses as an ISO 8601 datetime (offset or zoneless).
-    fn is_datetime(&self, s: &str) -> bool;
+    /// `s` as an ISO 8601 date, if it is one. Returns the value rather than a
+    /// yes/no because [`lower`] turns such a literal into a real date constant.
+    fn as_date(&self, s: &str) -> Option<chrono::NaiveDate>;
+    /// `s` as an ISO 8601 datetime (offset-bearing or zoneless), if it is one.
+    fn as_datetime(&self, s: &str) -> Option<DatetimeConst>;
 }
 
 /// One problem found in an assertion, with its byte span in the source
@@ -978,7 +986,7 @@ fn join_nouns(types: &[Ty]) -> String {
 /// `max` implements the rule that an operator takes the largest shape among its
 /// operands: `Const` is the identity, and `Row` absorbs `Agg`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Shape {
+pub enum Shape {
     Const,
     Agg,
     Row,
@@ -1449,8 +1457,8 @@ impl Checker<'_> {
             return false;
         };
         match other_ty {
-            Ty::Date => self.env.is_date(s),
-            Ty::Datetime => self.env.is_datetime(s),
+            Ty::Date => self.env.as_date(s).is_some(),
+            Ty::Datetime => self.env.as_datetime(s).is_some(),
             _ => false,
         }
     }
@@ -1705,9 +1713,9 @@ mod tests {
             .unwrap_or_else(|e| panic!("parse({s:?}) failed: {} at {}", e.message, e.at))
     }
 
-    struct TestEnv;
+    pub(crate) struct TestEnv;
     impl TestEnv {
-        const COLUMNS: &[(&str, ColumnKind)] = &[
+        pub(crate) const COLUMNS: &[(&str, ColumnKind)] = &[
             ("n", ColumnKind::Number),
             ("qty", ColumnKind::Number),
             ("s", ColumnKind::String),
@@ -1752,11 +1760,17 @@ mod tests {
                 .map(|(n, k)| (n.to_string(), *k))
                 .collect()
         }
-        fn is_date(&self, s: &str) -> bool {
-            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+        fn as_date(&self, s: &str) -> Option<chrono::NaiveDate> {
+            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
         }
-        fn is_datetime(&self, s: &str) -> bool {
-            chrono::DateTime::parse_from_rfc3339(s).is_ok()
+        fn as_datetime(&self, s: &str) -> Option<DatetimeConst> {
+            // Both spellings, as `TableEnv` accepts.
+            if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
+                return Some(DatetimeConst::Offset(t));
+            }
+            s.parse::<chrono::NaiveDateTime>()
+                .ok()
+                .map(DatetimeConst::Naive)
         }
     }
 

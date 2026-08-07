@@ -20,7 +20,7 @@ use quarto_yaml::YamlWithSourceInfo;
 use quarto_yaml_validation::error::ValidationErrorKind;
 use quarto_yaml_validation::{Schema, SchemaRegistry, ValidationDiagnostic, ValidationError};
 
-use crate::assert_expr::{self, CheckEnv, ColumnKind};
+use crate::assert_expr::{self, CheckEnv, ColumnKind, DatetimeConst};
 use crate::join_expr::{JoinExpr, QCol};
 use crate::model::{
     Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
@@ -330,15 +330,17 @@ impl CheckEnv for TableEnv<'_> {
             .collect()
     }
 
-    fn is_date(&self, s: &str) -> bool {
-        parse_date(s).is_some()
+    fn as_date(&self, s: &str) -> Option<NaiveDate> {
+        parse_date(s)
     }
 
-    fn is_datetime(&self, s: &str) -> bool {
+    fn as_datetime(&self, s: &str) -> Option<DatetimeConst> {
         // Accept either an offset-bearing or a zoneless ISO 8601 datetime; the
         // column's `time_zone` decides which is canonical, but for a literal
         // comparison either spelling is a legitimate datetime.
-        parse_datetime(s).is_some() || parse_naive_datetime(s).is_some()
+        parse_datetime(s)
+            .map(DatetimeConst::Offset)
+            .or_else(|| parse_naive_datetime(s).map(DatetimeConst::Naive))
     }
 }
 
