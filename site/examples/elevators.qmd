@@ -1,10 +1,12 @@
 ---
 title: "elevators"
 description: "Synced from hadley/elevators"
+page: "[Browse](rendered/elevators.html)"
+raw: "[Download](elevators.yaml)"
 ---
 
 A real-world `data-dict.yaml`, synced from [hadley/elevators](https://github.com/hadley/elevators).
-[Download the raw file](elevators.yaml).
+[Browse the rendered dictionary](rendered/elevators.html), or [download the raw file](elevators.yaml).
 
 ```{.yaml filename="elevators.yaml"}
 {{< include elevators.yaml >}}

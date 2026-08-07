@@ -1,10 +1,12 @@
 ---
 title: "loan-application"
 description: "Synced from hadley/loan-application"
+page: "[Browse](rendered/loan-application.html)"
+raw: "[Download](loan-application.yaml)"
 ---
 
 A real-world `data-dict.yaml`, synced from [hadley/loan-application](https://github.com/hadley/loan-application).
-[Download the raw file](loan-application.yaml).
+[Browse the rendered dictionary](rendered/loan-application.html), or [download the raw file](loan-application.yaml).
 
 ```{.yaml filename="loan-application.yaml"}
 {{< include loan-application.yaml >}}

@@ -1,10 +1,12 @@
 ---
 title: "contoso"
 description: "Synced from hadley/contoso"
+page: "[Browse](rendered/contoso.html)"
+raw: "[Download](contoso.yaml)"
 ---
 
 A real-world `data-dict.yaml`, synced from [hadley/contoso](https://github.com/hadley/contoso).
-[Download the raw file](contoso.yaml).
+[Browse the rendered dictionary](rendered/contoso.html), or [download the raw file](contoso.yaml).
 
 ```{.yaml filename="contoso.yaml"}
 {{< include contoso.yaml >}}

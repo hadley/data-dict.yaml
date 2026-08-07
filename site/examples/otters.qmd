@@ -1,10 +1,12 @@
 ---
 title: "otters"
 description: "Synced from hadley/otters"
+page: "[Browse](rendered/otters.html)"
+raw: "[Download](otters.yaml)"
 ---
 
 A real-world `data-dict.yaml`, synced from [hadley/otters](https://github.com/hadley/otters).
-[Download the raw file](otters.yaml).
+[Browse the rendered dictionary](rendered/otters.html), or [download the raw file](otters.yaml).
 
 ```{.yaml filename="otters.yaml"}
 {{< include otters.yaml >}}

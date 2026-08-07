@@ -1,0 +1,11 @@
+# Source repos for site/examples, as `<name>=<owner>/<repo>`. Adding a line here
+# also needs a matching `site/examples/<name>.qmd` wrapper.
+#
+# `update-examples.yaml` syncs each repo's data-dict.yaml into site/examples;
+# `publish-site.yaml` renders each one into the site.
+contoso=hadley/contoso
+dabstep=hadley/dabstep
+elevators=hadley/elevators
+foodbank=hadley/foodbank
+loan-application=hadley/loan-application
+otters=hadley/otters
