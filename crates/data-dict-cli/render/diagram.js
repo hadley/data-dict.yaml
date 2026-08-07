@@ -964,15 +964,123 @@ stage.addEventListener("pointermove", (event) => {
   if (!dragged) return;
   dragged.node.x = Math.max(STAGE_PAD, dragged.at.x + event.clientX - dragged.from.x);
   dragged.node.y = Math.max(STAGE_PAD, dragged.at.y + event.clientY - dragged.from.y);
+  dragged.moved = true; // a press that never moved leaves the saved layout alone
   tidyBtn.disabled = false; // something has moved, so there is something to tidy
   follow();
 });
 for (const done of ["pointerup", "pointercancel"]) {
   stage.addEventListener(done, () => {
+    if (dragged?.moved) saveArrangement();
     dragged?.el.classList.remove("dragging");
     dragged = null;
   });
 }
+
+// --------------------------------------------------------- remember the layout
+
+// An arrangement someone dragged into place outlives the page it was made on.
+// Keyed by the dictionary rather than by the URL: the same page is served from a
+// port under `--live` and opened straight from disk once written out, and those
+// would otherwise remember separately.
+const LAYOUT_KEY = `dd-layout:${fingerprint()}`;
+
+// Enough to tell two dictionaries apart, not to detect an edit: a dictionary
+// that gained or lost a table keeps its saved arrangement, which `restore` then
+// applies to whatever is still there.
+function fingerprint() {
+  const of = [dict.description ?? "", ...dict.tables.map((table) => table.name).sort()].join("\0");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < of.length; i++) {
+    h ^= of.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+// One record holds `tables` (where each box was dragged to) and `pan` (where the
+// board was sitting). They are written by different gestures and restored
+// independently: panning a board you never arranged is still worth remembering.
+//
+// Storage can be refused outright for a file:// page, the same way the theme
+// toggle's can, and what comes back is whatever was last written under this key.
+// Anything unreadable counts as nothing saved.
+function readLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+    return saved && typeof saved === "object" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLayout(record) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(record));
+  } catch {}
+}
+
+function forgetLayout() {
+  try {
+    localStorage.removeItem(LAYOUT_KEY);
+  } catch {}
+}
+
+const panNow = () => ({ x: Math.round(canvas.scrollLeft), y: Math.round(canvas.scrollTop) });
+
+function saveArrangement() {
+  const tables = {};
+  for (const [id, node] of Object.entries(placed.nodes)) {
+    tables[id] = { x: Math.round(node.x), y: Math.round(node.y) };
+  }
+  writeLayout({ ...readLayout(), tables, pan: panNow() });
+}
+
+// Only a drag ever rewrites `tables`, so scrolling through a layout you didn't
+// arrange — one an eye rebuilt, say — can't quietly replace the arrangement you
+// did.
+function savePan() {
+  writeLayout({ ...readLayout(), pan: panNow() });
+}
+
+// Saved positions over the top of a fresh layout. A table with nothing saved for
+// it keeps the place the layout gave it, so a table added to the dictionary since
+// still lands somewhere sensible — though nothing stops it landing under a
+// restored neighbour, which is what `tidy` is for.
+function restore(nodes) {
+  const saved = readLayout()?.tables;
+  if (!saved) return false;
+  let used = false;
+  for (const [id, node] of Object.entries(nodes)) {
+    const at = saved[id];
+    if (!Number.isFinite(at?.x) || !Number.isFinite(at?.y)) continue;
+    node.x = Math.max(STAGE_PAD, at.x);
+    node.y = Math.max(STAGE_PAD, at.y);
+    used = true;
+  }
+  return used;
+}
+
+// Put the board back where it was sitting. The browser clamps this to whatever is
+// scrollable, so a board that shrank since lands as close as it can.
+function restorePan() {
+  const pan = readLayout()?.pan;
+  if (!pan) return;
+  canvas.scrollLeft = pan.x;
+  canvas.scrollTop = pan.y;
+}
+
+// Panning is a stream of scroll events, so the write waits for it to settle.
+// Restoring the pan scrolls the board too, and writing the same numbers back is
+// harmless.
+let panSettling;
+canvas.addEventListener(
+  "scroll",
+  () => {
+    clearTimeout(panSettling);
+    panSettling = setTimeout(savePan, 250);
+  },
+  { passive: true }
+);
 
 // -------------------------------------------------------------------- render
 
@@ -1014,6 +1122,12 @@ function markEnd(box) {
   box.classList.toggle("at-end", rows.scrollTop + rows.clientHeight >= rows.scrollHeight - 1);
 }
 
+// A saved arrangement and pan are put back only as the board first appears. Every
+// later redraw is someone asking for a layout — `tidy`, or an eye rebuilding the
+// board around a table — and answering those with the old positions would look
+// broken, while `keepView` already has an opinion about where to leave the view.
+let opening = true;
+
 // Draws the board from whatever is currently on it. Safe to call again: it clears
 // the wires and markers it made last time, and rebuilds the badge map.
 async function draw(was = null) {
@@ -1027,6 +1141,10 @@ async function draw(was = null) {
   const t0 = performance.now();
   const layout = await window.LAYOUT(dict, metrics, canvas.clientWidth, was);
   const ms = performance.now() - t0;
+
+  const first = opening;
+  opening = false;
+  const restored = first && restore(layout.nodes);
 
   stage.style.width = `${layout.width}px`;
   stage.style.height = `${layout.height}px`;
@@ -1152,6 +1270,15 @@ async function draw(was = null) {
   reflow = place;
   placed = layout;
 
+  // A restored table can sit outside the area the layout asked for, exactly as a
+  // dragged one can, so the stage is grown to whatever came back. `tidy` is the
+  // way out of an arrangement, so it has to be live from the start.
+  if (restored) {
+    fitStage();
+    tidyBtn.disabled = false;
+  }
+  if (first) restorePan();
+
   for (const box of nodeEls.values()) if (!box.hidden) markEnd(box);
 
   // Not shown on the page, but kept where a console or a test can read it: these
@@ -1197,11 +1324,13 @@ function countCrossings(drawn) {
   return n;
 }
 
-// Tidy only offers itself once a table has been dragged: until then the
-// layout is already tidy.
+// Tidy only offers itself once a table has been dragged, or once a saved
+// arrangement has been put back: until then the layout is already tidy. Tidying
+// discards the saved arrangement, so it doesn't return on the next visit.
 const tidyBtn = document.getElementById("tidy");
 tidyBtn.addEventListener("click", () => {
   for (const box of nodeEls.values()) box.style.zIndex = "";
+  forgetLayout();
   tidyBtn.disabled = true;
   draw();
 });
