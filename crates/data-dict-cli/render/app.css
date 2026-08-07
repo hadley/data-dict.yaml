@@ -74,6 +74,10 @@
   /* A panel set into a card, halfway between the card and the page behind it. */
   --inset: light-dark(#f8f6f4, #191e23);
 
+  /* The surfaces that hold prose: a warm step off the card, so a block of writing
+     doesn't sit on the same white as a list of data. */
+  --panel: light-dark(#f9f6f2, #191e23);
+
   /* the tables app's vocabulary, mapped onto the same palette */
   --chip: light-dark(#e9ecf2, #21262d);
   --link: var(--accent1); /* a link is the accent doing its plainest job */
@@ -110,9 +114,29 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
 h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; }
-.homelink { font-size: 13px; color: var(--link); text-decoration: none; }
-.homelink:hover { text-decoration: underline; }
-.homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+/* The title as a link keeps the title's own colour and weight: it should read as
+   the heading it is, with the chevron the only sign it goes anywhere. Only the
+   name underlines on hover, so the chevron isn't struck through. */
+.homelink, .title-row { --chev-gap: .34em; display: inline-flex; align-items: center; gap: var(--chev-gap); }
+.homelink { color: inherit; text-decoration: none; }
+.homelink:hover span:last-child { text-decoration: underline; }
+.homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 4px; }
+/* The chevron hangs in the page's left margin, so the name sits where it would
+   have without it. Pulling the slot back by its own width and gap is what keeps
+   the name flush: the home page carries the same empty slot, and both pages
+   resolve to the same offset. `main` has the room to hang into (44px). */
+.homelink .chev, .title-row .chev {
+  --chev-w: .78em; /* the stroke then lands at about the name's cap height */
+  /* Height is stated, not left to the content: the home page's slot is empty,
+     and a zero-height flex item would sit its baseline on the row's bottom edge
+     and grow the heading's line box — the title would drop as you navigated. */
+  flex: none; display: flex; width: var(--chev-w); height: var(--chev-w);
+  margin-left: calc(-1 * (var(--chev-w) + var(--chev-gap)));
+  transition: transform .12s ease;
+}
+.homelink .chev svg { display: block; width: 100%; height: auto; }
+/* nudged towards where it goes, which is the whole affordance at this size */
+.homelink:hover .chev { transform: translateX(-.1em); }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .icon-btn {
   flex: none; width: 38px; height: 38px; border: 1px solid var(--rule); border-radius: 9px;
@@ -231,6 +255,9 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 
 @media (max-width: 720px) {
   main { padding: 26px 18px 60px; }
+  /* too little margin left to hang the chevron in, so it takes real space and
+     the name indents — on both pages alike, which is what matters */
+  .homelink .chev, .title-row .chev { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }

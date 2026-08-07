@@ -139,21 +139,29 @@ function JoinChip({ join }) {
 
 /* ---- Header and lead ------------------------------------------------------ */
 
-/* The way back sits beside the dataset's name rather than over the table it
-   leaves, so it is in the same place on every page. It only appears once there
-   is somewhere to go back from. */
+/* Inside a table, the dataset's name is itself the way back, led by a chevron.
+   The whole title is the target rather than a separate link beside it: it is the
+   biggest thing on the page and already names where it goes. */
 function Header({ onGlossary, atTable }) {
+  const name = DICT.name
+    ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
+    : "Data dictionary";
+  /* The chevron's slot is there on both pages — filled inside a table, empty
+     outside one — so the name lands in the same place either way and navigating
+     home doesn't slide the title sideways. */
+  const titled = (chevron) => html`
+    <span class="chev" aria-hidden="true"
+      ...${chevron ? { dangerouslySetInnerHTML: { __html: ICONS.back } } : {}} />
+    <span>${name}</span>`;
   return html`<header class="pagehead">
     <div class="head-title">
       <h1 class="title" id="dict-title">
-        ${DICT.name
-          ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
-          : "Data dictionary"}
+        ${atTable
+          ? html`<a class="homelink" href="#" title="Back to every table"
+              onClick=${(e) => { e.preventDefault(); goHome(); }}>${titled(true)}</a>`
+          : html`<span class="title-row">${titled(false)}</span>`}
       </h1>
       <${TodoFlag} source=${DICT.todo} />
-      ${atTable &&
-        html`<a class="homelink" href="#" title="Back to every table"
-          onClick=${(e) => { e.preventDefault(); goHome(); }}>home</a>`}
     </div>
     <div class="head-actions">
       ${glossItems.length > 0 &&
