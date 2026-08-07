@@ -123,8 +123,8 @@ fn narrows_to_a_single_column() {
     assert!(!text.contains("bill_length_mm"), "{text}");
 }
 
-/// A bar whose count rounds below half a cell still shows as a sliver, so a
-/// nonzero count is never invisible next to a dominant one.
+/// A bar whose count rounds below a full cell still shows as a partial
+/// block, so a nonzero count is never invisible next to a dominant one.
 #[test]
 fn tiny_counts_render_a_sliver() {
     let mut values = vec![1i64; 100];
@@ -132,7 +132,7 @@ fn tiny_counts_render_a_sliver() {
     let path = Fixture::column("REQUIRED INT64 hits", Values::int64(values)).write();
     let description = describe(&path, None).unwrap();
     let text = description.to_string();
-    assert!(text.contains('▏'), "{text}");
+    assert!(text.contains('▎'), "{text}");
     insta::assert_snapshot!(sanitize(&text, &path));
 }
 
@@ -248,6 +248,52 @@ fn floats_count_nan_apart_from_the_bins() {
     assert!(json.contains("\"nan_count\": 2"), "{json}");
     assert!(json.contains("\"positive_infinity_count\": 1"), "{json}");
     assert!(!json.contains("negative_infinity_count"), "{json}");
+}
+
+/// Very large integers and floats keep their full decimal form — no
+/// scientific notation, no overflow — and the bin range labels still line up
+/// once digit counts run into double digits.
+#[test]
+fn very_large_numbers_render_without_scientific_notation() {
+    let path = Fixture::new(&["REQUIRED INT64 population", "REQUIRED DOUBLE budget"])
+        .group(vec![
+            Values::int64([
+                1_000_000_000,
+                2_500_000_000,
+                7_800_000_000,
+                8_100_000_000,
+                999_999_999_999,
+                1,
+            ]),
+            Values::double([1.0e12, 2.5e12, 7.8e12, 8.1e12, 9.999e14, 1.0]),
+        ])
+        .write();
+    let description = describe(&path, None).unwrap();
+    let text = description.to_string();
+    assert!(
+        !has_scientific_notation(&text),
+        "no scientific notation: {text}"
+    );
+    insta::assert_snapshot!(sanitize(&text, &path));
+
+    let json = serde_json::to_string_pretty(&description).unwrap();
+    assert!(
+        !has_scientific_notation(&json),
+        "no scientific notation: {json}"
+    );
+    insta::assert_snapshot!(sanitize(&json, &path));
+}
+
+/// A number written in scientific notation has an `e`/`E` with a digit on
+/// each side (allowing a sign after it), unlike the word "number" or field
+/// names such as "type".
+fn has_scientific_notation(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    chars.windows(3).any(|w| {
+        (w[1] == 'e' || w[1] == 'E')
+            && w[0].is_ascii_digit()
+            && (w[2].is_ascii_digit() || w[2] == '+' || w[2] == '-')
+    })
 }
 
 #[test]
