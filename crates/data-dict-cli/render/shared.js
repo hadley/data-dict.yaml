@@ -25,20 +25,31 @@ function loadDict(next) {
 
 const quoteRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/* How a glossary term is matched in prose. A term written entirely in lower
-   case is an ordinary word, and should be found however the sentence happens to
-   capitalise it. One carrying capitals is a name or an acronym where the
-   capitals are part of it — `PWS` is not the word `pws` — so it is matched as
-   written. JavaScript has no per-group case flag, so the insensitive terms are
-   spelled out as character classes rather than given their own regex. */
+/* Much a glossary term in prose:
+
+   * lower case terms are an ordinary words/phrases, and should be matched
+     regardless of capitilisation or pluralisation (approximately)
+   * mixed case terms (e.g. PWS) only match exactly
+ */
 function termPattern(term) {
   if (term !== term.toLowerCase()) return quoteRe(term);
-  return [...term]
+  const core = [...term]
     .map((ch) => {
       const upper = ch.toUpperCase();
       return upper === ch || upper.length !== 1 ? quoteRe(ch) : `[${quoteRe(ch)}${quoteRe(upper)}]`;
     })
     .join("");
+  return term.length > 5 ? core + "[a-z]{0,3}" : core;
+}
+
+/* The glossary term behind a regex match. */
+function baseTerm(match) {
+  const lower = match.toLowerCase();
+  for (let cut = 0; cut <= 3; cut++) {
+    const candidate = lower.slice(0, lower.length - cut);
+    if (GLOSS_DEFS[candidate] !== undefined) return candidate;
+  }
+  return lower;
 }
 
 loadDict(JSON.parse(document.getElementById("dict").textContent));
@@ -88,7 +99,7 @@ function annotate(s, hl, literal) {
     if (mm.index > last) frag.appendChild(marked(s.slice(last, mm.index), hl));
     const term = el("abbr", "gterm");
     term.dataset.term = mm[0];
-    term.dataset.def = GLOSS_DEFS[mm[0].toLowerCase()] || "";
+    term.dataset.def = GLOSS_DEFS[baseTerm(mm[0])] || "";
     term.appendChild(marked(mm[0], hl));
     frag.appendChild(term);
     last = mm.index + mm[0].length;
