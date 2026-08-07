@@ -146,8 +146,8 @@ A translated assertion is a predicate; what a caller usually wants is the rows t
 | Target | Violating rows | Why |
 |--------|----------------|-----|
 | `SQL` | `SELECT * FROM t WHERE (expr) IS FALSE` | `IS FALSE` is false-only by definition; null and true both escape. |
-| `R(base)` | `t[which(!(expr)), ]` | `which()` keeps only `TRUE`; `!NA` is `NA` and drops out. |
-| `R(tidyverse)` | `filter(t, !(expr))` | `filter()` keeps only `TRUE`. |
+| `R(base)` | `subset(t, !(expr))` | `subset()` keeps only `TRUE`; `!NA` is `NA` and drops out. |
+| `R(tidyverse)` | `filter(t, !(expr))` | `filter()` keeps only `TRUE`; `!NA` is `NA` and drops out. |
 | `R(data.table)` | `t[!(expr)]` | `NA` in `i` selects nothing. |
 | `Python(pandas)` | `df.query("not (expr)")` | `query()` keeps only `True`; on nullable dtypes a null is not `True`. |
 | `Python(polars)` | `df.filter(~(expr))` | `~` maps false to true and null to null; `filter` drops null. |
@@ -160,6 +160,8 @@ These are documentation, not output — how to embed a predicate is the caller's
 
 `translate` is primarily for machine consumption, so it writes JSON to standard output: one record per expression, carrying the source text, where it came from, the expression's type, the columns it uses, and one entry per target.
 
+A translation's `fidelity` is the weakest [class](#fidelity) among the constructs it used, written `"exact"`, `"guarded"`, `"divergent"` or `"unsupported"`. The field is present only when it isn't `"exact"`, and `notes` only when `fidelity` is. An entry carrying neither is exact and has nothing to warn about.
+
 ```json
 {
   "expr": "LENGTH(postcode) <= 10",
@@ -167,16 +169,17 @@ These are documentation, not output — how to embed a predicate is the caller's
   "type": "boolean",
   "columns": [{ "table": "survey", "column": "postcode" }],
   "translations": [
-    { "target": "R(base)", "code": "nchar(postcode) <= 10", "notes": [] },
-    { "target": "R(tidyverse)", "code": "str_length(postcode) <= 10", "notes": [] },
-    { "target": "SQL(duckdb)", "code": "length(\"postcode\") <= 10", "notes": [] },
+    { "target": "R(base)", "code": "nchar(postcode) <= 10" },
+    { "target": "R(tidyverse)", "code": "str_length(postcode) <= 10" },
+    { "target": "SQL(duckdb)", "code": "length(\"postcode\") <= 10" },
     { "target": "Python(pandas)", "code": "postcode.str.len() <= 10",
+      "fidelity": "divergent",
       "notes": ["Assumes nullable dtypes; NaN-backed comparisons return false where the language says null."] }
   ]
 }
 ```
 
-The `columns` list is what makes the output composable: a caller knows which columns to select, load, or index before evaluating the predicate, without parsing the code. A target that [refuses](#fidelity) carries an error in place of `code`.
+The `columns` list is what makes the output composable: a caller knows which columns to select, load, or index before evaluating the predicate, without parsing the code. A target that [refuses](#fidelity) is `"unsupported"` and carries an error in place of `code`.
 
 ### One expression at a time
 
