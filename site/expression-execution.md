@@ -109,6 +109,8 @@ Refusal is per target, never per expression. A rule that can't be written in `SQ
 
 These differences are broad enough to be worth naming here rather than only in a per-target table.
 
+**Shifting a date.** [The language gives a datetime](expressions.md#arithmetic), matching DuckDB and PostgreSQL, so the SQL targets are exact. R and Python are not: `as.Date("2020-01-01") + as.difftime(12, units = "hours")` and `datetime.date(2020, 1, 1) + timedelta(hours=12)` both return the *same date*, discarding the twelve hours without a warning. Those targets therefore promote the date before shifting — `as.POSIXct(...)`, `datetime.combine(d, time.min)` — which is Guarded rather than Divergent, since the promoted form is exact. An emitter may skip the promotion when the interval is a whole-day literal, where the bare form already agrees.
+
 **Rounding.** The language rounds halves away from zero, [as `ROUND` specifies](expressions.md#round). R, Python and pandas round halves to even, and matching the language exactly would mean replacing every `round` call with several lines of arithmetic. Those targets emit the native call, and differ only on a value that is exactly a half at the digit being rounded. The SQL targets are exact, [by casting first](#why-these-spellings).
 
 **Regular expression flavour.** The language uses RE2. So do polars and DuckDB, which are therefore exact. stringr matches with ICU, base R's `grepl` with PCRE, and Python's `re` with its own flavour; all three accept the common syntax and differ only in corners. Where that matters, the explicit list form of `COLUMNS(...)` avoids the regex entirely.
@@ -210,7 +212,7 @@ unary       := "-" unary | primary
 primary     := literal | column | funcall | cast | case
              | "CURRENT_TIMESTAMP" | "(" expr ")"
 cast        := "CAST" "(" expr "AS" type ")"
-type        := "DOUBLE PRECISION" | "NUMERIC" | "DATE"
+type        := "DOUBLE PRECISION" | "NUMERIC"
 funcall     := FUNC "(" (expr ("," expr)*)? ")"
              | "COUNT" "(" "*" ")"
              | "COUNT" "(" "DISTINCT" expr ")"
@@ -236,8 +238,7 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 | `x + y`, `x - y`, `x * y` | `x + y`, `x - y`, `x * y` | Exact |
 | `x / y`, floats involved | `x / y` | Divergent |
 | `x / y`, both integers | `CAST(x AS DOUBLE PRECISION) / y` | Divergent |
-| `d + i`, `d - i` on a `date` | `CAST(d + i AS DATE)` | Guarded |
-| `t + i`, `t - i` on a `datetime` | `t + i`, `t - i` | Exact |
+| `d + i`, `d - i`, `t + i`, `t - i` | `d + i`, `d - i` | Exact |
 | `x = y` | `x = y` | Exact |
 | `x != y`, `x <> y` | `x <> y` | Exact |
 | `x < y`, `x <= y`, `x > y`, `x >= y` | same | Exact |
@@ -290,7 +291,7 @@ Each guard below exists because the two engines disagree, or because both disagr
 
 **Zero divisors are left bare.** [The language reports them](#no-result), and so does PostgreSQL, so the plain spelling is exactly right there. DuckDB is the odd one out: `7/0` is `inf`, `0/0` is `nan`, and `MOD(7, 0)` is null. No portable expression raises, so this cannot be guarded, only declared — it is the one place `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
 
-**Casting a shifted date back.** `date + interval` produces a *timestamp* in both engines, not a date, so a `date`-typed expression would silently change type — and comparisons against it would then compare instants rather than days. The cast restores it. This is only reachable because [a date can only be shifted by whole days](expressions.md#arithmetic).
+**Shifting a date needs no cast.** `date + interval` produces a timestamp in both engines, and [so does the language](expressions.md#arithmetic) — the rule was chosen to match them. Nothing to guard.
 
 **`ROUND` through `NUMERIC`.** On floats the engines disagree outright: PostgreSQL rounds halves to even (`ROUND(0.5)` is `0`) and DuckDB away from zero (`1`), and PostgreSQL has no two-argument `ROUND` for floats at all. Casting to `NUMERIC` first makes both round halves away from zero, matching [the language](expressions.md#round) exactly, negative `digits` included. So `SQL(ANSI)` avoids the [rounding divergence](#standing-divergences) the dataframe targets have to live with.
 

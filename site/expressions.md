@@ -45,8 +45,8 @@ Every expression has a type. These are the language's own types, close to but no
 | `number` | A `number` column (any measure), a numeric literal, arithmetic, or a numeric function. |
 | `string` | A `string` column, an `enum` column, or a quoted literal. |
 | `boolean` | A `boolean` column, `TRUE`/`FALSE`, or any comparison or logical operator. |
-| `date` | A `date` column, or a date plus or minus an interval. |
-| `datetime` | A `datetime` column, `NOW()`, or a datetime plus or minus an interval. |
+| `date` | A `date` column. |
+| `datetime` | A `datetime` column, `NOW()`, or a date or datetime plus or minus an interval. |
 | `interval` | `interval(<n>, <unit>)`. A duration; it only exists inside an expression, never as a column type. |
 
 : {tbl-colwidths="[15,85]"}
@@ -167,14 +167,14 @@ Below, `T` stands for any type, and a signature like `number → number` reads "
 | `-x` | `number → number` | Unary minus. |
 | `x + y`, `x - y` | `number, number → number` | |
 | `x * y`, `x / y` | `number, number → number` | Dividing by zero is [an error](expression-execution.md#no-result). `/` always gives a [float](#integers-and-floats). |
-| `d + i`, `i + d`, `d - i` | `date, interval → date` | Shifts a date by a duration. The interval must be in whole days. |
+| `d + i`, `i + d`, `d - i` | `date, interval → datetime` | Shifts a date by a duration. |
 | `t + i`, `i + t`, `t - i` | `datetime, interval → datetime` | Shifts a datetime by a duration. |
 
 : {tbl-colwidths="[20,32,48]"}
 
-Interval arithmetic is the only non-numeric arithmetic: a date or datetime plus or minus an interval keeps its own type. Subtracting one date from another is not supported, nor is multiplying an interval.
+Interval arithmetic is the only non-numeric arithmetic. Subtracting one date from another is not supported, nor is multiplying an interval.
 
-A **date** carries no time of day, so it can only be shifted by a whole number of days: the interval's unit must be `days` or `weeks`, and `birthdate + interval(12, hours)` is an error rather than a silent truncation. Use a `datetime` if you need to shift by less than a day. A datetime takes all five units.
+Shifting a **date** gives a `datetime`, not a date. An interval can be shorter than a day and a date has no time of day to absorb it, so `birthdate + interval(12, hours)` means midday rather than silently rounding back to the same date. The date is read as midnight, and every unit is allowed. This follows DuckDB and PostgreSQL, which both hand back a timestamp. The result stays [comparable](#comparability) with a `date`, so `d + interval(2, days) >= start_date` is well-typed.
 
 ### Comparison
 
@@ -348,7 +348,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 All five are fixed-length. Calendar units (`months`, `years`) are deliberately excluded: they're non-uniform (adding a month lands on a different number of days depending on the date, and clamps at month ends), which would make an expression's meaning depend on the calendar. Express a rough month as `interval(30, days)` if you need it.
 
-Only `days` and `weeks` may be [added to a `date`](#arithmetic); all five may be added to a `datetime`.
+All five may be added to a `date` as well as a `datetime`; [shifting a date](#arithmetic) gives a datetime either way.
 
 ```yaml
 - assert: observed_at >= NOW() - interval(2, weeks)
@@ -479,8 +479,6 @@ An expression states a rule, so its result must be a truth value. A bare non-boo
 ### Operands must match their operator or function
 
 The signatures above are enforced exactly: `LENGTH(qty)` on a numeric column is an error, as is `LENGTH('a', 'b')`, as is calling a function that doesn't exist. A signature written over a [class](#type-classes) is enforced the same way — `SUM(name)` on a string column is an error, because `string` is not `Numeric`.
-
-An interval's unit is part of this rule, since it is a keyword rather than a value: shifting a `date` by anything shorter than a day is rejected here, before any data is read.
 
 ### Compared values must be comparable {#comparability}
 
