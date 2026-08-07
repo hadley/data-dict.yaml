@@ -6,7 +6,7 @@ expression: export_json(RICH_DICT)
   "$version": "0.1.0",
   "name": "pets",
   "label": "Pet shop",
-  "description": "Pets and their owners.",
+  "description": "<p>Pets and their owners.</p>",
   "origin": "https://example.com/pets-pipeline",
   "learn_more": "http://data-dict.tidyverse.org/",
   "version": {
@@ -15,7 +15,7 @@ expression: export_json(RICH_DICT)
   "tables": [
     {
       "name": "owners",
-      "description": "One row per owner.",
+      "description": "<p>One row per owner.</p>",
       "columns": [
         {
           "name": "owner_id",
@@ -42,7 +42,7 @@ expression: export_json(RICH_DICT)
           "fields": [
             {
               "name": "zip",
-              "description": "Postal code.",
+              "description": "<p>Postal code.</p>",
               "type": "string",
               "examples": [
                 "97201"
@@ -101,7 +101,11 @@ expression: export_json(RICH_DICT)
           "values": [
             "cat",
             "dog"
-          ]
+          ],
+          "value_labels": {
+            "cat": "A cat",
+            "dog": "A dog"
+          }
         },
         {
           "name": "weight",
@@ -115,7 +119,7 @@ expression: export_json(RICH_DICT)
           "assertions": [
             {
               "expression": "weight > 0",
-              "description": "Weights are positive.",
+              "description": "<p>Weights are positive.</p>",
               "columns": [
                 "weight"
               ]
@@ -144,7 +148,7 @@ expression: export_json(RICH_DICT)
   ],
   "relationships": [
     {
-      "description": "Each pet has one owner.",
+      "description": "<p>Each pet has one owner.</p>",
       "cardinality": "many-to-one",
       "declared_cardinality": "one-to-many",
       "pairs": [
@@ -165,11 +169,11 @@ expression: export_json(RICH_DICT)
   "glossary": [
     {
       "term": "pet",
-      "definition": "An animal kept for companionship."
+      "definition": "<p>An animal kept for companionship.</p>"
     },
     {
       "term": "owner",
-      "definition": "The human a pet keeps."
+      "definition": "<p>The human a pet keeps.</p>"
     }
   ]
 }

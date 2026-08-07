@@ -9,3 +9,4 @@ site/_site
 .claude/settings.local.json
 /target/
 .posit/assistant/settings.json
+site/examples/rendered/

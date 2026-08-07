@@ -12,6 +12,7 @@ quarto-yaml.workspace = true
 quarto-yaml-validation.workspace = true
 quarto-source-map.workspace = true
 annotate-snippets.workspace = true
+pulldown-cmark.workspace = true
 serde.workspace = true
 chrono.workspace = true
 regex.workspace = true

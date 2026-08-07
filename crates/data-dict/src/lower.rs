@@ -197,10 +197,12 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
             "details" => details = entry.value.yaml.as_str().map(str::to_string),
             "display" => display = entry.value.yaml.as_str().map(str::to_string),
             "values" => {
+                let (items, labels) = lower_enum_values(&entry.value);
                 values = Some(Representation {
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
-                    items: lower_enum_values(&entry.value),
+                    items,
+                    labels,
                 });
             }
             "range" => {
@@ -208,6 +210,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
+                    labels: Vec::new(),
                 });
             }
             "examples" => {
@@ -215,6 +218,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
+                    labels: Vec::new(),
                 });
             }
             "units" => {
@@ -313,18 +317,29 @@ fn lower_assertion(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opti
     })
 }
 
-/// Lower an enum's `values` node into its allowed scalars with spans.
-fn lower_enum_values(node: &YamlWithSourceInfo) -> Vec<Spanned<Scalar>> {
-    if let Some(entries) = node.as_hash() {
-        // Map form: the keys are the values, the labels are dropped.
-        entries
-            .iter()
-            .map(|entry| Spanned::new(lower_scalar(&entry.key), entry.key.source_info.clone()))
-            .collect()
-    } else {
+/// Lower an enum's `values` node into its allowed scalars with spans, and the
+/// label each was written with. The labels are empty unless every value has
+/// one, which keeps them index-aligned with the values they describe.
+fn lower_enum_values(node: &YamlWithSourceInfo) -> (Vec<Spanned<Scalar>>, Vec<String>) {
+    let Some(entries) = node.as_hash() else {
         // List form (or a lone scalar, which the schema rejects upstream).
-        lower_scalars(node)
-    }
+        return (lower_scalars(node), Vec::new());
+    };
+    // Map form: the keys are the values, and each carries its label.
+    let items = entries
+        .iter()
+        .map(|entry| Spanned::new(lower_scalar(&entry.key), entry.key.source_info.clone()))
+        .collect();
+    let labels: Option<Vec<String>> = entries
+        .iter()
+        .map(|entry| match lower_scalar(&entry.value) {
+            Scalar::String(label) => Some(label),
+            // The schema rejects a non-string label upstream; a partial set
+            // would break the alignment, so none are kept.
+            _ => None,
+        })
+        .collect();
+    (items, labels.unwrap_or_default())
 }
 
 /// Lower a `range` or `examples` node into its scalar elements with spans.

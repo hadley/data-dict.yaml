@@ -16,6 +16,8 @@ Both levels emit the same JSON document shape; `export-spec` just never populate
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
 
+Prose fields — every `description` and `details`, and each glossary `definition` — are written as Markdown in the dictionary and arrive here rendered to HTML (any raw HTML in the source is escaped rather than passed through), so consumers can place them straight into a page without a Markdown implementation of their own.
+
 ### Top level
 
 ```jsonc
@@ -74,6 +76,8 @@ A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(s
   // present when this column is a `primary_key` that foreign-key columns
   // elsewhere reference: each of those columns
   "values?": [Scalar],            // enum
+  "value_labels?": { "value": "what it means", ... },
+  // present when `values` was written as a map, giving each value a label
   "range?": { "min": Scalar, "max": Scalar },
   "examples?": [Scalar],
   "fields?": [ Column ],
@@ -81,6 +85,8 @@ A `Column` is recursive: `fields` holds child `Column`s for `struct` and `list(s
   "profile?": Profile             // export-data only; never present under export-spec
 }
 ```
+
+`values` lists what an `enum` column may hold, in the order the dictionary declares them. Writing them as a map (`{M: Male, F: Female}`) labels each one; the values themselves still appear in `values`, and `value_labels` maps each to its label. A column whose values were written as a plain list has no `value_labels` — there, the values speak for themselves.
 
 Both `references` and `referenced_by` are derived from `relationships`, not read directly off the column — they're absent for a column that isn't part of any relationship, even if it's marked `foreign_key`/`primary_key` in isolation (which `validate-spec`'s S01 already treats as an error).
 
@@ -156,6 +162,8 @@ String, boolean, and enum columns summarize by value:
 }
 ```
 
+`sample_values` are up to 20 representative values, spread along the column's sorted distinct values rather than drawn from its start, and reported exactly — never rounded, since how much precision a value carries is part of what it tells you. They are omitted for a column that declares its `values`: that declaration is exhaustive, so it already gives the reader every value the column can hold, in full rather than as a sample.
+
 A `list` column reports only its containers — `{ "missing": 4 }`, the null-list count — never its elements.
 
 Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.
@@ -169,4 +177,3 @@ Nested columns profile as far as the data allows:
 ### Scalar
 
 A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
-
