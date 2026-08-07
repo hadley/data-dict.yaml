@@ -207,3 +207,28 @@ fn write_values(column: &mut SerializedColumnWriter, values: &Values, optional: 
         Values::Bytes(items) => write!(ByteArrayType, items, |v| ByteArray::from(v.clone())),
     }
 }
+
+/// A file with a legacy repeated field: a list of values per row, which reads
+/// as `list(number)`.
+pub fn write_repeated() -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "ddp-profile-repeated-{}-{}.parquet",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let schema = Arc::new(parse_message_type("message schema { REPEATED INT64 xs; }").unwrap());
+    let file = File::create(&path).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::new())).unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut column = row_group.next_column().unwrap().unwrap();
+    // Two rows: [1, 2] and [3].
+    column
+        .typed::<Int64Type>()
+        .write_batch(&[1, 2, 3], Some(&[1, 1, 1]), Some(&[0, 1, 0]))
+        .unwrap();
+    column.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+    path
+}

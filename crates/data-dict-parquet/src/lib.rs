@@ -11,6 +11,7 @@ mod profile;
 mod reader;
 mod scan;
 mod sketch;
+mod typed;
 mod uniqueness;
 mod value;
 
@@ -26,5 +27,9 @@ pub use profile::{
 };
 pub use scan::{ColumnNeeds, ColumnRequest, ColumnStats, column_stats};
 pub use sketch::ValueCount;
+pub use typed::{
+    Batch, BoolValues, Column, Decodable, StrValues, TypedColumnRequest, TypedScan, ValueType,
+    Values as TypedValues, decodable, read_typed,
+};
 pub use uniqueness::{UniquenessCheck, UniquenessStats, uniqueness_stats};
 pub use value::{F64, TimeGrain, Value, ValueKind, date_iso, datetime_iso, time_iso};

@@ -72,6 +72,26 @@ impl FileContext {
             .clone())
     }
 
+    /// The arrow type at a column-then-fields path. Unlike
+    /// [`FileContext::leaf_path`] this does **not** cross list wrappers: a value
+    /// under a list is many values per row, which a per-row expression has no
+    /// way to use, so such a path has no type here.
+    pub(crate) fn arrow_type_path(&self, path: &[String]) -> Option<arrow_schema::DataType> {
+        let mut ty = self
+            .meta
+            .schema()
+            .field_with_name(&path[0])
+            .ok()?
+            .data_type();
+        for segment in &path[1..] {
+            let arrow_schema::DataType::Struct(fields) = ty else {
+                return None;
+            };
+            ty = fields.iter().find(|f| f.name() == segment)?.data_type();
+        }
+        Some(ty.clone())
+    }
+
     /// A fresh handle on the underlying file, for readers that need the
     /// non-arrow API (the D04 dictionary-page fast path).
     pub(crate) fn file(&self) -> Result<File, ParquetError> {
