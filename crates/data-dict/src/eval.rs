@@ -782,11 +782,11 @@ fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
         (Op::Abs, [v]) => Value::Float(v.as_f64().unwrap_or_default().abs()),
         (Op::Floor, [v]) => Value::Float(v.as_f64().unwrap_or_default().floor()),
         (Op::Ceil, [v]) => Value::Float(v.as_f64().unwrap_or_default().ceil()),
-        (Op::Round, [v]) => Value::Float(round_half_away(v.as_f64().unwrap_or_default(), 0)?),
+        (Op::Round, [v]) => Value::Float(round_half_away(v.as_f64().unwrap_or_default(), 0)),
         (Op::Round, [v, d]) => Value::Float(round_half_away(
             v.as_f64().unwrap_or_default(),
             d.as_f64().unwrap_or_default() as i32,
-        )?),
+        )),
         (Op::Mod, [Value::Int(a), Value::Int(b)]) => {
             if *b == 0 {
                 return Err(Fault::DividedByZero);
@@ -809,13 +809,23 @@ fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
 
 /// The language rounds halves away from zero, unlike Rust's `round` for
 /// negative halves — which agrees — but `digits` needs the scaling anyway.
-fn round_half_away(x: f64, digits: i32) -> Result<f64, Fault> {
+///
+/// `digits` far enough either way puts the rounding place outside what a float
+/// can represent, and both ends have an exact answer: scaling to infinity means
+/// the place is finer than `x`'s own precision, so `x` is already rounded, and a
+/// factor that underflows to zero means the place is coarser than any float, so
+/// every value rounds to zero. Neither is an overflow — no integer is involved.
+fn round_half_away(x: f64, digits: i32) -> f64 {
     let factor = 10f64.powi(digits);
     let scaled = x * factor;
     if !scaled.is_finite() {
-        return Err(Fault::Overflow);
+        return x;
     }
-    Ok(scaled.round() / factor)
+    let rounded = scaled.round();
+    if factor == 0.0 {
+        return rounded;
+    }
+    rounded / factor
 }
 
 /// What an aggregate gives back with nothing to fold, which is also its value

@@ -2160,3 +2160,20 @@ fn an_undecodable_column_is_reported_rather_than_passing() {
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
+
+#[test]
+fn rounding_beyond_a_floats_reach_is_not_an_overflow() {
+    // `digits` far enough either way puts the rounding place outside what a
+    // float can represent. Both ends have an answer — `x` unchanged, or zero —
+    // and neither involves an integer, so neither is D09.
+    let yaml = build_asserted(
+        &[1234, 5678],
+        &[None, None],
+        &format!(
+            "{}\n{}",
+            assertion("ROUND(a, -400) = 0"),
+            assertion("ROUND(a, 400) = a")
+        ),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
