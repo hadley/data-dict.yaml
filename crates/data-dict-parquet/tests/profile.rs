@@ -6,12 +6,12 @@ use std::path::Path;
 
 use common::{Fixture, Values};
 use data_dict_parquet::{
-    ColumnProfile, Distinct, TimeGrain, Value, ValueCount, ValueKind, profile,
+    ColumnProfile, DEFAULT_MAX_BINS, Distinct, TimeGrain, Value, ValueCount, ValueKind, profile,
 };
 use parquet::file::properties::WriterVersion;
 
 fn one(path: &Path) -> ColumnProfile {
-    let mut profile = profile(path, None).unwrap();
+    let mut profile = profile(path, None, DEFAULT_MAX_BINS).unwrap();
     assert_eq!(profile.columns.len(), 1, "expected a one-column file");
     profile.columns.remove(0)
 }
@@ -212,14 +212,14 @@ fn a_missing_footer_range_is_recovered_by_a_second_pass() {
 
     assert_eq!(with.histogram, without.histogram);
     let histogram = with.histogram.unwrap();
-    assert_eq!(histogram.bins.len(), 20);
+    assert_eq!(histogram.bins.len(), 6);
     assert_eq!(
         histogram.bins.iter().map(|bin| bin.count).sum::<usize>(),
         100
     );
     assert_eq!(histogram.bins[0].lower, 1.0);
-    // The whole-number width (⌈99/20⌉ = 5) overshoots the maximum a little.
-    assert_eq!(histogram.bins[19].upper, 101.0);
+    // The whole-number width (⌈99/6⌉ = 17) overshoots the maximum a little.
+    assert_eq!(histogram.bins[5].upper, 103.0);
 }
 
 /// Past the tracking cap the counts stop being exact, but a value that only
@@ -343,7 +343,7 @@ fn infinities_are_counted_apart_and_leave_the_bins_finite() {
     assert_eq!(histogram.not_finite.positive_infinity_count, 2);
     assert_eq!(histogram.not_finite.negative_infinity_count, 1);
     assert_eq!(histogram.not_finite.nan_count, 0);
-    assert_eq!(histogram.bins.len(), 20);
+    assert_eq!(histogram.bins.len(), 5);
     assert_eq!(histogram.bins.iter().map(|bin| bin.count).sum::<usize>(), 2);
     assert!(
         histogram
@@ -353,7 +353,7 @@ fn infinities_are_counted_apart_and_leave_the_bins_finite() {
         "every bin boundary must be a real number"
     );
     assert_eq!(
-        (histogram.bins[0].lower, histogram.bins[19].upper),
+        (histogram.bins[0].lower, histogram.bins[4].upper),
         (0.0, 10.0)
     );
 }
@@ -427,7 +427,7 @@ fn an_all_null_column_reports_only_nulls() {
 #[test]
 fn an_empty_file_profiles_to_nothing() {
     let path = Fixture::new(&["OPTIONAL INT64 v"]).write();
-    let mut file = profile(&path, None).unwrap();
+    let mut file = profile(&path, None, DEFAULT_MAX_BINS).unwrap();
     assert_eq!(file.row_count, 0);
     let profile = file.columns.remove(0);
 
@@ -443,7 +443,7 @@ fn only_the_requested_columns_are_profiled() {
         .group(vec![Values::int64([1, 2]), Values::text(["x", "y"])])
         .write();
 
-    let all = profile(&path, None).unwrap();
+    let all = profile(&path, None, DEFAULT_MAX_BINS).unwrap();
     assert_eq!(
         all.columns
             .iter()
@@ -453,12 +453,12 @@ fn only_the_requested_columns_are_profiled() {
     );
     assert_eq!(all.row_count, 2);
 
-    let selected = profile(&path, Some(&["b"])).unwrap();
+    let selected = profile(&path, Some(&["b"]), DEFAULT_MAX_BINS).unwrap();
     assert_eq!(selected.columns.len(), 1);
     assert_eq!(selected.columns[0].name, "b");
     assert_eq!(selected.row_count, 2);
 
-    let missing = profile(&path, Some(&["nope"]));
+    let missing = profile(&path, Some(&["nope"]), DEFAULT_MAX_BINS);
     assert!(missing.is_err(), "an unknown column must be an error");
 }
 
@@ -515,7 +515,7 @@ fn a_byte_array_that_is_not_text_is_abandoned() {
         // would miss this one entirely.
         .group(vec![Values::Bytes(vec![None, None]), Values::int64([3, 4])])
         .write();
-    let profile = profile(&path, None).unwrap();
+    let profile = profile(&path, None, DEFAULT_MAX_BINS).unwrap();
     assert_eq!(profile.row_count, 4);
     let profiles = profile.columns;
 
@@ -537,6 +537,7 @@ fn nested_paths_are_profiled() {
             vec!["g".to_string(), "x".to_string()],
             vec!["g".to_string(), "missing".to_string()],
         ],
+        DEFAULT_MAX_BINS,
     )
     .unwrap();
 
@@ -594,9 +595,12 @@ fn list_struct_fields_are_profiled_per_element() {
     writer.write(&batch).unwrap();
     writer.close().unwrap();
 
-    let profiles =
-        data_dict_parquet::profile_paths(&path, &[vec!["items".to_string(), "qty".to_string()]])
-            .unwrap();
+    let profiles = data_dict_parquet::profile_paths(
+        &path,
+        &[vec!["items".to_string(), "qty".to_string()]],
+        DEFAULT_MAX_BINS,
+    )
+    .unwrap();
     let qty = profiles[0].as_ref().expect("items.qty resolves");
     assert_eq!(qty.kind, ValueKind::Int);
     assert_eq!(

@@ -45,101 +45,26 @@ expression: "sanitize(&json, &path)"
         "bins": [
           {
             "lower": 36.7,
-            "upper": 37.8,
-            "count": 1
-          },
-          {
-            "lower": 37.8,
-            "upper": 39.0,
-            "count": 0
-          },
-          {
-            "lower": 39.0,
-            "upper": 40.1,
-            "count": 2
-          },
-          {
-            "lower": 40.1,
             "upper": 41.3,
-            "count": 0
+            "count": 3
           },
           {
             "lower": 41.3,
-            "upper": 42.4,
-            "count": 0
-          },
-          {
-            "lower": 42.4,
-            "upper": 43.6,
-            "count": 0
-          },
-          {
-            "lower": 43.6,
-            "upper": 44.7,
-            "count": 0
-          },
-          {
-            "lower": 44.7,
             "upper": 45.9,
             "count": 0
           },
           {
             "lower": 45.9,
-            "upper": 47.0,
-            "count": 1
-          },
-          {
-            "lower": 47.0,
-            "upper": 48.2,
-            "count": 0
-          },
-          {
-            "lower": 48.2,
-            "upper": 49.3,
-            "count": 1
-          },
-          {
-            "lower": 49.3,
             "upper": 50.4,
-            "count": 1
+            "count": 3
           },
           {
             "lower": 50.4,
-            "upper": 51.6,
-            "count": 0
-          },
-          {
-            "lower": 51.6,
-            "upper": 52.7,
-            "count": 0
-          },
-          {
-            "lower": 52.7,
-            "upper": 53.9,
-            "count": 0
-          },
-          {
-            "lower": 53.9,
             "upper": 55.0,
             "count": 0
           },
           {
             "lower": 55.0,
-            "upper": 56.2,
-            "count": 0
-          },
-          {
-            "lower": 56.2,
-            "upper": 57.3,
-            "count": 0
-          },
-          {
-            "lower": 57.3,
-            "upper": 58.5,
-            "count": 0
-          },
-          {
-            "lower": 58.5,
             "upper": 59.6,
             "count": 1
           }
@@ -170,102 +95,27 @@ expression: "sanitize(&json, &path)"
         "bins": [
           {
             "lower": 3250,
-            "upper": 3403,
-            "count": 1
+            "upper": 3860,
+            "count": 6
           },
           {
-            "lower": 3403,
-            "upper": 3556,
-            "count": 1
+            "lower": 3860,
+            "upper": 4470,
+            "count": 0
           },
           {
-            "lower": 3556,
-            "upper": 3709,
+            "lower": 4470,
+            "upper": 5080,
             "count": 2
           },
           {
-            "lower": 3709,
-            "upper": 3862,
-            "count": 2
-          },
-          {
-            "lower": 3862,
-            "upper": 4015,
+            "lower": 5080,
+            "upper": 5690,
             "count": 0
           },
           {
-            "lower": 4015,
-            "upper": 4168,
-            "count": 0
-          },
-          {
-            "lower": 4168,
-            "upper": 4321,
-            "count": 0
-          },
-          {
-            "lower": 4321,
-            "upper": 4474,
-            "count": 0
-          },
-          {
-            "lower": 4474,
-            "upper": 4627,
-            "count": 0
-          },
-          {
-            "lower": 4627,
-            "upper": 4780,
-            "count": 1
-          },
-          {
-            "lower": 4780,
-            "upper": 4933,
-            "count": 1
-          },
-          {
-            "lower": 4933,
-            "upper": 5086,
-            "count": 0
-          },
-          {
-            "lower": 5086,
-            "upper": 5239,
-            "count": 0
-          },
-          {
-            "lower": 5239,
-            "upper": 5392,
-            "count": 0
-          },
-          {
-            "lower": 5392,
-            "upper": 5545,
-            "count": 0
-          },
-          {
-            "lower": 5545,
-            "upper": 5698,
-            "count": 0
-          },
-          {
-            "lower": 5698,
-            "upper": 5851,
-            "count": 0
-          },
-          {
-            "lower": 5851,
-            "upper": 6004,
-            "count": 0
-          },
-          {
-            "lower": 6004,
-            "upper": 6157,
-            "count": 0
-          },
-          {
-            "lower": 6157,
-            "upper": 6310,
+            "lower": 5690,
+            "upper": 6300,
             "count": 1
           }
         ],

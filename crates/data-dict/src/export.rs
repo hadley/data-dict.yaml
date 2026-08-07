@@ -31,6 +31,12 @@ use crate::{load, validate_and_lower};
 /// document's `$version` so consumers can detect shape changes.
 pub const EXPORT_VERSION: &str = "0.1.0";
 
+/// Cap on a histogram's bin count in the exported document, which renders it
+/// as an interactive chart with room for more resolution than a CLI table —
+/// matches the cap Positron's data explorer uses for the histogram it draws
+/// once a column is expanded.
+const MAX_HISTOGRAM_BINS: usize = 200;
+
 /// The export document. Field order matches the JSON shape documented in
 /// `site/export.md`. A key with nothing to say — a missing optional, an empty
 /// collection — is omitted rather than serialized as `null`/`[]`; zeroes and
@@ -912,7 +918,7 @@ fn profile_table(
 
     let mut out = TableProfiles::new();
     if !scalars.is_empty() {
-        let profiled = profile(parquet_path, Some(&scalars))?;
+        let profiled = profile(parquet_path, Some(&scalars), MAX_HISTOGRAM_BINS)?;
         for column in profiled.columns {
             if let Some(profile) = profile_json(&column) {
                 out.insert(column.name.clone(), profile);
@@ -920,7 +926,11 @@ fn profile_table(
         }
     }
     if !nested.is_empty() {
-        for (path, profiled) in nested.iter().zip(profile_paths(parquet_path, &nested)?) {
+        for (path, profiled) in
+            nested
+                .iter()
+                .zip(profile_paths(parquet_path, &nested, MAX_HISTOGRAM_BINS)?)
+        {
             if let Some(profile) = profiled.as_ref().and_then(profile_json) {
                 out.insert(path.join("."), profile);
             }

@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::metadata::column_type_info;
-use crate::profile::{ColumnProfile, Distinct, Histogram, profile};
+use crate::profile::{ColumnProfile, DEFAULT_MAX_BINS, Distinct, Histogram, profile};
 use crate::value::{TimeGrain, Value, ValueKind, date_iso, datetime_iso, time_iso};
 use crate::{ColumnTypeInfo, ParquetError};
 
@@ -146,7 +146,7 @@ pub fn describe(path: &Path, column: Option<&str>) -> Result<FileDescription, Pa
         )));
     }
     let selection = column.map(|name| vec![name]);
-    let file = profile(path, selection.as_deref())?;
+    let file = profile(path, selection.as_deref(), DEFAULT_MAX_BINS)?;
 
     let columns = file
         .columns

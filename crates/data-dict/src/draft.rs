@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate};
 use data_dict_parquet::{
-    ColumnProfile, Distinct, ParquetError, TimeGrain, Value, ValueKind, profile,
+    ColumnProfile, DEFAULT_MAX_BINS, Distinct, ParquetError, TimeGrain, Value, ValueKind, profile,
 };
 
 use crate::validate_spec::{LEARN_MORE_URL, SPEC_VERSION, load_str};
@@ -172,10 +172,13 @@ fn draft_tables(
     named
         .iter()
         .map(|(name, path)| {
-            let profile = profile(path, None).map_err(|source| DraftError::Parquet {
-                path: path.to_path_buf(),
-                source,
-            })?;
+            // Drafting never reads a column's histogram, so the bin count is
+            // moot; the default cap is just the cheapest thing to pass.
+            let profile =
+                profile(path, None, DEFAULT_MAX_BINS).map_err(|source| DraftError::Parquet {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
             let source = relative_to(path, output_dir).map_err(DraftError::Io)?;
             Ok(infer_table(name.clone(), &source, &profile))
         })
