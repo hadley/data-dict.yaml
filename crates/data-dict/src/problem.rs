@@ -221,11 +221,12 @@ pub enum ProblemKind {
     /// `D07` — an aggregate `assert` expression is false for the table. An
     /// aggregate is one verdict about every row at once, so no row is to blame.
     AssertionFalse { assertion: String },
-    /// `D08` — an `assert` expression names a column that can't be read as the
-    /// type the dictionary declares, so it was never evaluated.
+    /// `D08` — an `assert` expression could not be evaluated against the data.
+    /// `column` names the column that can't be read as its declared type, and is
+    /// absent when the obstacle isn't one column's type.
     AssertionNotChecked {
         assertion: String,
-        column: String,
+        column: Option<String>,
         reason: String,
     },
     /// `D09` — integer arithmetic in an `assert` expression left the 64-bit

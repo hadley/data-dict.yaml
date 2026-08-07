@@ -285,7 +285,7 @@ fn assertion_issues(
                 table,
                 col,
                 assertion,
-                &request.path.join("."),
+                Some(&request.path.join(".")),
                 reason,
             ));
             continue;
@@ -337,6 +337,15 @@ fn assertion_problem(
         crate::eval::Outcome::Faulted { fault, row } => {
             let where_ = row.map_or_else(String::new, |r| format!(" at row {r}"));
             match fault {
+                crate::eval::Fault::BadPattern(pattern) => {
+                    return Some(assertion_not_checked(
+                        table,
+                        col,
+                        assertion,
+                        None,
+                        &format!("`{pattern}`{where_} is not a valid regular expression"),
+                    ));
+                }
                 crate::eval::Fault::DividedByZero => (
                     format!("divides by zero{where_}"),
                     "An assertion must be computable for every row.",
@@ -373,25 +382,33 @@ fn assertion_not_checked(
     table: &Table,
     col: Option<&Column>,
     assertion: &Assertion,
-    column: &str,
+    column: Option<&str>,
     reason: &str,
 ) -> Problem {
+    let (message, hint) = match column {
+        Some(name) => (
+            format!("cannot read `{name}`: {reason}"),
+            "Correct the column's declared `type`, or drop the assertion until the data can \
+             support it.",
+        ),
+        None => (
+            reason.to_string(),
+            "Correct the data the pattern comes from, or write the pattern as a literal so it \
+             is checked when the dictionary is validated.",
+        ),
+    };
     let kind = ProblemKind::AssertionNotChecked {
         assertion: assertion.text.value.clone(),
-        column: column.to_string(),
+        column: column.map(str::to_string),
         reason: reason.to_string(),
     };
     Problem {
         code: kind.code(),
         severity: Severity::Error,
-        message: format!("cannot read `{column}`: {reason}"),
+        message,
         column: None,
         expected: Some("An assertion must be evaluable against the data.".into()),
-        hint: Some(
-            "Correct the column's declared `type`, or drop the assertion until the data can \
-             support it."
-                .into(),
-        ),
+        hint: Some(hint.into()),
         suggestion: None,
         context: assertion_context(table, col, assertion),
         kind,

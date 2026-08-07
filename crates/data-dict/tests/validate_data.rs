@@ -2177,3 +2177,85 @@ fn rounding_beyond_a_floats_reach_is_not_an_overflow() {
     );
     assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
 }
+
+/// A two-column table of strings — a subject and the pattern to match it
+/// against — with `constraints` spliced in at table level.
+fn build_patterned(subject: &[&str], pattern: &[&str], constraints: &str) -> PathBuf {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(
+        parse_message_type(
+            "message schema { REQUIRED BYTE_ARRAY s (UTF8); REQUIRED BYTE_ARRAY p (UTF8); }",
+        )
+        .unwrap(),
+    );
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    for values in [subject, pattern] {
+        let batch: Vec<ByteArray> = values.iter().map(|v| ByteArray::from(*v)).collect();
+        let mut col = row_group.next_column().unwrap().unwrap();
+        col.typed::<ByteArrayType>()
+            .write_batch(&batch, None, None)
+            .unwrap();
+        col.close().unwrap();
+    }
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                constraints:
+            {constraints}
+                columns:
+                  - name: s
+                    type: string
+                    examples: [NZ-1234]
+                  - name: p
+                    type: string
+                    examples: ['NZ-.*']
+        "},
+    )
+}
+
+#[test]
+fn a_pattern_read_from_the_data_is_matched_per_row() {
+    // Each row brings its own pattern, so the compiled regexes must not be
+    // confused for one another.
+    let yaml = build_patterned(
+        &["NZ-1234", "AU-1234", "NZ-9999"],
+        &["NZ-.*", "NZ-.*", "NZ-.*"],
+        &assertion("s SIMILAR TO p"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "2"]);
+
+    let holds = build_patterned(
+        &["NZ-1234", "AU-1234"],
+        &["NZ-.*", "AU-.*"],
+        &assertion("s SIMILAR TO p"),
+    );
+    assert_eq!(validate_data(&holds, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_pattern_read_from_the_data_that_is_not_a_regex_is_reported() {
+    // A literal pattern is checked at the spec level (S21), but one that comes
+    // from the data can only fail here — and must not read as a pass.
+    let yaml = build_patterned(
+        &["NZ-1234", "AU-1"],
+        &["NZ-.*", "*("],
+        &assertion("s SIMILAR TO p"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D08", "not a valid regular expression", "row 2"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}

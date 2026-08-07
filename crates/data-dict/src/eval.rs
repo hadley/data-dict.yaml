@@ -6,12 +6,14 @@
 //! [`Shape`](crate::assert_expr::Shape): a `row` assertion reports the rows that
 //! broke it, an `agg` one only that it is false for the table.
 //!
-//! Two things stop an assertion reaching a verdict at all, and both withdraw it
-//! rather than guess: dividing by zero, and integer arithmetic leaving the
-//! 64-bit range. Everything else about the data yields a value.
+//! Three things stop an assertion reaching a verdict at all, and each withdraws
+//! it rather than guess: dividing by zero, integer arithmetic leaving the 64-bit
+//! range, and a pattern read from the data that isn't a valid regex. Everything
+//! else about the data yields a value.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use data_dict_parquet::{
@@ -99,12 +101,16 @@ impl Value<'_> {
     }
 }
 
-/// Why an assertion could not reach a verdict. Both replace the verdict rather
+/// Why an assertion could not reach a verdict. Each replaces the verdict rather
 /// than standing in for one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Fault {
     DividedByZero,
     Overflow,
+    /// A `LIKE` or `SIMILAR TO` pattern computed from the data is not a valid
+    /// regex. A literal pattern can't get here — S21 rejects it at the spec
+    /// level — so the offending text is worth carrying.
+    BadPattern(String),
 }
 
 type Eval<'a> = Result<Value<'a>, Fault>;
@@ -148,6 +154,39 @@ pub(crate) fn evaluate(
     plan.judge(path, &requests, now, aggregates.as_deref(), sample_limit)
 }
 
+/// Regexes compiled once for the whole evaluation instead of once per row.
+/// Keyed by the pattern's source text, with one cache per spelling: the same
+/// text means different things as a `LIKE` pattern and as a regex. `None` marks
+/// a source that does not compile, so a bad pattern is diagnosed once too.
+#[derive(Default)]
+struct Patterns {
+    /// A regex the IR built from a literal `LIKE` pattern, already anchored.
+    verbatim: RefCell<HashMap<String, Option<regex::Regex>>>,
+    /// A `LIKE` pattern computed from the data, still in `%`/`_` form.
+    like: RefCell<HashMap<String, Option<regex::Regex>>>,
+    /// A `SIMILAR TO` pattern, anchored when compiled.
+    similar: RefCell<HashMap<String, Option<regex::Regex>>>,
+}
+
+impl Patterns {
+    fn matches(
+        cache: &RefCell<HashMap<String, Option<regex::Regex>>>,
+        source: &str,
+        subject: &str,
+        as_regex: impl FnOnce(&str) -> String,
+    ) -> Result<bool, Fault> {
+        let mut cache = cache.borrow_mut();
+        if !cache.contains_key(source) {
+            let compiled = regex::Regex::new(&as_regex(source)).ok();
+            cache.insert(source.to_string(), compiled);
+        }
+        match &cache[source] {
+            Some(re) => Ok(re.is_match(subject)),
+            None => Err(Fault::BadPattern(source.to_string())),
+        }
+    }
+}
+
 /// The columns an assertion reads, and the instantiations to evaluate.
 struct Plan<'a> {
     assertion: &'a TypedAssertion,
@@ -159,6 +198,7 @@ struct Plan<'a> {
     instances: Vec<Option<usize>>,
     /// The topmost aggregate subtrees, by span, in evaluation order.
     agg_spans: Vec<(usize, usize)>,
+    patterns: Patterns,
 }
 
 impl<'a> Plan<'a> {
@@ -186,6 +226,7 @@ impl<'a> Plan<'a> {
             columns,
             instances,
             agg_spans,
+            patterns: Patterns::default(),
         }
     }
 
@@ -229,6 +270,7 @@ impl<'a> Plan<'a> {
                         now,
                         agg_spans: &self.agg_spans,
                         aggregates: None,
+                        patterns: &self.patterns,
                     };
                     for (slot, span) in self.agg_spans.iter().enumerate() {
                         let node = find_span(&self.assertion.root, *span)
@@ -277,6 +319,7 @@ impl<'a> Plan<'a> {
                         now,
                         agg_spans: &self.agg_spans,
                         aggregates: aggregates.map(|a| a[instance].as_slice()),
+                        patterns: &self.patterns,
                     };
                     match eval(&cx, &self.assertion.root) {
                         Err(fault) => {
@@ -325,6 +368,7 @@ impl<'a> Plan<'a> {
                 now,
                 agg_spans: &self.agg_spans,
                 aggregates: aggregates.map(|a| a[instance].as_slice()),
+                patterns: &self.patterns,
             };
             match eval(&cx, &self.assertion.root) {
                 Err(fault) => return Outcome::Faulted { fault, row: None },
@@ -457,6 +501,7 @@ struct Cx<'a> {
     /// The aggregate subtrees, by span, paired with their folded values.
     agg_spans: &'a [(usize, usize)],
     aggregates: Option<&'a [Value<'static>]>,
+    patterns: &'a Patterns,
 }
 
 impl<'a> Cx<'a> {
@@ -616,18 +661,14 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
                 LikePattern::Exact(p) => s == p.as_str(),
                 LikePattern::Prefix(p) => s.starts_with(p.as_str()),
                 LikePattern::Suffix(p) => s.ends_with(p.as_str()),
-                LikePattern::Regex(p) => match regex::Regex::new(p) {
-                    Ok(re) => re.is_match(&s),
-                    Err(_) => return Ok(Value::Null),
-                },
+                LikePattern::Regex(p) => {
+                    Patterns::matches(&cx.patterns.verbatim, p, &s, str::to_string)?
+                }
                 LikePattern::Dynamic(p) => {
                     let Value::Str(p) = eval(cx, p)? else {
                         return Ok(Value::Null);
                     };
-                    match regex::Regex::new(&like_to_regex(&p)) {
-                        Ok(re) => re.is_match(&s),
-                        Err(_) => return Ok(Value::Null),
-                    }
+                    Patterns::matches(&cx.patterns.like, &p, &s, like_to_regex)?
                 }
             };
             Value::Bool(matched != *negated)
@@ -641,10 +682,9 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
                 return Ok(Value::Null);
             };
             // Anchored, so the pattern must match the whole string.
-            match regex::Regex::new(&format!("^(?:{p})$")) {
-                Ok(re) => Value::Bool(re.is_match(&s) != *negated),
-                Err(_) => Value::Null,
-            }
+            let matched =
+                Patterns::matches(&cx.patterns.similar, &p, &s, |p| format!("^(?:{p})$"))?;
+            Value::Bool(matched != *negated)
         }
         NodeKind::Interval { n, unit } => match eval(cx, n)? {
             Value::Null => Value::Null,
