@@ -34,12 +34,12 @@ Usage: data-dict <COMMAND>
 Commands:
   describe       Summarise the columns of a parquet file
   draft          Generate a starting data-dict.yaml from parquet files
-  validate-spec  Validate a data-dict.yaml file or directory against the spec [default: .]
+  validate-spec  Validate a data-dict.yaml file or directory against the spec
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary
-  export-spec    Render a data dictionary as fully-resolved JSON [default: .]
+  export-spec    Render a data dictionary as fully-resolved JSON
   export-data    Render a data dictionary as JSON with per-column data profiles
-  render         Render a data dictionary as a self-contained HTML page [default: .]
+  render         Render a data dictionary as a self-contained HTML page
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
   skill-create   Skill for creating a data dictionary

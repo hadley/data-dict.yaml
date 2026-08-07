@@ -51,17 +51,21 @@ enum Command {
         #[arg(short, long, default_value = "./data-dict.yaml")]
         output: PathBuf,
     },
-    /// Validate a data-dict.yaml file or directory against the spec [default: .]
-    ValidateSpec { path: Option<PathBuf> },
+    /// Validate a data-dict.yaml file or directory against the spec
+    ValidateSpec {
+        /// A data-dict.yaml file or a directory containing one (defaults to
+        /// the current directory)
+        path: Option<PathBuf>,
+    },
     /// Validate a dataset's column names and types against a data dictionary
     ValidateMeta(ValidateArgs),
     /// Validate a dataset's values against a data dictionary
     ValidateData(ValidateArgs),
-    /// Render a data dictionary as fully-resolved JSON [default: .]
+    /// Render a data dictionary as fully-resolved JSON
     ExportSpec(ExportArgs),
     /// Render a data dictionary as JSON with per-column data profiles
     ExportData(ExportArgs),
-    /// Render a data dictionary as a self-contained HTML page [default: .]
+    /// Render a data dictionary as a self-contained HTML page
     ///
     /// The page holds a relationship diagram, a searchable index of the
     /// tables and columns, and the glossary, all in one file that works
@@ -84,7 +88,8 @@ enum Command {
 /// Shared arguments for `export-spec` and `export-data`.
 #[derive(clap::Args)]
 struct ExportArgs {
-    /// A data-dict.yaml file or a directory containing one
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
     path: Option<PathBuf>,
     /// Pretty-print the JSON (default is compact, one document per line)
     #[arg(long)]
@@ -94,7 +99,8 @@ struct ExportArgs {
 /// Arguments for `render`.
 #[derive(clap::Args)]
 struct RenderArgs {
-    /// A data-dict.yaml file or a directory containing one
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
     path: Option<PathBuf>,
     /// Where to write the page (default: the dictionary's path with an
     /// `.html` extension)
@@ -119,7 +125,9 @@ struct RenderArgs {
 /// Shared arguments for `validate-meta` and `validate-data`.
 #[derive(clap::Args)]
 struct ValidateArgs {
-    dict: PathBuf,
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
+    dict: Option<PathBuf>,
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
@@ -414,7 +422,7 @@ fn stderr_style() -> RenderStyle {
 /// Run a meta or data validation and turn its outcome into rendered output and
 /// an exit code.
 fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
-    let dict = match resolve_dict_path(Some(args.dict)) {
+    let dict = match resolve_dict_path(args.dict) {
         Ok(dict) => dict,
         Err(err) => {
             eprintln!("{err}");
