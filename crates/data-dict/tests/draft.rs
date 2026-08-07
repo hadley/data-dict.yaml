@@ -189,6 +189,50 @@ fn drafts_id_types_unique_todos_and_key_candidates() {
     insta::assert_snapshot!(draft_new(&dir, &[path]));
 }
 
+/// A column left as a bare `number` is drafted with both `range` and
+/// `examples`, because the data can't say whether it holds ordinals or
+/// quantities (which take a range) or bare numbers (which take examples); the
+/// todo asks for the type and which key to keep. Nothing else takes the pair: a
+/// `number(id)` has already settled its type, a `string` takes `examples`
+/// alone, and a `boolean` neither.
+#[test]
+fn drafts_both_range_and_examples_for_bare_number_columns() {
+    let dir = temp_dir();
+    let path = dir.join("readings.parquet");
+    write_parquet(
+        &path,
+        &[
+            "REQUIRED DOUBLE temperature",
+            "REQUIRED INT64 station_id",
+            "REQUIRED BYTE_ARRAY station (UTF8)",
+            "REQUIRED BOOLEAN checked",
+        ],
+        vec![
+            Col::F64(required([1.5, 3.0, 7.25, 9.5])),
+            Col::I64(required([1, 2, 3, 4])),
+            Col::Str(strings(["kew", "leuchars", "eskdalemuir", "lerwick"])),
+            Col::Bool(required([true, false, true, false])),
+        ],
+    );
+    let content = draft_new(&dir, &[path]);
+
+    assert!(content.contains("range: [1.5, 9.5]"), "{content}");
+    assert!(
+        content.contains("examples: [1.5, 3, 7.25, 9.5]"),
+        "{content}"
+    );
+    assert!(
+        content.contains("Pick a more specific numeric type"),
+        "the pair needs a todo asking which to keep:\n{content}"
+    );
+
+    // Only the bare `number` gets a range: `station_id` drafts as
+    // `number(id)`, `station` is a string, and `checked` a boolean.
+    assert_eq!(content.matches("range:").count(), 1, "{content}");
+
+    insta::assert_snapshot!(content);
+}
+
 #[test]
 fn drafts_temporal_ranges_and_time_zones() {
     let dir = temp_dir();

@@ -35,10 +35,11 @@ tables:
     columns:
       - name: pup_count
         type: number
+        range: [0, 2]
         examples: [0, 1, 2]
         todo: |
           - Add a `description`.
-          - Specify the `number` more precisely: `number(id)`,
-            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
           - Specify `constraints`. Some options suggested by the data:
             - constraints: [required] # all values present

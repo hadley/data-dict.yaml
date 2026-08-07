@@ -243,6 +243,18 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
     let dict_type = dict_type(&col.kind, &col.name);
     let mut sentences = Vec::new();
 
+    // A column left as a bare `number` is drafted with both `range` and
+    // `examples`: the data can't say whether it holds ordinals or quantities
+    // (which take a range) or bare numbers (which take examples), so both are
+    // written and the todo asks which to keep. A time of day drafts as a
+    // `number` too, but its raw value makes a meaningless range.
+    let unspecific_number =
+        dict_type == Some("number") && matches!(col.kind, ValueKind::Int | ValueKind::Float);
+    let range = (matches!(col.kind, ValueKind::Date | ValueKind::Timestamp { .. })
+        || unspecific_number)
+        .then(|| render_range(col))
+        .flatten();
+
     if let ValueKind::Unsupported(reason) = col.kind {
         sentences.push(format!(
             "This column could not be profiled ({reason}). Describe it and add a `type`."
@@ -253,8 +265,8 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
 
     if dict_type == Some("number") {
         sentences.push(
-            "Specify the `number` more precisely: `number(id)`, \
-             `number(ordinal)`, or `number(quantity)` (with `units`)."
+            "Pick a more specific numeric type, and keep whichever of `range` \
+             and `examples` is appropriate."
                 .to_string(),
         );
     }
@@ -303,9 +315,6 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
         None => {}
     }
 
-    let range = matches!(col.kind, ValueKind::Date | ValueKind::Timestamp { .. })
-        .then(|| render_range(col))
-        .flatten();
     // An enum candidate lists every distinct value, so accepting its todo is
     // exactly the `examples` → `values` rename it suggests.
     let examples = match &enum_values {
@@ -389,10 +398,13 @@ fn enum_candidate(col: &ColumnProfile, rows: usize) -> Option<Vec<String>> {
     Some(values)
 }
 
-/// Render a temporal column's observed `[min, max]`; an unobserved end is left
-/// open with `-.inf` / `.inf` (spec rule S12).
+/// Render a numeric or temporal column's observed `[min, max]`; an unobserved
+/// end is left open with `-.inf` / `.inf` (spec rule S12).
 fn render_range(col: &ColumnProfile) -> Option<[String; 2]> {
-    let render = |v: &Value| render_temporal(v, &col.kind);
+    let render = |v: &Value| match col.kind {
+        ValueKind::Date | ValueKind::Timestamp { .. } => render_temporal(v, &col.kind),
+        _ => Some(render_plain(v)),
+    };
     let min = col.min.as_ref().and_then(render);
     let max = col.max.as_ref().and_then(render);
     if min.is_none() && max.is_none() {
@@ -955,9 +967,9 @@ mod tests {
     #[test]
     fn long_todo_bullets_wrap_with_a_hanging_indent() {
         let mut out = String::new();
-        let long = "Specify the `number` more precisely because ".to_string() + &"word ".repeat(20);
+        let long = "A bullet long enough to wrap ".to_string() + &"word ".repeat(20);
         emit_todo(&mut out, "    ", &[long.trim().to_string()], &[]);
-        assert!(out.starts_with("    todo: |\n      - Specify"), "{out}");
+        assert!(out.starts_with("    todo: |\n      - A bullet"), "{out}");
         assert!(out.lines().count() > 2, "{out}");
         assert!(
             out.lines().skip(2).all(|l| l.starts_with("        ")),

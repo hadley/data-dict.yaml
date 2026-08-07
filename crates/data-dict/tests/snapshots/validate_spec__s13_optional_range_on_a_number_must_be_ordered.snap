@@ -1,0 +1,22 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: n
+        type: number
+        range: [99, 1]
+        examples: [1, 50, 99]
+────────────────────────────────────────
+error[S13]: A range's minimum must be less than or equal to its maximum.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: n
+LL |         type: number
+LL |         range: [99, 1]
+   |                 ^^ is greater than the maximum

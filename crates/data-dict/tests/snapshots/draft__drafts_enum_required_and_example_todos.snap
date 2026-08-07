@@ -26,18 +26,20 @@ tables:
             - constraints: [required] # all values present
       - name: bill_length_mm
         type: number
+        range: [36.7, 59.6]
         examples: [36.7, 39.5, 46.5, 48.7, 59.6]
         todo: |
           - Add a `description`.
-          - Specify the `number` more precisely: `number(id)`,
-            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
       - name: body_mass_g
         type: number
+        range: [3250, 6300]
         examples: [3250, 3625, 3750, 4675, 6300]
         todo: |
           - Add a `description`.
-          - Specify the `number` more precisely: `number(id)`,
-            `number(ordinal)`, or `number(quantity)` (with `units`).
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
           - Specify `constraints`. Some options suggested by the data:
             - constraints: [required, unique] # all values distinct & present
             - constraints: [primary_key] # all values distinct & present

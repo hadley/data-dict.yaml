@@ -8,9 +8,9 @@
 #     This is appropriate while the spec is pre-1.0; bump the schema with the
 #     spec when new fields are added.
 #   - The column subschema is a single flat object. Type-specific rules
-#     (e.g. `values` required for `type: enum`, `range` only valid on ordered
-#     / date types) are enforced by the validator (S07, S08) rather than
-#     structurally, to avoid repeating the same object shape for each type.
+#     (e.g. `values` required for `type: enum`, `range` not valid on `string`)
+#     are enforced by the validator (S07, S08) rather than structurally, to
+#     avoid repeating the same object shape for each type.
 #   - Cross-table / cross-field semantics (foreign-key targets really exist,
 #     `join` expressions parse, `conflicts` columns appear in both sides) are
 #     out of scope for the schema and belong in a separate validator.
