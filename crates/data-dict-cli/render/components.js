@@ -212,15 +212,15 @@ function ThemeToggle() {
 
 /* One histogram column: a full-height hover band, the bar, and a transparent
    hit target carrying the shared tooltip. */
-function HistBar({ x, colX, colW, bw, bh, height, special, label, count, total }) {
+function HistBar({ x, colX, colW, bw, bh, height, special, label, count, total, isHistogram }) {
   const [hot, setHot] = useState(false);
   const on = hot ? " hot" : "";
-  return html`<g>
+  return html`<g>cargo run -p data-dict-cli -- render site/examples/otters.yaml --live --assets crates/data-dict-cli/render
     <rect class=${"band" + on} x=${colX} y="0" width=${colW} height=${height} />
     <rect class=${"bar" + (special ? " special" : "") + on}
       x=${x.toFixed(2)} y=${(height - bh).toFixed(2)}
       width=${Math.max(0.5, bw).toFixed(2)} height=${bh.toFixed(2)}
-      rx=${bw > 3 ? "1" : null} />
+      rx=${!isHistogram && bw > 3 ? "1" : null} />
     <rect class="hit" x=${colX} y="0" width=${colW} height=${height}
       onMouseEnter=${(e) => { setHot(true); showTip(barTip(label, count, total), e); }}
       onMouseMove=${moveTip}
@@ -238,6 +238,11 @@ function HistBar({ x, colX, colW, bw, bh, height, special, label, count, total }
 function Histogram({ profile: p, rows }) {
   const hb = p.histogram && p.histogram.bins;
   const cv = p.common_values && p.common_values.values;
+  /* A true histogram bins a continuous scale, so by convention its bars touch;
+     a bar chart over discrete values (strings, enums, number(id) — anything
+     arriving as common_values) keeps a gap between them, same as it always
+     has. */
+  const isHistogram = !!(hb && hb.length);
 
   /* range accompanies every histogram, so it alone distinguishes dates from numbers */
   const isDate = !!p.range && typeof p.range.min === "string";
@@ -247,7 +252,7 @@ function Histogram({ profile: p, rows }) {
      values from the data. */
   const bars = [];
   const seps = [];
-  if (hb && hb.length) {
+  if (isHistogram) {
     const h = p.histogram;
     if (h.negative_infinity_count) {
       bars.push({ count: h.negative_infinity_count, label: "-∞", special: true });
@@ -270,7 +275,8 @@ function Histogram({ profile: p, rows }) {
     return null;
   }
 
-  const W = 240, H = 38, n = bars.length, gap = n > 60 ? 0 : 1.5;
+  const W = 240, H = 38, n = bars.length;
+  const gap = isHistogram ? 0 : (n > 10 ? 3 : 5);
   const bw = (W - (n - 1) * gap) / n;
   const max = Math.max(1, ...bars.map((b) => b.count));
 
@@ -281,7 +287,8 @@ function Histogram({ profile: p, rows }) {
         const x = i * (bw + gap);
         return html`<${HistBar} x=${x} colX=${Math.max(0, x - gap / 2).toFixed(2)}
           colW=${(bw + gap).toFixed(2)} bw=${bw} bh=${bh} height=${H}
-          special=${b.special} label=${b.label} count=${b.count} total=${rows} />`;
+          special=${b.special} label=${b.label} count=${b.count} total=${rows}
+          isHistogram=${isHistogram} />`;
       })}
       ${seps.map((at) => {
         /* a line down the middle of the gap before bar `at` */

@@ -67,7 +67,6 @@ This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). To build without
 installing, run `cargo build --release` instead — the binary is then at
 `target/release/data-dict`.
 
-
 ## Development
 
 This is a Rust workspace with three crates:
@@ -81,6 +80,7 @@ This is a Rust workspace with three crates:
 ```bash
 cargo build --workspace
 cargo test --workspace
+cargo run -p data-dict-cli -- ...
 ```
 
 The rendered page's CSS and JS live in
