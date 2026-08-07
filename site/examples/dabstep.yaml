@@ -61,6 +61,7 @@ tables:
           card. Credit transactions are typically more expensive.
       - name: eur_amount
         type: number(quantity)
+        units: EUR
         constraints: [required]
         range: [0.5, 4811.76]
         description: Payment amount in euros.
@@ -243,16 +244,14 @@ tables:
         constraints: [required]
         description: Card scheme this rule applies to. Always set (never null).
       - name: account_type
-        type: enum
-        values:
-          D: Enterprise - Digital
-          F: Platform - Franchise
-          H: Enterprise - Hospitality
-          R: Enterprise - Retail
-          S: Platform - SaaS
         description: >
-          Account types this rule applies to. Empty list means all
-          account types.
+          Account types this rule applies to, as a list of the same codes
+          used by `merchants.account_type` (`D`, `F`, `H`, `R`, `S`). An
+          empty list means all account types.
+        details: >
+          The data holds a list per row, which the spec has no type for, so
+          this column is left untyped. Treat it as a set of
+          `merchants.account_type` values.
       - name: capture_delay
         type: enum
         values:
@@ -266,18 +265,22 @@ tables:
           Matches the same enum used in the merchants table.
       - name: fraud_percent_min
         type: number(quantity)
+        units: "%"
         constraints: [required]
-        range: [7.2, 8.3]
+        range: [-.inf, 8.3]
         description: >
           Minimum monthly fraud level (%) this rule applies to (inclusive).
-          -Inf means no lower bound.
+          `-Inf` means no lower bound, and is by far the most common value
+          (926 of 1000 rules); the finite values observed run from 7.2 to 8.3.
       - name: fraud_percent_max
         type: number(quantity)
+        units: "%"
         constraints: [required]
-        range: [7.2, 8.3]
+        range: [7.2, .inf]
         description: >
           Maximum monthly fraud level (%) this rule applies to (exclusive).
-          Inf means no upper bound.
+          `Inf` means no upper bound, and is by far the most common value
+          (921 of 1000 rules); the finite values observed run from 7.2 to 8.3.
       - name: monthly_volume
         type: enum
         values:
@@ -289,30 +292,29 @@ tables:
           Monthly transaction volume range this rule applies to.
           Null means all.
       - name: merchant_category_code
-        type: number(id)
-        examples: [3000, 5499, 5983, 7922, 9399]
         description: >
-          MCCs this rule applies to. Empty list means all MCCs.
+          MCCs this rule applies to, as a list of `merchant_category_codes.mcc`
+          values (e.g. 3000, 5499, 5983, 7922, 9399). An empty list means all
+          MCCs.
+        details: >
+          The data holds a list per row, which the spec has no type for, so
+          this column is left untyped.
       - name: is_credit
         type: boolean
         description: >
           Whether this rule applies to credit (TRUE) or debit (FALSE)
           transactions. Null means both.
       - name: aci
-        type: enum
-        values:
-          A: Card present, non-authenticated
-          B: Card present, authenticated
-          C: Tokenized with mobile device
-          D: Card not present, card on file
-          E: Card not present, recurring
-          F: Card not present, 3-D Secure
-          G: Card not present, non-3-D Secure
         description: >
-          ACI values this rule applies to. Empty list means all ACI
+          ACI values this rule applies to, as a list of the same codes used
+          by `payments.aci` (`A`-`G`). An empty list means all ACI values.
+        details: >
+          The data holds a list per row, which the spec has no type for, so
+          this column is left untyped. Treat it as a set of `payments.aci`
           values.
       - name: fixed_amount
         type: number(quantity)
+        units: EUR
         constraints: [required]
         range: [0, 0.14]
         description: >
@@ -360,11 +362,13 @@ tables:
         description: Month (1-12).
       - name: total_volume
         type: number(quantity)
+        units: EUR
         constraints: [required]
         range: [91877.05, 438023.59]
         description: Total transaction volume in euros for this merchant-month.
       - name: fraud_volume
         type: number(quantity)
+        units: EUR
         constraints: [required]
         range: [5612.78, 42617.6]
         description: >
@@ -372,6 +376,7 @@ tables:
           in euros.
       - name: fraud_percent
         type: number(quantity)
+        units: "%"
         constraints: [required]
         range: [6.09, 11.62]
         description: >

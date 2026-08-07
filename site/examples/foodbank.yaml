@@ -70,6 +70,7 @@ tables:
         examples: [1002, 1119, 1227, 1331, 2069]
       - name: amount
         type: number(quantity)
+        constraints: [required]
         range: [-0.705, 38700]
         description: Amount of the nutrient per 100g of food.
       - name: data_points

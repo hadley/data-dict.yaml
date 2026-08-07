@@ -2,6 +2,8 @@
 
 $version: "0.1.0"
 $learn_more: http://data-dict.tidyverse.org/
+
+name: alaska-otters
 description: >
   Morphometric measurements and reproductive and dependency status for sea
   otters captured or collected in Alaska by the U.S. Geological Survey (USGS)
@@ -33,10 +35,7 @@ tables:
           Sex recorded for the otter.
 
       - name: recap
-        type: enum
-        values:
-          '0': Captured only once
-          '1': Recaptured at least one time
+        type: boolean
         description: >
           Whether the otter was recorded as recaptured. This agrees with the
           number of `measurements` rows except for SW-155, which is marked as
@@ -111,13 +110,14 @@ tables:
           Mean tail length in centimeters. Individual measurements are in
           `replicates`.
 
-      - name: curvilinear_correction
-        type: enum
-        values:
-          '1': No correction (standard length)
-          '0.974': Correction for curvilinear length
+      - name: curvilinear
+        type: boolean
         description: >
-          Factor used to convert curvilinear length to standard length.
+          Whether length was measured along the curve of the back rather than
+          in a straight line. The source recorded this as the 0.974 conversion
+          factor, which is already applied in `true_standard_lgth`. It is
+          unknown for the 173 dependent-pup events separated from their
+          mother's record during cleaning.
 
       - name: lgth
         type: number(quantity)
@@ -248,10 +248,10 @@ tables:
       - name: age_category
         type: enum
         values:
-          '0': Less than 1 year
-          '1.5': 1-2 years
-          '7': 3-10 years
-          '13': Greater than 10 years
+          '<1': Less than 1 year
+          '1-2': 1-2 years
+          '3-10': 3-10 years
+          '>10': Greater than 10 years
         description: >
           Broad age class at capture or collection.
 
@@ -270,10 +270,10 @@ tables:
       - name: cause_of_death_capture_method
         type: enum
         values:
-          '0': Typical live capture
-          '1': Collected via harvest
-          '4': Measured after some time in captivity
-          '5': Captured off a beach
+          live capture: Typical live capture
+          harvest: Collected via harvest
+          captivity: Measured after some time in captivity
+          beach: Captured off a beach
         description: >
           Capture or collection method.
 
