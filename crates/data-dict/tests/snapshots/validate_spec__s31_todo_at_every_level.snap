@@ -59,18 +59,18 @@ LL |       - name: status
 LL |         todo: Looks like an enum — confirm the full set of values.
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
 warning[S31]: Every `todo` must be resolved.
-  --> dict.yaml:22:17
+  --> dict.yaml:22:19
    |
 LL |   - name: food
 ...
 LL |           - name: zip
 ...
 LL |             todo: Is this always 5 digits?
-   |                 ^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
 warning[S31]: Every `todo` must be resolved.
-  --> dict.yaml:36:9
+  --> dict.yaml:36:11
    |
 LL |   - join: category.food_id = food.id
 LL |     cardinality: many-to-one
 LL |     todo: Check whether this is really many-to-one.
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo

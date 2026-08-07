@@ -18,4 +18,4 @@ LL |     columns:
 LL |       - name: grade
 LL |         type: enum
 LL |         values: []
-   |                 ^ is empty
+   |                 ^^ is empty

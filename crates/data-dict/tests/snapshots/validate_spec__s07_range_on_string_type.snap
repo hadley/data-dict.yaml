@@ -19,4 +19,4 @@ LL |     columns:
 LL |       - name: c
 ...
 LL |         range: ["a", "z"]
-   |                ^^^^^^^^^ has type `string` but uses `range`
+   |                ^^^^^^^^^^ has type `string` but uses `range`

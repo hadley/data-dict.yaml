@@ -19,4 +19,4 @@ LL |     columns:
 LL |       - name: word
 LL |         type: string
 LL |         range: [a, z]
-   |                ^^^^^ has type `string` but uses `range`
+   |                ^^^^^^ has type `string` but uses `range`
