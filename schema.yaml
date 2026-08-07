@@ -45,7 +45,7 @@ object:
 
     # A note of work that remains to be done. Accepted at every describing
     # level (dataset, table, column, field, relationship); each remaining
-    # note is reported by S30.
+    # note is reported by S31.
     todo: string
 
     tables:

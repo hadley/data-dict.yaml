@@ -24,10 +24,34 @@ impl<T> Spanned<T> {
 
 #[derive(Debug, Clone)]
 pub struct DataDict {
+    pub name: Option<String>,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub details: Option<String>,
+    pub origin: Option<String>,
+    /// The top-level `$learn_more` URL.
+    pub learn_more: Option<String>,
+    pub version: Option<Version>,
     pub tables: Vec<Table>,
     pub relationships: Vec<Relationship>,
-    /// The dataset-level `todo`, when present (see S30).
+    /// Glossary entries, in source order.
+    pub glossary: Vec<GlossaryEntry>,
+    /// The dataset-level `todo`, when present (see S31).
     pub todo: Option<Spanned<String>>,
+}
+
+/// The dictionary's own `version`: exactly one of the three kinds (S17).
+#[derive(Debug, Clone)]
+pub enum Version {
+    Number(String),
+    Date(String),
+    Hash(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct GlossaryEntry {
+    pub term: String,
+    pub definition: String,
 }
 
 impl DataDict {
@@ -93,12 +117,13 @@ pub struct Table {
     /// Where the table's data lives, when it declares a `source`. Optional
     /// for spec validation; required for metadata validation (M04).
     pub source: Option<Source>,
-    /// Spans of the `label`/`description`/`details` keys, when present. Held so
-    /// S16 can point at a single-table dictionary's misplaced table-level
-    /// descriptions.
-    pub label: Option<SourceInfo>,
-    pub description: Option<SourceInfo>,
-    pub details: Option<SourceInfo>,
+    /// The descriptive keys, when present. Their spans (of the keys
+    /// themselves) let S16 point at a single-table dictionary's misplaced
+    /// table-level descriptions.
+    pub label: Option<Spanned<String>>,
+    pub description: Option<Spanned<String>>,
+    pub details: Option<Spanned<String>>,
+    pub origin: Option<String>,
     pub todo: Option<Spanned<String>>,
 }
 
@@ -118,6 +143,11 @@ impl Table {
 #[derive(Debug, Clone)]
 pub struct Column {
     pub name: Spanned<String>,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub details: Option<String>,
+    /// The `display` marker (`restricted`), when present.
+    pub display: Option<String>,
     pub constraints: Vec<Spanned<Constraint>>,
     /// Column-level `assert` constraints (the map form of a `constraints` entry).
     pub assertions: Vec<Assertion>,
@@ -144,6 +174,11 @@ pub struct Representation {
     /// finding sits under.
     pub key_span: SourceInfo,
     pub items: Vec<Spanned<Scalar>>,
+    /// What each item was labelled with, for an enum written in the map form
+    /// (`{M: Male, F: Female}`). Either empty — the list form, `range`, and
+    /// `examples` — or exactly as long as `items`, since the map form labels
+    /// every key.
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,6 +282,7 @@ impl Constraint {
 
 #[derive(Debug, Clone)]
 pub struct Relationship {
+    pub description: Option<String>,
     pub cardinality: Spanned<Cardinality>,
     /// The original join string with its source span. Kept alongside the
     /// parsed `JoinExpr` so diagnostics about parse failure can refer back to

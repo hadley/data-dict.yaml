@@ -229,7 +229,7 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
     validate_s26_alias_shadows_table(dict, out);
     validate_s27_unused_alias(dict, out);
     validate_s16_single_table_description(dict, out);
-    validate_s30_todos(dict, out);
+    validate_s31_todos(dict, out);
 
     let mut seen_tables: HashMap<String, SourceInfo> = HashMap::new();
     for table in &dict.tables {
@@ -378,6 +378,7 @@ fn run_assertion_check(
             "S20" => "An assertion may only reference columns of its table.",
             "S22" => "A `COLUMNS(...)` selection should match at least one column.",
             "S23" => "An assertion may only use columns with a declared `type`.",
+            "S30" => "An aggregate can't be nested inside another aggregate.",
             _ => "An assertion must be a well-typed boolean expression.",
         };
         match finding.severity {
@@ -1483,7 +1484,7 @@ fn validate_s16_single_table_description(dict: &DataDict, out: &mut ProblemSet) 
         ("details", &table.details),
     ]
     .into_iter()
-    .filter_map(|(key, opt)| opt.as_ref().map(|span| (key, span)))
+    .filter_map(|(key, opt)| opt.as_ref().map(|spanned| (key, &spanned.span)))
     .collect();
 
     if present.is_empty() {
@@ -1520,11 +1521,11 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
     }
 }
 
-// --- S30 --------------------------------------------------------------
+// --- S31 --------------------------------------------------------------
 
 /// Warn for every `todo` left anywhere in the dictionary: the dataset, each
 /// table, column, and struct field (recursively), and each relationship.
-fn validate_s30_todos(dict: &DataDict, out: &mut ProblemSet) {
+fn validate_s31_todos(dict: &DataDict, out: &mut ProblemSet) {
     report_todo(&dict.todo, &[], out);
     for table in &dict.tables {
         report_todo(&table.todo, &[&table.name.span], out);
@@ -1544,14 +1545,14 @@ fn report_column_todos(table: &Table, columns: &[Column], out: &mut ProblemSet) 
     }
 }
 
-/// One S30 warning per `todo`, anchored at its note with the `enclosing`
+/// One S31 warning per `todo`, anchored at its note with the `enclosing`
 /// nodes (the table, and column for a column todo) shown as context.
 fn report_todo(todo: &Option<Spanned<String>>, enclosing: &[&SourceInfo], out: &mut ProblemSet) {
     let Some(todo) = todo else { return };
     let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| (*s).clone()).collect();
     spans.push(todo.span.clone());
     out.push_spec_warning(
-        "S30",
+        "S31",
         "Every `todo` must be resolved.",
         "unresolved todo",
         spans,
@@ -1561,9 +1562,8 @@ fn report_todo(todo: &Option<Spanned<String>>, enclosing: &[&SourceInfo], out: &
 // --- S09 --------------------------------------------------------------
 
 /// Warn when the document omits the recommended `$learn_more` key. Unlike the
-/// other rules this inspects the raw AST, because `$learn_more` is top-level
-/// metadata that the lowered [`DataDict`] does not carry. The key has no
-/// location of its own, so the warning is anchored at the document's first
+/// other rules this inspects the raw AST, because the missing key has no
+/// location of its own; the warning is anchored at the document's first
 /// character.
 fn validate_s09_learn_more(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let Some(entries) = root.as_hash() else {
@@ -1596,8 +1596,8 @@ fn validate_s09_learn_more(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
 /// right value type); S17 enforces the semantic rules the schema can't: a
 /// `version` must carry exactly one of those keys, a `number` must have three
 /// dot-separated numeric components (with an optional suffix), and a `date` must
-/// be a valid ISO 8601 date. Like S09, it reads the raw AST because `version` is
-/// top-level metadata the lowered [`DataDict`] does not carry.
+/// be a valid ISO 8601 date. It reads the raw AST because the checks point at
+/// the offending keys, whose spans the lowered [`DataDict`] does not carry.
 fn validate_s17_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let Some(entries) = root.as_hash() else {
         return;

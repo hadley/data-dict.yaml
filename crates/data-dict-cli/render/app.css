@@ -1,0 +1,196 @@
+/* The page shell and the one palette both apps share. Each colour is defined
+   once: `light-dark()` picks by the scheme in use, and the two rules below
+   force a scheme when the reader asks for one, so there is no second palette
+   to keep in step. */
+:root {
+  color-scheme: light dark;
+
+  --ink: light-dark(#1c2430, #e3e6ea);
+  --ink-soft: light-dark(#5b6675, #a3acb7);
+  --ink-faint: light-dark(#7d8794, #6f7883);
+  --paper: light-dark(#f1eee8, #14181c);
+  --card: light-dark(#ffffff, #1e242a);
+  --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
+  --rule: light-dark(#d6d0c4, #333b44);
+  --row-line: light-dark(#e4e0d7, #2a3138);
+  /* ---- accents ------------------------------------------------------------
+     Solarized's eight. Everything coloured on the page is one of them as it
+     stands, or one of them mixed by one of four amounts and nothing in between:
+
+       80%  towards black or white — a colour that has to carry text
+       40%  towards the surface    — a fill you are meant to notice
+       20%  towards the surface    — an ordinary fill
+       10%  towards the surface    — a fill that is on all the time
+
+     Marks that aren't text and aren't a fill — a histogram bar, a border — take
+     the Solarized value untouched. Holding to those four is what keeps a
+     palette this size from drifting into forty near-identical shades. */
+  --yellow: #b58900;
+  --orange: #cb4b16;
+  --red: #dc322f;
+  --magenta: #d33682;
+  --violet: #6c71c4;
+  --blue: #268bd2;
+  --cyan: #2aa198;
+  --green: #859900;
+
+  --accent1-hue: var(--blue); /* title, key badges, headings, links, focus, bars */
+  --accent2-hue: var(--orange); /* foreign keys, the many end, the hovered bar, search hits */
+
+  --accent1: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 80%, black),
+    color-mix(in oklab, var(--accent1-hue) 80%, white));
+  --accent1-soft: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 20%, white),
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+  --on-accent1: light-dark(#ffffff, #14142c); /* text on an accent1 fill */
+  --accent2: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 80%, black),
+    color-mix(in oklab, var(--accent2-hue) 80%, white));
+  --accent2-soft: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 20%, white),
+    color-mix(in oklab, var(--accent2-hue) 20%, var(--paper)));
+  --grid-dot: light-dark(#cdc6b6, #2c343c);
+  --scroll-thumb: light-dark(#cdc9c1, #3f4751);
+  /* every row that takes part in a relationship wears this, so it is the
+     quietest step on the ladder */
+  --hover-row: light-dark(
+    color-mix(in oklab, var(--accent1-hue) 10%, white),
+    color-mix(in oklab, var(--accent1-hue) 10%, var(--paper)));
+  --focus-ring: color-mix(in oklab, var(--accent1-hue) 20%, transparent);
+  --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
+  --shadow-far: light-dark(rgba(28, 36, 48, 0.25), rgba(0, 0, 0, 0.5));
+  --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
+  --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
+
+  /* A panel set into a card, halfway between the card and the page behind it. */
+  --inset: light-dark(#f8f6f4, #191e23);
+
+  /* the tables app's vocabulary, mapped onto the same palette */
+  --chip: light-dark(#e9ecf2, #21262d);
+  --link: var(--accent1); /* a link is the accent doing its plainest job */
+  --tag-ink: var(--accent2-hue);
+  --mark: color-mix(in oklab, var(--accent2-hue) 40%, transparent);
+  --hist-bar: var(--accent1-hue);
+  --hist-bar-hot: var(--accent2-hue);
+  --hist-band: color-mix(in oklab, var(--accent2-hue) 20%, transparent);
+  --null-bar: var(--red);
+  --null-fill: light-dark(#e3e3e3, #444c55);
+  --null-edge: light-dark(#bcbcbc, #5a626c);
+  --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
+  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.196));
+
+  --row-text: 11.5px; /* diagram rows and the tooltip share this size */
+}
+
+:root[data-theme="light"] { color-scheme: only light; }
+:root[data-theme="dark"] { color-scheme: only dark; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
+
+.pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
+/* the dataset's name and, once you are inside a table, the way back out */
+.head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; }
+.homelink { font-size: 13px; color: var(--link); text-decoration: none; }
+.homelink:hover { text-decoration: underline; }
+.homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.icon-btn {
+  flex: none; width: 38px; height: 38px; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--card); color: var(--ink); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* The key badges, worn identically by a column in the diagram's tables and by
+   the same column on its own page. */
+.key {
+  font-family: ui-sans-serif, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent1);
+  background: var(--accent1-soft);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.key.fk { color: var(--accent2); background: var(--accent2-soft); }
+
+.icon-btn:hover { border-color: var(--accent1); color: var(--accent1); }
+.icon-btn svg { display: block; width: 19px; height: 19px; }
+.icon-btn[hidden] { display: none; }
+.lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
+
+/* One toggle, light or dark; the half-moon icon turns over when dark. With
+   nothing chosen the page follows the system. */
+.theme-toggle svg { transition: transform .2s ease; }
+.theme-toggle.is-dark svg { transform: rotate(180deg); }
+
+/* "name: label" — the name keeps whatever (usually mono) face surrounds it;
+   the label reads as plain text beside it. */
+.name-label {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+#tables { margin-top: 30px; }
+
+/* search hits, wherever they land */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* ---- tooltip -------------------------------------------------------------
+   One #tip element for the whole page, above the modals: it follows the
+   cursor (wires, rows, histogram bars) or is anchored under an element
+   (glossary terms) — shared.js decides which per show. */
+#tip {
+  position: fixed;
+  z-index: 2000;
+  max-width: 40ch;
+  padding: 7px 9px;
+  background: var(--float);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px -12px var(--shadow-lift);
+  font-size: var(--row-text);
+  line-height: 1.45;
+  pointer-events: none;
+}
+#tip[hidden] { display: none; }
+#tip code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--row-text);
+}
+#tip .tip-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--ink);
+}
+#tip .tip-head code { color: var(--accent1); }
+/* the aside keeps its line; the code beside it is what wraps */
+#tip .tip-sub { color: var(--ink-faint); white-space: nowrap; }
+#tip p { margin: 0; color: var(--ink-soft); }
+#tip .tip-head + p { margin-top: 5px; }
+/* a second relationship behind the same chip, set off from the first */
+#tip .tip-head ~ .tip-head { margin-top: 9px; }
+#tip .tip-label { font-style: italic; }
+#tip .gt-term { font-weight: 700; }
+
+@media (max-width: 720px) {
+  main { padding: 26px 18px 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

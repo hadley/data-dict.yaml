@@ -38,18 +38,18 @@ relationships:
     cardinality: many-to-one
     todo: Check whether this is really many-to-one.
 ────────────────────────────────────────
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:3:7
    |
 LL | todo: Describe the dataset as a whole.
    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:6:11
    |
 LL |   - name: food
 LL |     todo: Confirm the grain with the data team.
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:15:15
    |
 LL |   - name: food
@@ -58,7 +58,7 @@ LL |       - name: status
 ...
 LL |         todo: Looks like an enum — confirm the full set of values.
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:22:17
    |
 LL |   - name: food
@@ -67,7 +67,7 @@ LL |           - name: zip
 ...
 LL |             todo: Is this always 5 digits?
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:36:9
    |
 LL |   - join: category.food_id = food.id

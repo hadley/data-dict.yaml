@@ -1,6 +1,6 @@
 //! `draft` generation: inference, emission, and append mode. Every generated
 //! dictionary must validate with no errors — that is the command's core
-//! promise. The only expected findings are the S30 warnings raised by the
+//! promise. The only expected findings are the S31 warnings raised by the
 //! draft's own `todo` notes.
 
 mod common;
@@ -91,18 +91,18 @@ fn write_nested(path: &Path) {
 }
 
 /// The command's core promise: every draft passes `validate-spec` with no
-/// errors; the only findings are the S30 warnings its own `todo` notes raise.
+/// errors; the only findings are the S31 warnings its own `todo` notes raise.
 fn assert_spec_clean(content: &str) {
     let problems = data_dict::validate_spec_str(content, "draft.yaml");
     let unexpected: Vec<String> = problems
         .items
         .iter()
-        .filter(|p| p.code != Some("S30"))
+        .filter(|p| p.code != Some("S31"))
         .map(|p| p.to_text(&problems.source, common::SNAPSHOT_STYLE))
         .collect();
     assert!(
         unexpected.is_empty(),
-        "draft should validate with only S30 todo warnings, got:\n{}\n---\n{content}",
+        "draft should validate with only S31 todo warnings, got:\n{}\n---\n{content}",
         unexpected.join("\n"),
     );
 }

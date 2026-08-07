@@ -1009,12 +1009,12 @@ fn s24_empty_enum_values_map_form() {
     );
 }
 
-// --- todo (S30) ------------------------------------------------------------
+// --- todo (S31) ------------------------------------------------------------
 
 // Every remaining `todo` warns, wherever it sits: the dataset, a table, a
 // column, a struct field, and a relationship — one warning per note.
 #[test]
-fn s30_todo_at_every_level() {
+fn s31_todo_at_every_level() {
     let diagnostic = warning_dict(indoc! {"
         todo: Describe the dataset as a whole.
         tables:
@@ -1051,7 +1051,7 @@ fn s30_todo_at_every_level() {
             cardinality: many-to-one
             todo: Check whether this is really many-to-one.
     "});
-    diagnostic.assert_contains(&["S30", "unresolved todo"]);
+    diagnostic.assert_contains(&["S31", "unresolved todo"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -1059,7 +1059,7 @@ fn s30_todo_at_every_level() {
 // A multi-task todo is one string: a literal block scalar keeps a bulleted
 // list readable, and it still warns once per key.
 #[test]
-fn s30_block_todo_with_bullets() {
+fn s31_block_todo_with_bullets() {
     let diagnostic = warning_dict(indoc! {"
         tables:
           - name: t
@@ -1072,7 +1072,7 @@ fn s30_block_todo_with_bullets() {
                   - Specify `constraints`. Some options suggested by the data:
                     - constraints: [required] # all values present
     "});
-    diagnostic.assert_contains(&["S30", "unresolved todo"]);
+    diagnostic.assert_contains(&["S31", "unresolved todo"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2099,6 +2099,50 @@ fn constraints_s21_columns_wrong_type() {
         "},
         &["S21", "amount_paid"],
     );
+}
+
+// S30: an aggregate applied to something already aggregated.
+#[test]
+fn constraints_s30_nested_aggregate() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: AVG(MIN(qty)) > 0
+    "});
+    diagnostic.assert_contains(&["S30", "already an aggregate"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Aggregates and row-level operands may be mixed freely; only nesting is wrong.
+#[test]
+fn constraints_aggregates_are_valid() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+              - name: region
+                type: string
+                examples: [north, south]
+              - name: notes
+              - name: flag
+                type: boolean
+            constraints:
+              - assert: qty <= 2 * MIN(qty)
+              - assert: COUNT_DISTINCT(region) <= 16
+              - assert: AVG(qty) BETWEEN 0 AND 100
+              - assert: COUNT(notes) >= 0.9 * ROW_COUNT()
+              - assert: ROW_COUNT() > 0
+              - assert: ANY(flag)
+    "});
 }
 
 // A column constraint bareword must be one of the four structural names.

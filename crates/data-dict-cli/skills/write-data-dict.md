@@ -51,7 +51,7 @@ The thing that matters most, and where data dictionaries most often go wrong, is
 
 6.  **Build the glossary.** Add definitions for domain-specific terms used in descriptions. If a word would be unfamiliar to a new team member or an AI agent, define it. If you don't know what a term refers to, ask the user for clarification (see step 3).
 
-7.  **Validate.** A data dictionary that disagrees with the data is actively harmful, so check it against both the spec and the data with `data-dict validate-data data-dict.yaml`. Repeat until no problems remain. Every remaining `todo` is reported as a warning (S30), so the dictionary isn't finished while any are left -- but don't resolve a `todo` by deleting it or by guessing; resolve it by getting the answer (see step 3).
+7.  **Validate.** A data dictionary that disagrees with the data is actively harmful, so check it against both the spec and the data with `data-dict validate-data data-dict.yaml`. Repeat until no problems remain. Every remaining `todo` is reported as a warning (S31), so the dictionary isn't finished while any are left -- but don't resolve a `todo` by deleting it or by guessing; resolve it by getting the answer (see step 3).
 
 ## Style
 

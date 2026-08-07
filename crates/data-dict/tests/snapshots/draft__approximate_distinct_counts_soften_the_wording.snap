@@ -17,7 +17,7 @@ tables:
     columns:
       - name: visit_code
         type: string
-        examples: [visit-0002, visit-0324, visit-0660, visit-0905, visit-1197]
+        examples: [visit-0002, visit-0342, visit-0666, visit-0892, visit-1197]
         todo: |
           - Add a `description`.
           - Specify `constraints`. Some options suggested by the data (distinct

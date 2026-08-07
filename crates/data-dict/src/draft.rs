@@ -4,7 +4,7 @@
 //! generates one table entry per file: inferred types, observed ranges and
 //! examples, and a `todo` note for everything only a human can decide —
 //! descriptions, enum candidates, constraints, the primary key. The output has
-//! no spec errors (each remaining `todo` is an S30 warning), so the notes can
+//! no spec errors (each remaining `todo` is an S31 warning), so the notes can
 //! be worked through incrementally under `validate-spec`.
 //!
 //! With no existing dictionary a complete file is generated; with one, new
@@ -33,8 +33,12 @@ const APPROX_TOLERANCE: f64 = 0.02;
 /// at most 12 distinct values, each value appearing at least twice on average.
 const ENUM_MAX_VALUES: usize = 12;
 
+/// Values drafted for `examples:` — the ~5 the spec asks for, fewer than the
+/// profiler reports so a consumer can show more on demand.
+const DRAFT_EXAMPLES: usize = 5;
+
 /// The notes for the work only a human can do. They are `todo` keys, so
-/// they travel with the file — and keep S30 reporting them — until done.
+/// they travel with the file — and keep S31 reporting them — until done.
 const DATASET_TODO: &str = "Write a `description` of the dataset.";
 const TABLE_TODO: &str = "Write the table's `description`. What's the grain? \
      What's the population? How was the data collected?";
@@ -306,8 +310,11 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
     // exactly the `examples` → `values` rename it suggests.
     let examples = match &enum_values {
         Some(values) => Some(values.iter().map(|v| yaml_scalar(v)).collect()),
-        None => matches!(dict_type, Some("string" | "number" | "number(id)"))
-            .then(|| col.examples.iter().map(render_plain).collect::<Vec<_>>()),
+        None => matches!(dict_type, Some("string" | "number" | "number(id)")).then(|| {
+            evenly_spaced(&col.examples, DRAFT_EXAMPLES)
+                .map(render_plain)
+                .collect::<Vec<_>>()
+        }),
     };
     let time_zone = match col.kind {
         ValueKind::Timestamp {
@@ -395,6 +402,23 @@ fn render_range(col: &ColumnProfile) -> Option<[String; 2]> {
         min.unwrap_or_else(|| "-.inf".to_string()),
         max.unwrap_or_else(|| ".inf".to_string()),
     ])
+}
+
+/// Up to `n` items spread evenly across `values`, always keeping the first and
+/// last. `values` is already sorted and evenly spread across the profiler's
+/// sample, so thinning it this way keeps the spread the spec asks of
+/// `examples`.
+fn evenly_spaced<T>(values: &[T], n: usize) -> impl Iterator<Item = &T> {
+    let step = if values.len() <= n || n <= 1 {
+        None
+    } else {
+        Some((values.len() - 1) as f64 / (n - 1) as f64)
+    };
+    let taken = step.map_or(values.len(), |_| n);
+    (0..taken).map(move |i| match step {
+        Some(step) => &values[(i as f64 * step).round() as usize],
+        None => &values[i],
+    })
 }
 
 // --- value rendering -----------------------------------------------------

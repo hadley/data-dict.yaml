@@ -258,15 +258,24 @@ fn a_late_heavy_hitter_survives_saturation() {
 #[test]
 fn examples_spread_along_the_distinct_values() {
     let path = Fixture::column("REQUIRED INT64 v", Values::int64(1..=101)).write();
-    assert_eq!(
-        one(&path).examples,
-        vec![
-            Value::Int(1),
-            Value::Int(26),
-            Value::Int(51),
-            Value::Int(76),
-            Value::Int(101)
-        ]
+    let examples: Vec<i64> = one(&path)
+        .examples
+        .iter()
+        .map(|value| match value {
+            Value::Int(n) => *n,
+            other => panic!("expected an integer example, found {other:?}"),
+        })
+        .collect();
+    // Both ends are kept and the rest step evenly between them, so the sample
+    // stands for the whole column rather than for its start. The exact values
+    // are left to the sampler; the spread is what is being asserted.
+    assert_eq!(examples.first(), Some(&1));
+    assert_eq!(examples.last(), Some(&101));
+    let steps: Vec<i64> = examples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    let (shortest, longest) = (steps.iter().min().unwrap(), steps.iter().max().unwrap());
+    assert!(
+        longest - shortest <= 1,
+        "examples should step evenly, but the gaps were {steps:?}"
     );
 
     // A repeated value is no likelier to be sampled than a rare one.
@@ -515,4 +524,87 @@ fn a_byte_array_that_is_not_text_is_abandoned() {
     assert!(profiles[0].value_counts.is_empty());
     assert_eq!(profiles[1].kind, ValueKind::Int);
     assert_eq!(profiles[1].distinct, Some(Distinct::Exact(4)));
+}
+
+// --- nested paths -------------------------------------------------------
+
+#[test]
+fn nested_paths_are_profiled() {
+    let path = common::write_nested();
+    let profiles = data_dict_parquet::profile_paths(
+        &path,
+        &[
+            vec!["g".to_string(), "x".to_string()],
+            vec!["g".to_string(), "missing".to_string()],
+        ],
+    )
+    .unwrap();
+
+    let x = profiles[0].as_ref().expect("g.x resolves");
+    assert_eq!(x.name, "g.x");
+    assert_eq!(x.kind, ValueKind::Int);
+    assert_eq!(x.null_count, Some(0));
+    assert_eq!(x.distinct, Some(Distinct::Exact(2)));
+    assert_eq!(x.min, Some(Value::Int(1)));
+    assert_eq!(x.max, Some(Value::Int(2)));
+    assert!(x.histogram.is_some(), "an int field is binnable");
+
+    assert!(profiles[1].is_none(), "an unresolved path is None");
+}
+
+/// A field behind a list layer is profiled per element: values pool across
+/// every list, and a null container contributes nothing.
+#[test]
+fn list_struct_fields_are_profiled_per_element() {
+    use arrow_array::builder::{Int64Builder, ListBuilder, StructBuilder};
+    use arrow_array::{ArrayRef, RecordBatch};
+    use arrow_schema::{DataType, Field, Fields};
+    use parquet::arrow::ArrowWriter;
+    use std::sync::Arc;
+
+    let item_fields: Fields = vec![Arc::new(Field::new("qty", DataType::Int64, true))].into();
+    let mut items = ListBuilder::new(StructBuilder::from_fields(item_fields.clone(), 4));
+    // row 1: [{qty: 1}, {qty: 5}]; row 2: [{qty: null}]; row 3: null
+    for qty in [Some(1), Some(5)] {
+        let element = items.values();
+        element
+            .field_builder::<Int64Builder>(0)
+            .unwrap()
+            .append_option(qty);
+        element.append(true);
+    }
+    items.append(true);
+    let element = items.values();
+    element
+        .field_builder::<Int64Builder>(0)
+        .unwrap()
+        .append_null();
+    element.append(true);
+    items.append(true);
+    items.append(false);
+    let items = items.finish();
+
+    let path = std::env::temp_dir().join(format!(
+        "ddp-profile-list-struct-{}.parquet",
+        std::process::id()
+    ));
+    let batch = RecordBatch::try_from_iter(vec![("items", Arc::new(items) as ArrayRef)]).unwrap();
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let profiles =
+        data_dict_parquet::profile_paths(&path, &[vec!["items".to_string(), "qty".to_string()]])
+            .unwrap();
+    let qty = profiles[0].as_ref().expect("items.qty resolves");
+    assert_eq!(qty.kind, ValueKind::Int);
+    assert_eq!(
+        qty.null_count,
+        Some(1),
+        "one null element, null row ignored"
+    );
+    assert_eq!(qty.distinct, Some(Distinct::Exact(2)));
+    assert_eq!(qty.min, Some(Value::Int(1)));
+    assert_eq!(qty.max, Some(Value::Int(5)));
 }

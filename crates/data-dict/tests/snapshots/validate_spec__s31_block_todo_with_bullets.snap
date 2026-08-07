@@ -14,7 +14,7 @@ tables:
           - Specify `constraints`. Some options suggested by the data:
             - constraints: [required] # all values present
 ────────────────────────────────────────
-warning[S30]: Every `todo` must be resolved.
+warning[S31]: Every `todo` must be resolved.
   --> dict.yaml:10:11
    |
 LL |     - name: t

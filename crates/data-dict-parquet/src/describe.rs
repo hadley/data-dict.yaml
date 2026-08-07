@@ -24,6 +24,11 @@ const BAR_WIDTH: usize = 12;
 /// Longest value label rendered in the text output before truncation.
 const LABEL_WIDTH: usize = 40;
 
+/// Examples aimed at when hinting at the values a capped list leaves out. How
+/// many actually fit is decided by the line's width; this sets how widely the
+/// profile's examples are stepped through to reach them.
+const TAIL_EXAMPLES: usize = 5;
+
 #[derive(Debug, Serialize)]
 pub struct FileDescription {
     path: String,
@@ -213,7 +218,9 @@ fn column_description(profile: ColumnProfile, info: &ColumnTypeInfo) -> ColumnDe
 
 // --- scalar and label rendering ---------------------------------------------
 
-fn render_scalar(value: &Value, kind: &ValueKind) -> Scalar {
+/// A profiled [`Value`] in its presentable form: numbers and booleans as
+/// themselves, temporal raws as ISO 8601 strings per `kind`.
+pub fn render_scalar(value: &Value, kind: &ValueKind) -> Scalar {
     match (value, kind) {
         (&Value::Int(days), ValueKind::Date) => date_iso(days)
             .map(Scalar::Text)
@@ -272,7 +279,8 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
 /// detail no consumer should need). Numbers are rounded at the same
 /// width-derived precision as the text labels — bin edges are computed
 /// values, and `37.845000000000006` says nothing that `37.8` doesn't.
-fn edge_scalar(edge: f64, kind: &ValueKind, width: f64) -> Scalar {
+/// `width` is the histogram's bin width, which sets that precision.
+pub fn edge_scalar(edge: f64, kind: &ValueKind, width: f64) -> Scalar {
     match kind {
         ValueKind::Date | ValueKind::Time { .. } | ValueKind::Timestamp { .. } => {
             Scalar::Text(edge_label(edge, kind, width))
@@ -435,18 +443,26 @@ impl ColumnDescription {
                 let mut note = format!("  ({approx}{} other values", distinct.count() - shown);
                 let listed: Vec<String> = body.iter().map(|row| row.label.clone()).collect();
                 let mut separator = ", e.g. ";
-                for example in &self.examples {
-                    let label = truncate(&scalar_label(example));
-                    if listed.contains(&label) {
-                        continue;
-                    }
+                // Only the examples this line would actually be telling you
+                // something new about, then stepped through rather than taken
+                // from the front: the profile holds far more than fits, and
+                // they are sorted, so walking them keeps the taste spread
+                // across the column's range instead of clustered at its start.
+                let untold: Vec<String> = self
+                    .examples
+                    .iter()
+                    .map(|example| truncate(&scalar_label(example)))
+                    .filter(|label| !listed.contains(label))
+                    .collect();
+                let step = untold.len().div_ceil(TAIL_EXAMPLES).max(1);
+                for label in untold.iter().step_by(step) {
                     // The closing paren and a possible `, …` must still fit.
                     if note.chars().count() + separator.len() + label.chars().count() > 75 {
                         note.push_str(", …");
                         break;
                     }
                     note.push_str(separator);
-                    note.push_str(&label);
+                    note.push_str(label);
                     separator = ", ";
                 }
                 note.push(')');

@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 pub mod assert_expr;
 pub mod draft;
+pub mod export;
 mod expr_lex;
 pub mod join_expr;
 pub mod lower;
@@ -27,6 +28,7 @@ pub mod validate_meta;
 pub mod validate_spec;
 
 pub use draft::{DraftError, DraftOutcome, draft};
+pub use export::{Export, export_auto, export_data, export_spec};
 pub use problem::{Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status};
 pub use quarto_source_map::SourceContext;
 pub use validate_data::validate_data;
@@ -82,7 +84,9 @@ pub(crate) fn compare_dataset(
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
     let mut readable: ReadTables = HashMap::new();
     for table in tables {
-        if let Some((parquet_path, actual)) = read_parquet(table, base_dir, &mut problems) {
+        if let Some((parquet_path, actual)) =
+            read_parquet(table, base_dir, Severity::Error, &mut problems)
+        {
             checks(table, &parquet_path, &actual, &mut problems);
             let columns = actual.iter().map(|col| col.name.clone()).collect();
             readable.insert(table.name.value.clone(), (parquet_path, columns));
@@ -93,18 +97,21 @@ pub(crate) fn compare_dataset(
 }
 
 /// Locate and read a table's data from its `source`, returning the resolved
-/// parquet path and its column schema. Reports the source problem and returns
-/// `None` when the table has no `source` (M04) or its parquet file can't be read
-/// (M05), so the caller skips it.
-fn read_parquet(
+/// parquet path and its column schema. Reports the source problem at
+/// `severity` and returns `None` when the table has no `source` (M04) or its
+/// parquet file can't be read (M05), so the caller skips it. The validation
+/// levels report these as errors; the export level downgrades them to
+/// warnings so an unsourced table doesn't fail the export.
+pub(crate) fn read_parquet(
     table: &Table,
     base_dir: &Path,
+    severity: Severity,
     out: &mut ProblemSet,
 ) -> Option<(PathBuf, Vec<DataColumn>)> {
     let Some(source) = &table.source else {
         out.push_located(
             ProblemKind::MissingSource,
-            Severity::Error,
+            severity,
             "A table validated against data must declare a `source`.",
             "has no `source`",
             [table.name.span.clone()],
@@ -117,7 +124,7 @@ fn read_parquet(
         Err(e) => {
             out.push_located(
                 ProblemKind::UnreadableSource,
-                Severity::Error,
+                severity,
                 "A table's `source` must point at a readable Parquet file.",
                 e.to_string(),
                 [table.name.span.clone(), source.parquet.span.clone()],

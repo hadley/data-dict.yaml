@@ -1,0 +1,179 @@
+---
+source: crates/data-dict/tests/export.rs
+expression: export_json(RICH_DICT)
+---
+{
+  "$version": "0.1.0",
+  "name": "pets",
+  "label": "Pet shop",
+  "description": "<p>Pets and their owners.</p>",
+  "origin": "https://example.com/pets-pipeline",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "version": {
+    "number": "1.2.3"
+  },
+  "tables": [
+    {
+      "name": "owners",
+      "description": "<p>One row per owner.</p>",
+      "columns": [
+        {
+          "name": "owner_id",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "pets",
+              "column": "owner_id"
+            }
+          ],
+          "examples": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "address",
+          "type": "struct",
+          "fields": [
+            {
+              "name": "zip",
+              "description": "<p>Postal code.</p>",
+              "type": "string",
+              "examples": [
+                "97201"
+              ]
+            },
+            {
+              "name": "tags",
+              "type": "list(enum)",
+              "values": [
+                "a",
+                "b"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pets",
+      "origin": "https://example.com/pets.R",
+      "source": {
+        "parquet": "pets.parquet"
+      },
+      "columns": [
+        {
+          "name": "pet_id",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            10
+          ]
+        },
+        {
+          "name": "owner_id",
+          "label": "Owner",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "owners",
+            "column": "owner_id"
+          },
+          "examples": [
+            1
+          ]
+        },
+        {
+          "name": "species",
+          "type": "enum",
+          "values": [
+            "cat",
+            "dog"
+          ],
+          "value_labels": {
+            "cat": "A cat",
+            "dog": "A dog"
+          }
+        },
+        {
+          "name": "weight",
+          "display": "restricted",
+          "type": "number(quantity)",
+          "units": "kg",
+          "range": {
+            "min": 0,
+            "max": 100
+          },
+          "assertions": [
+            {
+              "expression": "weight > 0",
+              "description": "<p>Weights are positive.</p>",
+              "columns": [
+                "weight"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "born",
+          "type": "date",
+          "range": {
+            "min": "2000-01-01",
+            "max": null
+          }
+        }
+      ],
+      "constraints": [
+        {
+          "expression": "COLUMNS('_id$') IS NOT NULL",
+          "columns": [
+            "pet_id",
+            "owner_id"
+          ]
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "description": "<p>Each pet has one owner.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "pets",
+            "column": "owner_id"
+          },
+          "right": {
+            "table": "owners",
+            "column": "owner_id"
+          }
+        }
+      ],
+      "join": "owners.owner_id = pets.owner_id"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "pet",
+      "definition": "<p>An animal kept for companionship.</p>"
+    },
+    {
+      "term": "owner",
+      "definition": "<p>The human a pet keeps.</p>"
+    }
+  ]
+}

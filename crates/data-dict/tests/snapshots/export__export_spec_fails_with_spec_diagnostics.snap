@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/export.rs
+---
+tables: []
+────────────────────────────────────────
+warning[S09]: A document should point readers to the spec with `$learn_more`.
+  --> dict.yaml:1:1
+   |
+LL | tables: []
+   | ^ `$learn_more` is not set
+   |
+help: point readers to the spec
+   |
+LL + $learn_more: https://data-dict.tidyverse.org/
+   |
+error[S18]: A document must declare the spec version it conforms to with `$version`.
+  --> dict.yaml:1:1
+   |
+LL | tables: []
+   | ^ `$version` is not set
+   |
+help: declare the spec version
+   |
+LL + $version: 0.1.0
+   |

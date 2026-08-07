@@ -35,8 +35,9 @@ const TRACKED_VALUES: usize = 1_000;
 const SAMPLED_VALUES: usize = 128;
 /// Most frequent values reported.
 const TOP_VALUES: usize = 20;
-/// Examples reported.
-const EXAMPLES: usize = 5;
+/// Examples reported. Enough that a consumer can show a useful handful and
+/// still have more to reveal on demand.
+const EXAMPLES: usize = 20;
 /// Histogram bins spanning a column's range.
 const BINS: usize = 20;
 
@@ -66,6 +67,13 @@ pub struct ColumnProfile {
     pub histogram: Option<Histogram>,
     /// Up to [`EXAMPLES`] representative values, spread along the sorted
     /// distinct values.
+    ///
+    /// Reported exactly, never rounded — unlike a histogram's bin edges, which
+    /// are rounded to the bin width because there the number only has to name
+    /// a boundary. An example is a real value out of the column, and how much
+    /// precision it carries is part of what it tells you: `1.0` and
+    /// `1.0000000001` say different things about the data, and rounding would
+    /// hide the difference.
     pub examples: Vec<Value>,
 }
 
@@ -174,6 +182,114 @@ pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, Par
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(FileProfile { row_count, columns })
+}
+
+/// Profile the values at nested field `paths` — each a top-level column name
+/// followed by struct field names, with list wrappers crossed transparently
+/// (matching [`crate::ColumnRequest`] paths). Returns one profile per path, in
+/// path order; `None` for a path that doesn't resolve in the file. A field
+/// reached through a list layer is profiled per element, so its counts are
+/// over elements rather than rows.
+pub fn profile_paths(
+    path: &Path,
+    paths: &[Vec<String>],
+) -> Result<Vec<Option<ColumnProfile>>, ParquetError> {
+    paths
+        .par_iter()
+        .map(|field_path| profile_path(path, field_path))
+        .collect()
+}
+
+fn profile_path(path: &Path, field_path: &[String]) -> Result<Option<ColumnProfile>, ParquetError> {
+    let ctx = FileContext::open(path)?;
+    let Some(leaf) = ctx.leaf_path(field_path) else {
+        return Ok(None);
+    };
+    let name = field_path.join(".");
+    let descr = ctx.leaf_descr(leaf);
+    let (kind, repr) = classify(descr.self_type());
+    let target = Target {
+        name,
+        kind,
+        repr,
+        leaf: Some(leaf),
+    };
+    if !target.readable() {
+        return Ok(Some(stub(&target, footer_nulls(ctx.parquet(), Some(leaf)))));
+    }
+
+    let range = target
+        .kind
+        .is_binnable()
+        .then(|| footer_range(ctx.parquet(), leaf, target.repr))
+        .flatten();
+    let mut accumulator = Accumulator::new(&target, range);
+    scan_path(&ctx, leaf, &field_path[1..], &mut accumulator)?;
+
+    if accumulator.unprofilable {
+        let target = Target {
+            name: target.name.clone(),
+            kind: ValueKind::Unsupported("non-UTF-8"),
+            repr: Repr::Unsupported,
+            leaf: target.leaf,
+        };
+        let nulls = footer_nulls(ctx.parquet(), target.leaf);
+        return Ok(Some(stub(&target, nulls)));
+    }
+
+    if accumulator.bins.is_none()
+        && target.kind.is_binnable()
+        && let Some(bins) =
+            BinCounts::spanning(&accumulator.min, &accumulator.max, integral(&target.kind))
+    {
+        let mut binner = BinOnly { bins };
+        scan_path(&ctx, leaf, &field_path[1..], &mut binner)?;
+        accumulator.bins = Some(binner.bins);
+    }
+    Ok(Some(accumulator.finish(&target)))
+}
+
+/// Stream one nested leaf through `observer`: read the file projected to the
+/// leaf, then descend each batch's top-level column by `fields`, unwrapping
+/// list layers wherever they appear (as [`crate::scan`]'s navigation does).
+/// Always a plain read — the dictionary shortcut only applies to flat columns.
+fn scan_path(
+    ctx: &FileContext,
+    leaf: usize,
+    fields: &[String],
+    observer: &mut impl Observe,
+) -> Result<(), ParquetError> {
+    let reader = ctx.reader([leaf])?;
+    for batch in reader {
+        let batch = batch?;
+        let Some(values) = navigate_values(batch.column(0), fields) else {
+            continue;
+        };
+        observe_plain(values, observer)?;
+        if observer.abandoned() {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Descend from a decoded top-level column to the flat values at `fields`
+/// (struct field names), crossing list layers transparently. A null container
+/// contributes no elements, so a field behind a list is observed per present
+/// element.
+fn navigate_values<'a>(root: &'a ArrayRef, fields: &[String]) -> Option<&'a ArrayRef> {
+    let mut current = root;
+    let mut fields = fields.iter();
+    loop {
+        if let Some(list) = current.as_list_opt::<i32>() {
+            current = list.values();
+            continue;
+        }
+        match fields.next() {
+            None => return Some(current),
+            Some(field) => current = current.as_struct_opt()?.column_by_name(field)?,
+        }
+    }
 }
 
 /// A column to profile: what it holds, and where to read it.

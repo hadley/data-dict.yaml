@@ -10,6 +10,9 @@ Commands:
   validate-spec  Validate a data-dict.yaml file or directory against the spec [default: .]
   validate-meta  Validate a dataset's column names and types against a data dictionary
   validate-data  Validate a dataset's values against a data dictionary
+  export-spec    Render a data dictionary as fully-resolved JSON [default: .]
+  export-data    Render a data dictionary as JSON with per-column data profiles
+  render         Render a data dictionary as a self-contained HTML page [default: .]
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
   skill-write    Skill for creating or updating a data dictionary

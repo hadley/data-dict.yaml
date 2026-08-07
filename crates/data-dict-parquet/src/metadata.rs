@@ -100,6 +100,14 @@ fn leaves_under(t: &Type) -> usize {
     }
 }
 
+/// The number of rows in the file, from its footer.
+pub fn row_count(path: &Path) -> Result<usize, ParquetError> {
+    let file =
+        File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;
+    let reader = SerializedFileReader::new(file)?;
+    Ok(reader.metadata().file_metadata().num_rows() as usize)
+}
+
 pub fn column_type_info(path: &Path) -> Result<Vec<ColumnTypeInfo>, ParquetError> {
     let file =
         File::open(path).map_err(|e| ParquetError::General(format!("Cannot open file: {e}")))?;

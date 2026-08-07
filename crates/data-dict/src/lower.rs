@@ -11,8 +11,8 @@ use quarto_yaml::YamlWithSourceInfo;
 use crate::assert_expr::AssertExpr;
 use crate::join_expr::JoinExpr;
 use crate::model::{
-    Alias, Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation,
-    Scalar, Source, Spanned, Table,
+    Alias, Assertion, Cardinality, Column, Constraint, DataDict, GlossaryEntry, Relationship,
+    Representation, Scalar, Source, Spanned, Table, Version,
 };
 use crate::problem::{Problem, ProblemSet, Severity, subspan};
 
@@ -46,10 +46,61 @@ pub fn lower(root: &YamlWithSourceInfo, problems: &mut ProblemSet) -> DataDict {
             .and_then(|e| lower_todo(&e.value, e.value_span.clone()))
     });
 
+    let string_value = |key: &str| {
+        root.get_hash_value(key)
+            .and_then(|n| n.yaml.as_str())
+            .map(str::to_string)
+    };
+
+    let mut glossary = Vec::new();
+    if let Some(g_node) = root.get_hash_value("glossary")
+        && let Some(entries) = g_node.as_hash()
+    {
+        for entry in entries {
+            if let (Some(term), Some(definition)) =
+                (entry.key.yaml.as_str(), entry.value.yaml.as_str())
+            {
+                glossary.push(GlossaryEntry {
+                    term: term.to_string(),
+                    definition: definition.to_string(),
+                });
+            }
+        }
+    }
+
     DataDict {
+        name: string_value("name"),
+        label: string_value("label"),
+        description: string_value("description"),
+        details: string_value("details"),
+        origin: string_value("origin"),
+        learn_more: string_value("$learn_more"),
+        version: root.get_hash_value("version").and_then(lower_version),
         tables,
         relationships,
+        glossary,
         todo,
+    }
+}
+
+/// Lower the top-level `version` map. The schema fixes the value types and S17
+/// enforces exactly one key; when several slipped through (S17 fails the run)
+/// the first is kept so lowering still returns something well-formed. A
+/// `number` may be written unquoted (e.g. `1.0`), so non-strings are rendered
+/// back to text.
+fn lower_version(node: &YamlWithSourceInfo) -> Option<Version> {
+    let entry = node.as_hash()?.first()?;
+    let yaml = &entry.value.yaml;
+    let text = yaml.as_str().map(str::to_string).or_else(|| {
+        yaml.as_i64()
+            .map(|n| n.to_string())
+            .or_else(|| yaml.as_f64().map(|n| n.to_string()))
+    })?;
+    match entry.key.yaml.as_str()? {
+        "number" => Some(Version::Number(text)),
+        "date" => Some(Version::Date(text)),
+        "hash" => Some(Version::Hash(text)),
+        _ => None,
     }
 }
 
@@ -98,25 +149,36 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
             parquet: Spanned::new(path.to_string(), parquet.source_info.clone()),
         })
     });
-    let key_span = |key: &str| {
+    // The value with the key's own span, so S16 can point at the key line.
+    let keyed_string = |key: &str| {
         entries
             .iter()
             .find(|e| e.key.yaml.as_str() == Some(key))
-            .map(|e| e.key_span.clone())
+            .map(|e| {
+                Spanned::new(
+                    e.value.yaml.as_str().unwrap_or("").to_string(),
+                    e.key_span.clone(),
+                )
+            })
     };
     let todo = entries
         .iter()
         .find(|e| e.key.yaml.as_str() == Some("todo"))
         .and_then(|e| lower_todo(&e.value, e.value_span.clone()));
+    let origin = node
+        .get_hash_value("origin")
+        .and_then(|n| n.yaml.as_str())
+        .map(str::to_string);
     Some(Table {
         span: node.source_info.clone(),
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         columns,
         constraints,
         source,
-        label: key_span("label"),
-        description: key_span("description"),
-        details: key_span("details"),
+        label: keyed_string("label"),
+        description: keyed_string("description"),
+        details: keyed_string("details"),
+        origin,
         todo,
     })
 }
@@ -124,6 +186,10 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
 fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<Column> {
     let entries = node.as_hash()?;
     let mut name: Option<Spanned<String>> = None;
+    let mut label: Option<String> = None;
+    let mut description: Option<String> = None;
+    let mut details: Option<String> = None;
+    let mut display: Option<String> = None;
     let mut constraints: Vec<Spanned<Constraint>> = Vec::new();
     let mut assertions: Vec<Assertion> = Vec::new();
     let mut col_type: Option<Spanned<String>> = None;
@@ -150,11 +216,17 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     col_type = Some(Spanned::new(s.to_string(), entry.value_span.clone()));
                 }
             }
+            "label" => label = entry.value.yaml.as_str().map(str::to_string),
+            "description" => description = entry.value.yaml.as_str().map(str::to_string),
+            "details" => details = entry.value.yaml.as_str().map(str::to_string),
+            "display" => display = entry.value.yaml.as_str().map(str::to_string),
             "values" => {
+                let (items, labels) = lower_enum_values(&entry.value);
                 values = Some(Representation {
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
-                    items: lower_enum_values(&entry.value),
+                    items,
+                    labels,
                 });
             }
             "range" => {
@@ -162,6 +234,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
+                    labels: Vec::new(),
                 });
             }
             "examples" => {
@@ -169,6 +242,7 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
                     span: entry.value_span.clone(),
                     key_span: entry.key_span.clone(),
                     items: lower_scalars(&entry.value),
+                    labels: Vec::new(),
                 });
             }
             "units" => {
@@ -215,6 +289,10 @@ fn lower_column(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<
     }
     Some(Column {
         name: name?,
+        label,
+        description,
+        details,
+        display,
         constraints,
         assertions,
         col_type,
@@ -267,18 +345,29 @@ fn lower_assertion(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opti
     })
 }
 
-/// Lower an enum's `values` node into its allowed scalars with spans.
-fn lower_enum_values(node: &YamlWithSourceInfo) -> Vec<Spanned<Scalar>> {
-    if let Some(entries) = node.as_hash() {
-        // Map form: the keys are the values, the labels are dropped.
-        entries
-            .iter()
-            .map(|entry| Spanned::new(lower_scalar(&entry.key), entry.key.source_info.clone()))
-            .collect()
-    } else {
+/// Lower an enum's `values` node into its allowed scalars with spans, and the
+/// label each was written with. The labels are empty unless every value has
+/// one, which keeps them index-aligned with the values they describe.
+fn lower_enum_values(node: &YamlWithSourceInfo) -> (Vec<Spanned<Scalar>>, Vec<String>) {
+    let Some(entries) = node.as_hash() else {
         // List form (or a lone scalar, which the schema rejects upstream).
-        lower_scalars(node)
-    }
+        return (lower_scalars(node), Vec::new());
+    };
+    // Map form: the keys are the values, and each carries its label.
+    let items = entries
+        .iter()
+        .map(|entry| Spanned::new(lower_scalar(&entry.key), entry.key.source_info.clone()))
+        .collect();
+    let labels: Option<Vec<String>> = entries
+        .iter()
+        .map(|entry| match lower_scalar(&entry.value) {
+            Scalar::String(label) => Some(label),
+            // The schema rejects a non-string label upstream; a partial set
+            // would break the alignment, so none are kept.
+            _ => None,
+        })
+        .collect();
+    (items, labels.unwrap_or_default())
 }
 
 /// Lower a `range` or `examples` node into its scalar elements with spans.
@@ -312,6 +401,7 @@ fn lower_scalar(node: &YamlWithSourceInfo) -> Scalar {
 
 fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Relationship {
     let entries = node.as_hash().expect("schema guarantees mapping");
+    let mut description: Option<String> = None;
     let mut cardinality: Option<Spanned<Cardinality>> = None;
     let mut join_text: Option<Spanned<String>> = None;
     let mut conflicts: Vec<Spanned<String>> = Vec::new();
@@ -323,6 +413,7 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
             continue;
         };
         match key {
+            "description" => description = entry.value.yaml.as_str().map(str::to_string),
             "cardinality" => {
                 if let Some(s) = entry.value.yaml.as_str()
                     && let Some(c) = Cardinality::parse(s)
@@ -386,6 +477,7 @@ fn lower_relationship(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> R
     };
 
     Relationship {
+        description,
         cardinality,
         join_text,
         join,

@@ -3,6 +3,7 @@ project:
   output-dir: _site
   resources:
     - CNAME
+    - examples/rendered/*.html
 
 website:
   title: "data-dict.yaml"
@@ -24,6 +25,8 @@ website:
         text: Expressions
       - href: validation.md
         text: Validation
+      - href: export.md
+        text: Export
       - href: examples/index.qmd
         text: Examples
     right:

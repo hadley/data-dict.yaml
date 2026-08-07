@@ -22,5 +22,6 @@ clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+indoc = "2"
 insta = "1"
 parquet.workspace = true
