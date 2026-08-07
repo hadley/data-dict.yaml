@@ -44,12 +44,14 @@
 //! through `child`; it never reasons about parentheses itself.
 
 mod duckdb;
+mod r_tidyverse;
 
 use std::collections::BTreeSet;
 
-use crate::assert_expr::{ColumnRef, TypedAssertion, TypedExpr};
+use crate::assert_expr::{Selection, TypedAssertion, TypedExpr};
 
 pub use duckdb::DuckDb;
+pub use r_tidyverse::RTidyverse;
 
 /// How faithfully a construct translates. Every (construct, target) pair has
 /// one, and the differential tests hold the first two to their word.
@@ -126,6 +128,21 @@ pub trait Target {
 
     /// Write `e`. Recurse through [`Ctx::child`] so parentheses are handled.
     fn write(&self, cx: &mut Ctx, e: &TypedExpr) -> Result<(), Unsupported>;
+
+    /// Write a `COLUMNS(...)` in this target's own multi-column idiom, if it
+    /// has one, returning whether it did. A target keeps the selection
+    /// symbolic only when its idiom is a self-contained expression with the
+    /// same combination and null semantics; otherwise the default here expands
+    /// it to a conjunction, which is always available and always correct.
+    fn write_selection(
+        &self,
+        cx: &mut Ctx,
+        selection: &Selection,
+        root: &TypedExpr,
+    ) -> Result<bool, Unsupported> {
+        let _ = (cx, selection, root);
+        Ok(false)
+    }
 }
 
 /// The output being built, and the target building it.
@@ -133,9 +150,10 @@ pub struct Ctx<'t> {
     target: &'t dyn Target,
     out: String,
     notes: BTreeSet<&'static str>,
-    /// The column `Selected` currently stands for, when a selection is being
-    /// expanded one column at a time.
-    selected: Option<&'t ColumnRef>,
+    /// What `Selected` currently stands for, already rendered: a column while a
+    /// selection is expanded one at a time, or a lambda parameter inside a
+    /// target's own multi-column idiom.
+    selected: Option<String>,
 }
 
 impl<'t> Ctx<'t> {
@@ -151,9 +169,21 @@ impl<'t> Ctx<'t> {
         }
     }
 
-    /// The column `Selected` stands for right now.
-    pub fn selected(&self) -> Option<&ColumnRef> {
-        self.selected
+    /// What `Selected` stands for right now, already rendered.
+    pub fn selected(&self) -> Option<&str> {
+        self.selected.as_deref()
+    }
+
+    /// Emit `body` with `Selected` standing for `reference`.
+    pub fn with_selected(
+        &mut self,
+        reference: String,
+        body: impl FnOnce(&mut Ctx<'t>) -> Result<(), Unsupported>,
+    ) -> Result<(), Unsupported> {
+        let previous = self.selected.replace(reference);
+        let result = body(self);
+        self.selected = previous;
+        result
     }
 
     /// Emit `e` as an operand of an operator with precedence `parent`,
@@ -224,6 +254,7 @@ pub fn emit(target: &dyn Target, assertion: &TypedAssertion) -> Result<Emitted, 
     };
     match &assertion.selection {
         None => target.write(&mut cx, &assertion.root)?,
+        Some(selection) if target.write_selection(&mut cx, selection, &assertion.root)? => {}
         Some(selection) => {
             let (op, prec) = target.conjunction();
             for (i, column) in selection.columns.iter().enumerate() {
@@ -232,10 +263,9 @@ pub fn emit(target: &dyn Target, assertion: &TypedAssertion) -> Result<Emitted, 
                     cx.push(op);
                     cx.push(" ");
                 }
-                cx.selected = Some(column);
-                cx.child(prec, Side::Free, &assertion.root)?;
+                let reference = target.column(&column.path);
+                cx.with_selected(reference, |cx| cx.child(prec, Side::Free, &assertion.root))?;
             }
-            cx.selected = None;
         }
     }
     Ok(Emitted {
@@ -392,5 +422,138 @@ mod tests {
         assert!(notes("n / qty > 1")[0].contains("infinity"));
         assert!(notes("MOD(n, qty) = 0")[0].contains("zero modulus"));
         assert!(notes("SUM(qty) > 0")[0].contains("128 bits"));
+    }
+}
+
+#[cfg(test)]
+mod r_tests {
+    use super::*;
+    use crate::assert_expr::{AssertExpr, Root, check_root, lower, tests::TestEnv};
+
+    fn r(source: &str) -> String {
+        let expr = AssertExpr::parse(source).expect("parses");
+        let findings = check_root(&expr, &TestEnv, Root::Any);
+        assert!(findings.is_empty(), "{source:?}: {findings:?}");
+        let ir = lower(&expr, &TestEnv).expect("lowers");
+        emit(&RTidyverse, &ir).expect("emits").code
+    }
+
+    fn refused(source: &str) -> String {
+        let expr = AssertExpr::parse(source).expect("parses");
+        let ir = lower(&expr, &TestEnv).expect("lowers");
+        let Err(unsupported) = emit(&RTidyverse, &ir) else {
+            panic!("{source:?} should be refused")
+        };
+        format!("{}: {}", unsupported.what, unsupported.why)
+    }
+
+    #[test]
+    fn columns_are_bare_names() {
+        assert_eq!(r("qty > 0"), "qty > 0L");
+        // A struct column is a data-frame column of its own.
+        assert_eq!(r("LENGTH(addr.zip) > 0"), "str_length(addr$zip) > 0L");
+        assert_eq!(r("`addr`.`nick names` IS NULL"), "is.na(addr$`nick names`)");
+    }
+
+    #[test]
+    fn an_infix_percent_operator_binds_tighter_than_arithmetic() {
+        // R parses `n + 1 %in% c(1)` as `n + (1 %in% c(1))`, so the guarded
+        // membership test has to bracket its own subject.
+        assert_eq!(
+            r("n + 1 IN (1, 2)"),
+            "is.na(n + 1L) | ((n + 1L) %in% c(1L, 2L))"
+        );
+    }
+
+    #[test]
+    fn membership_is_guarded_so_a_null_still_passes() {
+        // `NA %in% c(1)` is FALSE in R, where the language says null.
+        assert_eq!(r("qty IN (1, 2)"), "is.na(qty) | (qty %in% c(1L, 2L))");
+        assert_eq!(r("qty NOT IN (1)"), "is.na(qty) | !(qty %in% c(1L))");
+    }
+
+    #[test]
+    fn modulo_takes_its_sign_from_the_dividend() {
+        // R's `%%` follows the divisor, so the language's rule is arithmetic.
+        assert_eq!(r("MOD(n, 3) = 0"), "n - 3L * trunc(n / 3L) == 0L");
+    }
+
+    #[test]
+    fn a_shifted_date_is_promoted_first() {
+        // `Date + difftime` stays a Date in R, dropping anything under a day.
+        assert_eq!(
+            r("d + interval(12, hours)"),
+            "as.POSIXct(d, tz = \"UTC\") + as.difftime(12L, units = \"hours\")"
+        );
+        // A datetime needs no promotion.
+        assert_eq!(
+            r("ts - interval(2, weeks)"),
+            "ts - as.difftime(2L, units = \"weeks\")"
+        );
+    }
+
+    #[test]
+    fn a_literal_like_pattern_stays_literal() {
+        // `fixed()` matters: a `.` in a LIKE pattern is not a regex dot.
+        assert_eq!(r("s LIKE 'a.c%'"), "str_starts(s, fixed(\"a.c\"))");
+        assert_eq!(r("s LIKE '%.nz'"), "str_ends(s, fixed(\".nz\"))");
+        assert_eq!(r("s LIKE 'exact'"), "s == \"exact\"");
+    }
+
+    #[test]
+    fn a_computed_like_pattern_is_refused() {
+        let message = refused("s LIKE LOWER(postcode)");
+        assert!(message.contains("computed pattern"), "{message}");
+    }
+
+    #[test]
+    fn aggregates_skip_nulls_and_declare_the_empty_case() {
+        assert_eq!(r("SUM(qty) > 0"), "sum(qty, na.rm = TRUE) > 0L");
+        assert_eq!(r("ROW_COUNT() > 0"), "n() > 0L");
+        assert_eq!(r("COUNT(s) > 0"), "sum(!is.na(s)) > 0L");
+        assert_eq!(
+            r("COUNT_DISTINCT(s) <= 16"),
+            "n_distinct(s, na.rm = TRUE) <= 16L"
+        );
+        assert_eq!(r("ANY(flag)"), "any(flag, na.rm = TRUE)");
+    }
+
+    #[test]
+    fn a_selection_stays_a_selection() {
+        // `if_all` is an ordinary value, so it survives any wrapping.
+        assert_eq!(
+            r("COLUMNS('q[34]') IS NOT NULL"),
+            "if_all(matches(\"q[34]\"), \\(x) !is.na(x))"
+        );
+        assert_eq!(
+            r("COLUMNS(*) IS NOT NULL"),
+            "if_all(everything(), \\(x) !is.na(x))"
+        );
+    }
+
+    #[test]
+    fn case_becomes_case_when() {
+        assert_eq!(
+            r("CASE WHEN flag THEN qty > 1 ELSE qty > 10 END"),
+            "case_when(flag ~ qty > 1L, .default = qty > 10L)"
+        );
+    }
+
+    #[test]
+    fn divergences_attach_notes() {
+        assert!(r_notes("qty > 0").is_empty());
+        assert!(r_notes("ROUND(n) = n")[0].contains("halves to even"));
+        assert!(r_notes("n / qty > 1")[0].contains("Inf"));
+        assert!(
+            r_notes("SUM(qty) > 0")
+                .iter()
+                .any(|n| n.contains("identity"))
+        );
+    }
+
+    fn r_notes(source: &str) -> Vec<&'static str> {
+        let expr = AssertExpr::parse(source).expect("parses");
+        let ir = lower(&expr, &TestEnv).expect("lowers");
+        emit(&RTidyverse, &ir).expect("emits").notes
     }
 }

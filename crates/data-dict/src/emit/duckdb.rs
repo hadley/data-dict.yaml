@@ -61,11 +61,11 @@ impl Target for DuckDb {
             NodeKind::Now => cx.push("current_timestamp"),
             NodeKind::Column(c) => cx.push(&self.column(&c.path)),
             NodeKind::Selected => {
-                let column = cx
+                let reference = cx
                     .selected()
-                    .expect("a selection is expanded one column at a time");
-                let text = self.column(&column.path);
-                cx.push(&text);
+                    .expect("a selection is expanded one column at a time")
+                    .to_string();
+                cx.push(&reference);
             }
             NodeKind::Neg(x) => {
                 cx.push("-");
