@@ -73,8 +73,8 @@ enum Command {
     Spec,
     /// Skill for reading and understanding a data dictionary
     SkillRead,
-    /// Skill for creating or updating a data dictionary
-    SkillWrite,
+    /// Skill for creating a data dictionary
+    SkillCreate,
     /// Run the language server over stdio (used by editor extensions).
     #[cfg(feature = "lsp")]
     #[command(hide = true)]
@@ -129,7 +129,7 @@ struct ValidateArgs {
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
-const WRITE_SKILL: &str = include_str!("../skills/write-data-dict.md");
+const CREATE_SKILL: &str = include_str!("../skills/create-data-dict.md");
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -172,8 +172,8 @@ fn main() -> ExitCode {
             print!("{READ_SKILL}");
             ExitCode::SUCCESS
         }
-        Command::SkillWrite => {
-            print!("{WRITE_SKILL}");
+        Command::SkillCreate => {
+            print!("{CREATE_SKILL}");
             ExitCode::SUCCESS
         }
         #[cfg(feature = "lsp")]
