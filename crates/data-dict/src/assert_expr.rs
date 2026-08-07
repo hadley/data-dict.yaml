@@ -1705,7 +1705,7 @@ impl Checker<'_> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn parse(s: &str) -> AssertExpr {
