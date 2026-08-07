@@ -45,8 +45,8 @@ Every expression has a type. These are the language's own types, close to but no
 | `number` | A `number` column (any measure), a numeric literal, arithmetic, or a numeric function. |
 | `string` | A `string` column, an `enum` column, or a quoted literal. |
 | `boolean` | A `boolean` column, `TRUE`/`FALSE`, or any comparison or logical operator. |
-| `date` | A `date` column, or a date plus or minus an interval. |
-| `datetime` | A `datetime` column, `NOW()`, or a datetime plus or minus an interval. |
+| `date` | A `date` column. |
+| `datetime` | A `datetime` column, `NOW()`, or a date or datetime plus or minus an interval. |
 | `interval` | `interval(<n>, <unit>)`. A duration; it only exists inside an expression, never as a column type. |
 
 : {tbl-colwidths="[15,85]"}
@@ -62,6 +62,19 @@ An unknown type is only a problem where a type is actually needed. `IS NULL`, `I
 `NULL` is the one genuinely typeless thing in the language, and stays compatible with every type.
 
 The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and a `datetime`'s `time_zone` do not affect type checking: all three measures are just `number`, and a `datetime` is a `datetime` whatever zone it declares.
+
+### Integers and floats {#integers-and-floats}
+
+There is one `number` type, and no expression is ever ill-typed for mixing whole numbers with fractional ones. Underneath, though, a number is held one of two ways — as an **integer** or as a **float** — and which one it is decides how exact the arithmetic is:
+
+* A literal without a decimal point is an integer (`42`); one with a decimal point is a float (`42.0`, `3.14`). A whole-numbered column read from the data is an integer, a fractional one a float.
+* `+`, `-`, `*` and `MOD` over two integers give an integer. Every other combination gives a float.
+* `/` **always** gives a float, so `1 / 2` is `0.5`. This is the one place the two representations would otherwise disagree about the answer, and it follows R, Python and DuckDB rather than SQL's integer division.
+* Of the aggregates, `SUM` of integers is an integer and `AVG` is always a float, as their own entries say; `COUNT`, `COUNT_DISTINCT` and `ROW_COUNT` are integers.
+
+Integers are 64-bit and exact. Arithmetic that overflows that range is not silently wrapped or rounded — it is reported when the data is validated, as [D09](validation.md#data-validation-checks). Floats are 64-bit IEEE 754 and carry all the usual caveats, so an equality test on a computed float (`price * qty = total`) is rarely what you want; compare a rounded value, or bound the difference. Neither representation produces an infinity or a NaN: a zero divisor is [reported](expression-execution.md#no-result) rather than turned into one.
+
+The distinction matters mostly to [translation](expression-execution.md#translating-expressions), where a target language's `/` may or may not agree with this rule.
 
 ### Type classes {#type-classes}
 
@@ -153,13 +166,15 @@ Below, `T` stands for any type, and a signature like `number → number` reads "
 |----------|-----------|-------|
 | `-x` | `number → number` | Unary minus. |
 | `x + y`, `x - y` | `number, number → number` | |
-| `x * y`, `x / y` | `number, number → number` | Division by zero yields null. |
-| `d + i`, `i + d`, `d - i` | `date, interval → date` | Shifts a date by a duration. |
+| `x * y`, `x / y` | `number, number → number` | Dividing by zero is [an error](expression-execution.md#no-result). `/` always gives a [float](#integers-and-floats). |
+| `d + i`, `i + d`, `d - i` | `date, interval → datetime` | Shifts a date by a duration. |
 | `t + i`, `i + t`, `t - i` | `datetime, interval → datetime` | Shifts a datetime by a duration. |
 
 : {tbl-colwidths="[20,32,48]"}
 
-Interval arithmetic is the only non-numeric arithmetic: a date or datetime plus or minus an interval keeps its own type. Subtracting one date from another is not supported, nor is multiplying an interval.
+Interval arithmetic is the only non-numeric arithmetic. Subtracting one date from another is not supported, nor is multiplying an interval.
+
+Shifting a **date** gives a `datetime`, not a date. An interval can be shorter than a day and a date has no time of day to absorb it, so `birthdate + interval(12, hours)` means midday rather than silently rounding back to the same date. The date is read as midnight, and every unit is allowed. This follows DuckDB and PostgreSQL, which both hand back a timestamp. The result stays [comparable](#comparability) with a `date`, so `d + interval(2, days) >= start_date` is well-typed.
 
 ### Comparison
 
@@ -293,7 +308,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 `number → number`. `x` rounded down (towards negative infinity) or up (towards positive infinity) to a whole number.
 
-#### `ROUND(x)`, `ROUND(x, digits)`
+#### `ROUND(x)`, `ROUND(x, digits)` {#round}
 
 `number → number` or `number, number → number`. `x` rounded to `digits` decimal places, or to a whole number when `digits` is omitted. Halves round away from zero, so `ROUND(0.5)` is `1` and `ROUND(-0.5)` is `-1`. A negative `digits` rounds to the left of the decimal point (`ROUND(1234, -2)` is `1200`). This is the only function whose arity varies.
 
@@ -304,7 +319,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 #### `MOD(x, y)`
 
-`number, number → number`. The remainder of `x / y`, taking its sign from `x` (so `MOD(-7, 3)` is `-1`). Null when `y` is zero.
+`number, number → number`. The remainder of `x / y`, taking its sign from `x` (so `MOD(-7, 3)` is `-1`). A zero `y` is [an error](expression-execution.md#no-result), as it is for `/`.
 
 ```yaml
 - assert: MOD(minutes, 15) = 0
@@ -313,7 +328,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 ### Date and time functions
 
-#### `NOW()`
+#### `NOW()` {#now}
 
 `→ datetime`. The current time, as an instant. Takes no arguments, and is the one non-deterministic thing in the language: an expression that uses it depends on when it runs. Its value is fixed for the whole evaluation, so two `NOW()`s in one expression always agree.
 
@@ -332,6 +347,8 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 : {tbl-colwidths="[20,80]"}
 
 All five are fixed-length. Calendar units (`months`, `years`) are deliberately excluded: they're non-uniform (adding a month lands on a different number of days depending on the date, and clamps at month ends), which would make an expression's meaning depend on the calendar. Express a rough month as `interval(30, days)` if you need it.
+
+All five may be added to a `date` as well as a `datetime`; [shifting a date](#arithmetic) gives a datetime either way.
 
 ```yaml
 - assert: observed_at >= NOW() - interval(2, weeks)
