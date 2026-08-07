@@ -398,10 +398,13 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             cx.child(p::ADD, Side::Left, x)?;
             cx.push(" - ");
             cx.child(p::MUL, Side::Right, y)?;
+            // The division inside `trunc` is an operator position, not a
+            // delimited one: a compound dividend has to keep its brackets or
+            // `/` steals its last term.
             cx.push(" * trunc(");
-            cx.free(x)?;
+            cx.child(p::MUL, Side::Left, x)?;
             cx.push(" / ");
-            cx.free(y)?;
+            cx.child(p::MUL, Side::Right, y)?;
             cx.push(")");
         }
         Op::Min | Op::Max | Op::Sum | Op::Avg => {

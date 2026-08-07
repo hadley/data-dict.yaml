@@ -476,6 +476,16 @@ mod r_tests {
     fn modulo_takes_its_sign_from_the_dividend() {
         // R's `%%` follows the divisor, so the language's rule is arithmetic.
         assert_eq!(r("MOD(n, 3) = 0"), "n - 3L * trunc(n / 3L) == 0L");
+        // A compound dividend keeps its brackets inside the division, or `/`
+        // would take only the last term.
+        assert_eq!(
+            r("MOD(n + 1, 3) = 0"),
+            "n + 1L - 3L * trunc((n + 1L) / 3L) == 0L"
+        );
+        assert_eq!(
+            r("MOD(n, qty + 1) = 0"),
+            "n - (qty + 1L) * trunc(n / (qty + 1L)) == 0L"
+        );
     }
 
     #[test]
