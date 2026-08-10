@@ -281,6 +281,10 @@ mod tests {
         // Left-associative operators need none on the left, and do on the right.
         assert_eq!(sql("n - 1 - 2 > 0"), r#""n" - 1 - 2 > 0"#);
         assert_eq!(sql("n - (1 - 2) > 0"), r#""n" - (1 - 2) > 0"#);
+        // A unary operator nested in itself is a right-hand operand of its own
+        // precedence, so the output gains parentheses the source didn't have.
+        assert_eq!(sql("NOT NOT flag"), r#"NOT (NOT "flag")"#);
+        assert_eq!(sql("- -n > 0"), r#"-(-"n") > 0"#);
     }
 
     #[test]
@@ -373,6 +377,12 @@ mod tests {
         assert_eq!(
             sql("COLUMNS('q[34]') IS NOT NULL"),
             r#""q3" IS NOT NULL AND "q4" IS NOT NULL"#
+        );
+        // Each copy of a root looser than the conjunction is parenthesised, so
+        // the `OR` isn't regrouped across the columns.
+        assert_eq!(
+            sql("COLUMNS('q[34]') IS NULL OR flag"),
+            r#"("q3" IS NULL OR "flag") AND ("q4" IS NULL OR "flag")"#
         );
     }
 
