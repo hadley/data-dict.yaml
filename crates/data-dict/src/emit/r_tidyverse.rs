@@ -127,8 +127,8 @@ impl Target for RTidyverse {
                 if *op == ArithOp::Div {
                     cx.fidelity(DIVISION);
                 }
-                if is_shift(lhs, rhs) {
-                    return write_shift(self, cx, *op, lhs, rhs);
+                if is_interval_shift(lhs, rhs) {
+                    return write_interval_shift(cx, *op, lhs, rhs);
                 }
                 let (symbol, level) = match op {
                     ArithOp::Add => ("+", p::ADD),
@@ -249,17 +249,16 @@ const OVERFLOW: Fidelity = Fidelity::Divergent(
     "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
 );
 
-/// Whether this arithmetic is a temporal shift, which needs the operand
-/// promoted before the duration is added.
-fn is_shift(lhs: &TypedExpr, rhs: &TypedExpr) -> bool {
+/// Whether this arithmetic shifts a date or datetime by an interval, which
+/// needs the shifted operand promoted before the duration is added.
+fn is_interval_shift(lhs: &TypedExpr, rhs: &TypedExpr) -> bool {
     lhs.ty == Type::Interval || rhs.ty == Type::Interval
 }
 
 /// A `Date` plus a duration stays a `Date` in R, silently dropping anything
 /// shorter than a day; the language makes it a datetime. Promoting the date
 /// first restores that, so the mapping is exact rather than approximate.
-fn write_shift(
-    target: &RTidyverse,
+fn write_interval_shift(
     cx: &mut Ctx,
     op: ArithOp,
     lhs: &TypedExpr,
@@ -279,7 +278,6 @@ fn write_shift(
     }
     cx.push(if op == ArithOp::Sub { " - " } else { " + " });
     cx.child(p::ADD, Side::Right, duration)?;
-    let _ = target;
     Ok(())
 }
 
