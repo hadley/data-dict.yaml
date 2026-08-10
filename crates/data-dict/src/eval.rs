@@ -577,17 +577,17 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
             }
         }
         NodeKind::In {
-            operand,
-            list,
+            needle,
+            haystack,
             negated,
         } => {
-            let v = eval(cx, operand)?;
+            let v = eval(cx, needle)?;
             if matches!(v, Value::Null) {
                 return Ok(Value::Null);
             }
             let mut found = false;
             let mut unknown = false;
-            for item in list {
+            for item in haystack {
                 match compare(&v, &eval(cx, item)?) {
                     Some(0) => found = true,
                     Some(_) => {}

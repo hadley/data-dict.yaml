@@ -120,14 +120,16 @@ impl TypedExpr {
             | NodeKind::Now => Vec::new(),
             NodeKind::Neg(x) | NodeKind::Not(x) => vec![x],
             NodeKind::Arith { lhs, rhs, .. } | NodeKind::Compare { lhs, rhs, .. } => vec![lhs, rhs],
-            NodeKind::And(l, r) | NodeKind::Or(l, r) => vec![l, r],
+            NodeKind::And(lhs, rhs) | NodeKind::Or(lhs, rhs) => vec![lhs, rhs],
             NodeKind::IsNull { operand, .. } => vec![operand],
             NodeKind::Between {
                 operand, lo, hi, ..
             } => vec![operand, lo, hi],
-            NodeKind::In { operand, list, .. } => {
-                let mut out = vec![operand.as_ref()];
-                out.extend(list.iter());
+            NodeKind::In {
+                needle, haystack, ..
+            } => {
+                let mut out = vec![needle.as_ref()];
+                out.extend(haystack.iter());
                 out
             }
             NodeKind::Like {
@@ -223,8 +225,8 @@ pub enum NodeKind {
         negated: bool,
     },
     In {
-        operand: Box<TypedExpr>,
-        list: Vec<TypedExpr>,
+        needle: Box<TypedExpr>,
+        haystack: Vec<TypedExpr>,
         negated: bool,
     },
     Like {
@@ -562,8 +564,8 @@ impl Lowerer<'_> {
                     ty: Type::Bool,
                     shape,
                     kind: NodeKind::In {
-                        operand,
-                        list: items,
+                        needle: operand,
+                        haystack: items,
                         negated: *negated,
                     },
                     span,
@@ -876,15 +878,15 @@ mod tests {
                 render(hi)
             ),
             NodeKind::In {
-                operand,
-                list,
+                needle,
+                haystack,
                 negated,
             } => {
-                let items: Vec<String> = list.iter().map(render).collect();
+                let items: Vec<String> = haystack.iter().map(render).collect();
                 format!(
                     "in{}({}, [{}])",
                     neg(*negated),
-                    render(operand),
+                    render(needle),
                     items.join(", ")
                 )
             }

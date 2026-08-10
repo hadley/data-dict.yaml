@@ -123,13 +123,13 @@ impl Target for DuckDb {
                 cx.child(prec::CMP, Side::Right, hi)?;
             }
             NodeKind::In {
-                operand,
-                list,
+                needle,
+                haystack,
                 negated,
             } => {
-                cx.child(prec::CMP, Side::Left, operand)?;
+                cx.child(prec::CMP, Side::Left, needle)?;
                 cx.push(if *negated { " NOT IN (" } else { " IN (" });
-                for (i, item) in list.iter().enumerate() {
+                for (i, item) in haystack.iter().enumerate() {
                     if i > 0 {
                         cx.push(", ");
                     }
