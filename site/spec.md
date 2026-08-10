@@ -356,7 +356,7 @@ constraints:
 
 ### Definitions
 
-A table's `definitions` property is a list of named expressions — the metrics, filters, and derviations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
+A table's `definitions` property is a list of named expressions — the metrics, filters, and derivations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
 
 Each entry is a map with:
 
