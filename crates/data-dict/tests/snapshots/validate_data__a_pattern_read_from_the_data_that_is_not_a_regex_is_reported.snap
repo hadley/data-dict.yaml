@@ -1,0 +1,28 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: s SIMILAR TO p
+    columns:
+      - name: s
+        type: string
+        examples: [NZ-1234]
+      - name: p
+        type: string
+        examples: ['NZ-.*']
+────────────────────────────────────────
+error[D08]: An assertion must be evaluable against the data.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: s SIMILAR TO p
+   |                 ^^^^^^^^^^^^^^ `*(` at row 2 is not a valid regular expression
+   |
+   = help: Correct the data the pattern comes from, or write the pattern as a literal so it is checked when the dictionary is validated.

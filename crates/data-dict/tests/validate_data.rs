@@ -1901,3 +1901,361 @@ fn deep_alternating_nesting_checks_values() {
         &result.render(common::SNAPSHOT_STYLE).join("\n")
     ));
 }
+
+// --- assertions (D07–D10) -------------------------------------------------
+//
+// An `assert` expression is checked for form at the spec level and evaluated
+// here; see `site/expression-execution.md` for what evaluation means.
+
+/// A two-column table of integers, with `constraints` spliced in at table level.
+fn build_asserted(a: &[i64], b: &[Option<i64>], constraints: &str) -> PathBuf {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(
+        parse_message_type("message schema { REQUIRED INT64 a; OPTIONAL INT64 b; }").unwrap(),
+    );
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut first = row_group.next_column().unwrap().unwrap();
+    first
+        .typed::<Int64Type>()
+        .write_batch(a, None, None)
+        .unwrap();
+    first.close().unwrap();
+    let mut second = row_group.next_column().unwrap().unwrap();
+    let levels: Vec<i16> = b.iter().map(|v| v.is_some() as i16).collect();
+    let present: Vec<i64> = b.iter().flatten().copied().collect();
+    second
+        .typed::<Int64Type>()
+        .write_batch(&present, Some(&levels), None)
+        .unwrap();
+    second.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                constraints:
+            {constraints}
+                columns:
+                  - name: a
+                    type: number(quantity)
+                    range: [-1000000, 1000000]
+                  - name: b
+                    type: number(quantity)
+                    range: [-1000000, 1000000]
+        "},
+    )
+}
+
+fn assertion(text: &str) -> String {
+    format!("      - assert: {text}")
+}
+
+/// Validate and render, the shape every assertion test below asserts against.
+fn asserted(yaml: &Path) -> common::Diagnostic {
+    let result = validate_data(yaml, None);
+    common::diagnostic(yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"))
+}
+
+#[test]
+fn assertion_violated_reports_the_rows() {
+    let yaml = build_asserted(
+        &[1, -2, 3, -4],
+        &[None, None, None, None],
+        &assertion("a > 0"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 2 rows", "2, 4"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn an_assertion_that_holds_is_silent() {
+    let yaml = build_asserted(&[1, 2, 3], &[None, None, None], &assertion("a > 0"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_null_operand_passes() {
+    // Only `false` is a violation: a comparison against a null is null, which
+    // passes, so an assertion is never also a null check.
+    let yaml = build_asserted(&[1, 2], &[None, None], &assertion("b > 0"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn dividing_by_zero_withdraws_the_verdict() {
+    let yaml = build_asserted(&[1, 0], &[Some(5), Some(5)], &assertion("b / a > 1"));
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D10", "divides by zero", "row 2"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn integer_overflow_withdraws_the_verdict() {
+    let huge = i64::MAX;
+    let yaml = build_asserted(&[1, huge], &[None, None], &assertion("a * 2 > 0"));
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D09", "overflows a 64-bit integer", "row 2"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn an_aggregate_assertion_names_the_table_not_a_row() {
+    let yaml = build_asserted(&[1, 2, 3], &[None, None, None], &assertion("SUM(a) > 100"));
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for this table"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn an_aggregate_assertion_that_holds_is_silent() {
+    let yaml = build_asserted(&[1, 2, 3], &[None, None, None], &assertion("SUM(a) = 6"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_mixed_grain_assertion_is_judged_row_by_row() {
+    // `MIN(a)` is folded over the table first, then each row is compared
+    // against it — the spec's own example.
+    let yaml = build_asserted(
+        &[2, 3, 9],
+        &[None, None, None],
+        &assertion("a <= 2 * MIN(a)"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "3"]);
+
+    let holds = build_asserted(
+        &[2, 3, 4],
+        &[None, None, None],
+        &assertion("a <= 2 * MIN(a)"),
+    );
+    assert_eq!(validate_data(&holds, None).status(), Status::Ok);
+}
+
+#[test]
+fn counting_aggregates_see_every_row() {
+    let yaml = build_asserted(
+        &[1, 2, 3, 4],
+        &[Some(1), None, Some(3), None],
+        &assertion("COUNT(b) >= 0.9 * ROW_COUNT()"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for this table"]);
+}
+
+#[test]
+fn an_aggregate_assertion_passes_vacuously_on_an_empty_table() {
+    // Folding nothing yields null, and null passes.
+    let yaml = build_asserted(&[], &[], &assertion("SUM(a) > 100"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn columns_applies_the_predicate_to_each_selected_column() {
+    let yaml = build_asserted(
+        &[1, 2],
+        &[Some(1), None],
+        &assertion("COLUMNS('a|b') IS NOT NULL"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "2"]);
+}
+
+#[test]
+fn a_column_level_assertion_points_at_its_column() {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(parse_message_type("message schema { REQUIRED INT64 a; }").unwrap());
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut col = row_group.next_column().unwrap().unwrap();
+    col.typed::<Int64Type>()
+        .write_batch(&[5, -5], None, None)
+        .unwrap();
+    col.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: a
+                    type: number(quantity)
+                    range: [-100, 100]
+                    constraints:
+                      - assert: a >= 0
+        "},
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn an_undecodable_column_is_reported_rather_than_passing() {
+    // A decimal too wide for exact 64-bit arithmetic is a `number` as far as
+    // the metadata level is concerned, but the interpreter can't hold it.
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(
+        parse_message_type(
+            "message schema { REQUIRED FIXED_LEN_BYTE_ARRAY (16) a (DECIMAL(38,0)); }",
+        )
+        .unwrap(),
+    );
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut col = row_group.next_column().unwrap().unwrap();
+    col.typed::<FixedLenByteArrayType>()
+        .write_batch(&[FixedLenByteArray::from(vec![0u8; 16])], None, None)
+        .unwrap();
+    col.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                constraints:
+                  - assert: a > 0
+                columns:
+                  - name: a
+                    type: number(quantity)
+                    range: [0, 100]
+        "},
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D08", "exact 64-bit form"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn rounding_beyond_a_floats_reach_is_not_an_overflow() {
+    // `digits` far enough either way puts the rounding place outside what a
+    // float can represent. Both ends have an answer — `x` unchanged, or zero —
+    // and neither involves an integer, so neither is D09.
+    let yaml = build_asserted(
+        &[1234, 5678],
+        &[None, None],
+        &format!(
+            "{}\n{}",
+            assertion("ROUND(a, -400) = 0"),
+            assertion("ROUND(a, 400) = a")
+        ),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+/// A two-column table of strings — a subject and the pattern to match it
+/// against — with `constraints` spliced in at table level.
+fn build_patterned(subject: &[&str], pattern: &[&str], constraints: &str) -> PathBuf {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(
+        parse_message_type(
+            "message schema { REQUIRED BYTE_ARRAY s (UTF8); REQUIRED BYTE_ARRAY p (UTF8); }",
+        )
+        .unwrap(),
+    );
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    for values in [subject, pattern] {
+        let batch: Vec<ByteArray> = values.iter().map(|v| ByteArray::from(*v)).collect();
+        let mut col = row_group.next_column().unwrap().unwrap();
+        col.typed::<ByteArrayType>()
+            .write_batch(&batch, None, None)
+            .unwrap();
+        col.close().unwrap();
+    }
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                constraints:
+            {constraints}
+                columns:
+                  - name: s
+                    type: string
+                    examples: [NZ-1234]
+                  - name: p
+                    type: string
+                    examples: ['NZ-.*']
+        "},
+    )
+}
+
+#[test]
+fn a_pattern_read_from_the_data_is_matched_per_row() {
+    // Each row brings its own pattern, so the compiled regexes must not be
+    // confused for one another.
+    let yaml = build_patterned(
+        &["NZ-1234", "AU-1234", "NZ-9999"],
+        &["NZ-.*", "NZ-.*", "NZ-.*"],
+        &assertion("s SIMILAR TO p"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "2"]);
+
+    let holds = build_patterned(
+        &["NZ-1234", "AU-1234"],
+        &["NZ-.*", "AU-.*"],
+        &assertion("s SIMILAR TO p"),
+    );
+    assert_eq!(validate_data(&holds, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_pattern_read_from_the_data_that_is_not_a_regex_is_reported() {
+    // A literal pattern is checked at the spec level (S21), but one that comes
+    // from the data can only fail here — and must not read as a pass.
+    let yaml = build_patterned(
+        &["NZ-1234", "AU-1"],
+        &["NZ-.*", "*("],
+        &assertion("s SIMILAR TO p"),
+    );
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D08", "not a valid regular expression", "row 2"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}

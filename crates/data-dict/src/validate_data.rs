@@ -11,8 +11,11 @@ use data_dict_parquet::{
     ForeignKeyResult, ForeignKeyStats, UniquenessCheck, UniquenessStats,
 };
 
+use chrono::{DateTime, Utc};
+use quarto_source_map::SourceInfo;
+
 use crate::ReadTables;
-use crate::model::{Column, Constraint, DataDict, Table};
+use crate::model::{Assertion, Column, Constraint, DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
 use crate::validate_meta::CheckResult;
 
@@ -27,12 +30,18 @@ const SAMPLE_LIMIT: usize = 5;
 /// below: reading the columns and pages the checks imply and reporting, for
 /// example, nulls in a required column.
 pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
+    // One reading of the clock for the whole run, so every `NOW()` in every
+    // assertion of every table agrees; see `site/expression-execution.md`.
+    let now = Utc::now();
     crate::compare_dataset(
         dict_path,
         table,
         |table, parquet_path, actual, problems| {
             crate::validate_meta::meta_issues(table, actual, problems);
             if let Err(e) = value_issues(table, parquet_path, actual, problems) {
+                problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
+            }
+            if let Err(e) = assertion_issues(table, parquet_path, actual, now, problems) {
                 problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
             }
         },
@@ -218,6 +227,223 @@ fn plan_enum_fields<'a>(
         }
         path.pop();
     }
+}
+
+/// Evaluate the table's `assert` expressions against its data (D07–D10).
+///
+/// Assertions don't join [`VALUE_CHECKS`]: that pipeline is per column, and an
+/// assertion reads several and may belong to the table rather than any one of
+/// them. `now` is bound once per run by the caller, so every assertion in the
+/// run agrees about the current time.
+fn assertion_issues(
+    table: &Table,
+    parquet_path: &Path,
+    actual: &[DataColumn],
+    now: DateTime<Utc>,
+    out: &mut ProblemSet,
+) -> Result<(), data_dict_parquet::ParquetError> {
+    let env = crate::validate_spec::TableEnv::new(table);
+    let column_assertions = table
+        .columns
+        .iter()
+        .flat_map(|col| col.assertions.iter().map(move |a| (a, Some(col))));
+    let assertions: Vec<(&Assertion, Option<&Column>)> = table
+        .constraints
+        .iter()
+        .map(|a| (a, None))
+        .chain(column_assertions)
+        .collect();
+
+    for (assertion, col) in assertions {
+        // An expression that failed to parse or check was already reported at
+        // the spec level, and never reaches a verdict here.
+        let Some(expr) = &assertion.expr else {
+            continue;
+        };
+        let Some(ir) = crate::assert_expr::lower(expr, &env) else {
+            continue;
+        };
+
+        // A column the data doesn't have is already M02; reporting it again
+        // here would say the same thing twice.
+        let requests = crate::eval::column_requests(&ir);
+        if requests
+            .iter()
+            .any(|r| !actual.iter().any(|c| c.name == r.path[0]))
+        {
+            continue;
+        }
+
+        // Ask whether every column can be read as its declared type before
+        // reading anything: an assertion that can't run is D08.
+        let verdicts = data_dict_parquet::decodable(parquet_path, &requests)?;
+        if let Some((request, reason)) = requests.iter().zip(&verdicts).find_map(|(r, v)| match v {
+            data_dict_parquet::Decodable::No(reason) => Some((r, *reason)),
+            data_dict_parquet::Decodable::Yes => None,
+        }) {
+            out.push(assertion_not_checked(
+                table,
+                col,
+                assertion,
+                Some(&request.path.join(".")),
+                reason,
+            ));
+            continue;
+        }
+
+        let outcome = crate::eval::evaluate(parquet_path, &ir, now, SAMPLE_LIMIT)?;
+        if let Some(problem) = assertion_problem(table, col, assertion, outcome) {
+            out.push(problem);
+        }
+    }
+    Ok(())
+}
+
+/// Turn one assertion's outcome into a problem, or `None` when it held.
+fn assertion_problem(
+    table: &Table,
+    col: Option<&Column>,
+    assertion: &Assertion,
+    outcome: crate::eval::Outcome,
+) -> Option<Problem> {
+    let text = assertion.text.value.clone();
+    let (message, expected, kind) = match outcome {
+        crate::eval::Outcome::Rows { count: 0, .. } => return None,
+        crate::eval::Outcome::Table { holds: true } => return None,
+        crate::eval::Outcome::Rows {
+            count,
+            rows,
+            samples,
+        } => {
+            let plural = if count == 1 { "" } else { "s" };
+            let listed = list_rows(&rows, count);
+            let sample = samples.first().map_or(String::new(), |s| format!(" ({s})"));
+            (
+                format!("is false for {count} row{plural}: {listed}{sample}"),
+                "An assertion must hold for every row.",
+                ProblemKind::AssertionViolated {
+                    assertion: text,
+                    count,
+                    rows,
+                    samples,
+                },
+            )
+        }
+        crate::eval::Outcome::Table { holds: false } => (
+            "is false for this table".to_string(),
+            "An aggregate assertion must hold for the table.",
+            ProblemKind::AssertionFalse { assertion: text },
+        ),
+        crate::eval::Outcome::Faulted { fault, row } => {
+            let where_ = row.map_or_else(String::new, |r| format!(" at row {r}"));
+            match fault {
+                crate::eval::Fault::BadPattern(pattern) => {
+                    return Some(assertion_not_checked(
+                        table,
+                        col,
+                        assertion,
+                        None,
+                        &format!("`{pattern}`{where_} is not a valid regular expression"),
+                    ));
+                }
+                crate::eval::Fault::DividedByZero => (
+                    format!("divides by zero{where_}"),
+                    "An assertion must be computable for every row.",
+                    ProblemKind::AssertionDividedByZero {
+                        assertion: text,
+                        row,
+                    },
+                ),
+                crate::eval::Fault::Overflow => (
+                    format!("overflows a 64-bit integer{where_}"),
+                    "An assertion's arithmetic must stay within 64-bit integers.",
+                    ProblemKind::AssertionOverflow {
+                        assertion: text,
+                        row,
+                    },
+                ),
+            }
+        }
+    };
+    Some(Problem {
+        code: kind.code(),
+        severity: Severity::Error,
+        message,
+        column: None,
+        expected: Some(expected.to_string()),
+        hint: None,
+        suggestion: None,
+        context: assertion_context(table, col, assertion),
+        kind,
+    })
+}
+
+fn assertion_not_checked(
+    table: &Table,
+    col: Option<&Column>,
+    assertion: &Assertion,
+    column: Option<&str>,
+    reason: &str,
+) -> Problem {
+    let (message, hint) = match column {
+        Some(name) => (
+            format!("cannot read `{name}`: {reason}"),
+            "Correct the column's declared `type`, or drop the assertion until the data can \
+             support it.",
+        ),
+        None => (
+            reason.to_string(),
+            "Correct the data the pattern comes from, or write the pattern as a literal so it \
+             is checked when the dictionary is validated.",
+        ),
+    };
+    let kind = ProblemKind::AssertionNotChecked {
+        assertion: assertion.text.value.clone(),
+        column: column.map(str::to_string),
+        reason: reason.to_string(),
+    };
+    Problem {
+        code: kind.code(),
+        severity: Severity::Error,
+        message,
+        column: None,
+        expected: Some("An assertion must be evaluable against the data.".into()),
+        hint: Some(hint.into()),
+        suggestion: None,
+        context: assertion_context(table, col, assertion),
+        kind,
+    }
+}
+
+/// The offending row numbers, with an ellipsis when more were counted than
+/// sampled. Unlike `format_rows` this omits the `row(s):` label, which the
+/// surrounding sentence already supplies.
+fn list_rows(rows: &[usize], count: usize) -> String {
+    let listed = rows
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if count > rows.len() {
+        format!("{listed}, …")
+    } else {
+        listed
+    }
+}
+
+/// The table, the column for a column-level assertion, and the `assert` text
+/// itself as the highlight.
+fn assertion_context(
+    table: &Table,
+    col: Option<&Column>,
+    assertion: &Assertion,
+) -> Vec<SourceInfo> {
+    let mut spans = vec![table.name.span.clone()];
+    if let Some(col) = col {
+        spans.push(col.name.span.clone());
+    }
+    spans.push(assertion.text.span.clone());
+    spans
 }
 
 /// A value-level column check, split into the data it needs and the verdict it

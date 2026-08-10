@@ -73,6 +73,13 @@ enum Command {
     /// (row counts, histograms, missing values) when at least one table's
     /// `source` file is present; otherwise the dictionary renders alone.
     Render(RenderArgs),
+    /// Translate a dictionary's assertions into R, Python, or SQL
+    ///
+    /// Writes JSON to stdout: one record per expression, carrying the columns
+    /// it reads and one entry per target. The code is a bare predicate for you
+    /// to embed — see the "Executing expressions" page for the idiom each
+    /// target uses to select the rows that break it.
+    Translate(TranslateArgs),
     /// Print the data-dict.yaml specification
     Spec,
     /// Skill for reading and understanding a data dictionary
@@ -172,6 +179,7 @@ fn main() -> ExitCode {
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
         Command::Render(args) => run_render(args),
+        Command::Translate(args) => run_translate(args),
         Command::Spec => {
             print!("{}", data_dict::SPEC_MD);
             ExitCode::SUCCESS
@@ -412,6 +420,57 @@ fn run_render(args: RenderArgs) -> ExitCode {
 
 /// Colour diagnostics only when stderr (where they are printed) is a terminal,
 /// so piped or redirected output stays plain.
+#[derive(clap::Args)]
+struct TranslateArgs {
+    /// Path to a data-dict.yaml file or a directory containing one [default: .]
+    dict: Option<PathBuf>,
+    /// Target to translate into, as `family(dialect)` or a bare family name;
+    /// repeatable. Omitted, every available target is emitted
+    #[arg(long)]
+    target: Vec<String>,
+    /// Only this table's assertions, and the scope for `--expr`
+    #[arg(long)]
+    table: Option<String>,
+    /// Translate this expression instead of the dictionary's assertions
+    #[arg(long)]
+    expr: Option<String>,
+    /// Indent the JSON
+    #[arg(long)]
+    pretty: bool,
+}
+
+fn run_translate(args: TranslateArgs) -> ExitCode {
+    let dict = match resolve_dict_path(args.dict) {
+        Ok(dict) => dict,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let options = data_dict::translate::Options {
+        targets: args.target,
+        table: args.table,
+        expr: args.expr,
+    };
+    let translations = match data_dict::translate::translate(&dict, &options) {
+        Ok(translations) => translations,
+        Err(problems) => {
+            for line in problems.render(stderr_style()) {
+                eprintln!("{line}");
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+    let json = if args.pretty {
+        serde_json::to_string_pretty(&translations)
+    } else {
+        serde_json::to_string(&translations)
+    }
+    .expect("a translation always serializes");
+    println!("{json}");
+    ExitCode::SUCCESS
+}
+
 fn stderr_style() -> RenderStyle {
     RenderStyle {
         color: std::io::stderr().is_terminal(),

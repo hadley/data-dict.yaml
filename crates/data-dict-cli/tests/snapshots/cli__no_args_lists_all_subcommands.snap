@@ -13,6 +13,7 @@ Commands:
   export-spec    Render a data dictionary as fully-resolved JSON
   export-data    Render a data dictionary as JSON with per-column data profiles
   render         Render a data dictionary as a self-contained HTML page
+  translate      Translate a dictionary's assertions into R, Python, or SQL
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
   skill-create   Skill for creating a data dictionary

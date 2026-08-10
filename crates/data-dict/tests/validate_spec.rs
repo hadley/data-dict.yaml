@@ -1833,6 +1833,43 @@ fn constraints_s19_syntax_error() {
     assert_snapshot!(diagnostic);
 }
 
+// S19: an integer literal too large for the language's 64-bit integers. The
+// language has no wider representation, so this is a syntax error rather than a
+// silent widening to a float.
+#[test]
+fn constraints_s19_integer_literal_too_large() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: number
+                examples: [1, 2]
+                constraints:
+                  - assert: a < 9223372036854775808
+    "});
+    diagnostic.assert_contains(&["S19", "too large for a 64-bit integer"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// Shifting a `date` by an interval gives a datetime, so a sub-day unit is
+// meaningful rather than silently truncated, and the result still compares
+// against the date it came from.
+#[test]
+fn constraints_date_shifted_by_a_sub_day_interval() {
+    assert_valid_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: d
+                type: date
+                range: [2000-01-01, 2030-01-01]
+                constraints:
+                  - assert: d + interval(12, hours) >= d
+    "});
+}
+
 // S20: an assertion referencing a column not on the table.
 #[test]
 fn constraints_s20_unknown_column() {

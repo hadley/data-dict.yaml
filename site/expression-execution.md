@@ -47,13 +47,15 @@ This does mean evaluation is not total — some data can stop an assertion from 
 
 `SIMILAR TO` and `COLUMNS('<regex>')` take [RE2](https://github.com/google/re2/wiki/Syntax) regular expressions, which the reference implementation matches exactly. `LIKE` is defined in terms of its own two wildcards and does not depend on a regex flavour.
 
+A literal pattern is compiled when the dictionary is validated, so a malformed one is an S21 at the spec level. A pattern read from a column can only be compiled once the data is in hand, and one that doesn't compile is [reported as D08](validation.md#data-validation-checks) rather than treated as a non-match — a non-match would make the row *pass*, quietly retiring the rule on exactly the rows whose pattern is broken.
+
 ### When an assertion can't be run
 
-An assertion can only be evaluated if the columns it names can be read as the types the dictionary declares for them. When they can't, it is reported as an error ([D08](validation.md#data-validation-checks)).
+An assertion can only be evaluated if the columns it names can be read as the types the dictionary declares for them, and if the patterns it matches against compile. When either fails, it is reported as an error ([D08](validation.md#data-validation-checks)).
 
 Not as a warning, and not as a pass. An assertion that was never evaluated has not been satisfied, and treating it as satisfied is the one outcome that hides the problem: the dictionary would go on claiming a rule the data was never held to. Reporting it says what is actually true — that this rule is currently unenforceable, and either the declared type or the data has to change.
 
-Most type disagreements never reach this point, since a column whose data contradicts its declared type is already an error at the metadata level (M01). D08 is what remains: a column whose type is right in kind but whose values can't be brought into the [value model](#values) — a number held in a decimal too wide for exact 64-bit arithmetic, say.
+Most type disagreements never reach this point, since a column whose data contradicts its declared type is already an error at the metadata level (M01). D08 is what remains: a column whose type is right in kind but whose values can't be brought into the [value model](#values) — a number held in a decimal too wide for exact 64-bit arithmetic, say — and a [pattern taken from the data](#patterns) that isn't a valid regular expression.
 
 ## Translating expressions
 
