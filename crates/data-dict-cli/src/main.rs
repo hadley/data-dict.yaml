@@ -5,6 +5,11 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use data_dict::{ProblemSet, RenderStyle};
 
+mod assets;
+mod live;
+
+use assets::Assets;
+
 #[derive(Parser)]
 #[command(name = "data-dict", version, about)]
 struct Cli {
@@ -37,6 +42,14 @@ enum Command {
     ExportSpec(ExportArgs),
     /// Render a data dictionary as JSON with per-column data profiles
     ExportData(ExportArgs),
+    /// Render a data dictionary as a self-contained HTML page [default: .]
+    ///
+    /// The page holds a relationship diagram, a searchable index of the
+    /// tables and columns, and the glossary, all in one file that works
+    /// opened straight from disk. Source data is profiled into the page
+    /// (row counts, histograms, missing values) when at least one table's
+    /// `source` file is present; otherwise the dictionary renders alone.
+    Render(RenderArgs),
     /// Translate a dictionary's assertions into R, Python, or SQL
     ///
     /// Writes JSON to stdout: one record per expression, carrying the columns
@@ -64,6 +77,31 @@ struct ExportArgs {
     /// Pretty-print the JSON (default is compact, one document per line)
     #[arg(long)]
     pretty: bool,
+}
+
+/// Arguments for `render`.
+#[derive(clap::Args)]
+struct RenderArgs {
+    /// A data-dict.yaml file or a directory containing one
+    path: Option<PathBuf>,
+    /// Where to write the page (default: the dictionary's path with an
+    /// `.html` extension)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Serve the page and reload the browser when the dictionary or its source
+    /// data changes
+    ///
+    /// The page is served from memory and never written to disk, so `--live`
+    /// takes no `--output`. It stops on ctrl-c.
+    #[arg(long, conflicts_with = "output")]
+    live: bool,
+    /// Port for `--live` (default: the first free port from 7590)
+    #[arg(long, requires = "live", value_name = "PORT")]
+    port: Option<u16>,
+    /// Build the page from the CSS and JS in this directory instead of the
+    /// copies compiled in
+    #[arg(long, hide = true, value_name = "DIR")]
+    assets: Option<PathBuf>,
 }
 
 /// Shared arguments for `validate-meta` and `validate-data`.
@@ -112,6 +150,7 @@ fn main() -> ExitCode {
         Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
+        Command::Render(args) => run_render(args),
         Command::Translate(args) => run_translate(args),
         Command::Spec => {
             print!("{}", data_dict::SPEC_MD);
@@ -240,6 +279,53 @@ fn run_export(args: ExportArgs, export: ExportFn) -> ExitCode {
     .expect("an export always serializes");
     println!("{json}");
     ExitCode::SUCCESS
+}
+
+/// Render a dictionary to a self-contained HTML page, or with `--live` serve
+/// it and reload the browser as it changes. The dictionary is exported with
+/// `export_auto` — data profiles appear exactly when at least one table's
+/// source file is present — and the export fails the run the same way
+/// `export-spec` would: diagnostics on stderr and nothing written.
+fn run_render(args: RenderArgs) -> ExitCode {
+    let dict = match resolve_dict_path(args.path) {
+        Ok(dict) => dict,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if args.live {
+        // Only `--live` looks for the page's assets on disk: its whole point
+        // is a short loop, and editing them should not need a rebuild.
+        let assets = args.assets.map_or_else(Assets::detect, Assets::Dir);
+        return live::run(&dict, args.port, assets);
+    }
+    let assets = args.assets.map_or(Assets::Embedded, Assets::Dir);
+    let (problems, export) = data_dict::export_auto(&dict);
+    for line in problems.render(stderr_style()) {
+        eprintln!("{line}");
+    }
+    let Some(export) = export else {
+        return ExitCode::FAILURE;
+    };
+    let page = match assets.render_page(&assets::dict_json(&export), false) {
+        Ok(page) => page,
+        Err(err) => {
+            eprintln!("could not read the page's assets: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let output = args.output.unwrap_or_else(|| dict.with_extension("html"));
+    match std::fs::write(&output, page) {
+        Ok(()) => {
+            println!("wrote {}", output.display());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}: {err}", output.display());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Colour diagnostics only when stderr (where they are printed) is a terminal,

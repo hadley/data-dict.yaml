@@ -258,15 +258,24 @@ fn a_late_heavy_hitter_survives_saturation() {
 #[test]
 fn examples_spread_along_the_distinct_values() {
     let path = Fixture::column("REQUIRED INT64 v", Values::int64(1..=101)).write();
-    assert_eq!(
-        one(&path).examples,
-        vec![
-            Value::Int(1),
-            Value::Int(26),
-            Value::Int(51),
-            Value::Int(76),
-            Value::Int(101)
-        ]
+    let examples: Vec<i64> = one(&path)
+        .examples
+        .iter()
+        .map(|value| match value {
+            Value::Int(n) => *n,
+            other => panic!("expected an integer example, found {other:?}"),
+        })
+        .collect();
+    // Both ends are kept and the rest step evenly between them, so the sample
+    // stands for the whole column rather than for its start. The exact values
+    // are left to the sampler; the spread is what is being asserted.
+    assert_eq!(examples.first(), Some(&1));
+    assert_eq!(examples.last(), Some(&101));
+    let steps: Vec<i64> = examples.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    let (shortest, longest) = (steps.iter().min().unwrap(), steps.iter().max().unwrap());
+    assert!(
+        longest - shortest <= 1,
+        "examples should step evenly, but the gaps were {steps:?}"
     );
 
     // A repeated value is no likelier to be sampled than a rare one.

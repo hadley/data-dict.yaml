@@ -3,11 +3,16 @@ title: "Examples"
 listing:
   contents: "*.qmd"
   type: table
-  fields: [title, description]
+  fields: [title, description, page, raw]
+  field-display-names:
+    page: "Rendered"
+    raw: "YAML"
   sort: "title"
   filter-ui: false
   sort-ui: false
 ---
 
 Complete, real-world `data-dict.yaml` files, synced daily from their source
-repositories. Each page embeds the full dictionary; follow a link to read it.
+repositories. Each page embeds the full dictionary and links to it rendered as
+a browsable HTML page, profiled against the source data; follow a link to read
+it.

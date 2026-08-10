@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data dictionary</title>
+<script>
+try {
+  var chosen = localStorage.getItem("dd-theme");
+  if (chosen) document.documentElement.dataset.theme = chosen;
+} catch (e) {} /* file:// can refuse storage; auto is a fine fallback */
+</script>
+<style>
+{{APP_CSS}}
+{{DIAGRAM_CSS}}
+{{TABLES_CSS}}
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script type="application/json" id="dict">{{DICT_JSON}}</script>
+<script>
+{{DAGRE_JS}}</script>
+<script>
+{{LAYOUT_JS}}</script>
+<script>
+{{PREACT_JS}}</script>
+<script>
+{{SHARED_JS}}</script>
+<script>
+{{COMPONENTS_JS}}</script>
+<script>
+{{DIAGRAM_JS}}</script>
+<script>
+{{APP_JS}}</script>{{LIVE_JS}}
+</body>
+</html>

@@ -1,0 +1,38 @@
+---
+source: crates/data-dict/tests/export.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: animals
+    source:
+      parquet: data.parquet
+    columns:
+      - name: id
+        type: number(id)
+        examples: [1]
+  - name: keepers
+    source:
+      parquet: missing.parquet
+    columns:
+      - name: keeper_id
+        type: number(id)
+        examples: [1]
+  - name: visits
+    columns:
+      - name: visit_id
+        type: number(id)
+        examples: [1]
+────────────────────────────────────────
+warning[M05]: A table's `source` must point at a readable Parquet file.
+  --> dict.yaml:13:16
+   |
+LL |   - name: keepers
+LL |     source:
+LL |       parquet: missing.parquet
+   |                ^^^^^^^^^^^^^^^ Parquet error: Cannot open file: No such file or directory (os error 2)
+warning[M04]: A table validated against data must declare a `source`.
+  --> dict.yaml:18:11
+   |
+LL |   - name: visits
+   |           ^^^^^^ has no `source`

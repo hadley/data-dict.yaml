@@ -24,6 +24,11 @@ const BAR_WIDTH: usize = 12;
 /// Longest value label rendered in the text output before truncation.
 const LABEL_WIDTH: usize = 40;
 
+/// Examples aimed at when hinting at the values a capped list leaves out. How
+/// many actually fit is decided by the line's width; this sets how widely the
+/// profile's examples are stepped through to reach them.
+const TAIL_EXAMPLES: usize = 5;
+
 #[derive(Debug, Serialize)]
 pub struct FileDescription {
     path: String,
@@ -438,18 +443,26 @@ impl ColumnDescription {
                 let mut note = format!("  ({approx}{} other values", distinct.count() - shown);
                 let listed: Vec<String> = body.iter().map(|row| row.label.clone()).collect();
                 let mut separator = ", e.g. ";
-                for example in &self.examples {
-                    let label = truncate(&scalar_label(example));
-                    if listed.contains(&label) {
-                        continue;
-                    }
+                // Only the examples this line would actually be telling you
+                // something new about, then stepped through rather than taken
+                // from the front: the profile holds far more than fits, and
+                // they are sorted, so walking them keeps the taste spread
+                // across the column's range instead of clustered at its start.
+                let untold: Vec<String> = self
+                    .examples
+                    .iter()
+                    .map(|example| truncate(&scalar_label(example)))
+                    .filter(|label| !listed.contains(label))
+                    .collect();
+                let step = untold.len().div_ceil(TAIL_EXAMPLES).max(1);
+                for label in untold.iter().step_by(step) {
                     // The closing paren and a possible `, …` must still fit.
                     if note.chars().count() + separator.len() + label.chars().count() > 75 {
                         note.push_str(", …");
                         break;
                     }
                     note.push_str(separator);
-                    note.push_str(&label);
+                    note.push_str(label);
                     separator = ", ";
                 }
                 note.push(')');

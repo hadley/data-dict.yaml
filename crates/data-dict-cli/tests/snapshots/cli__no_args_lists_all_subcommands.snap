@@ -11,6 +11,7 @@ Commands:
   validate-data  Validate a dataset's values against a data dictionary
   export-spec    Render a data dictionary as fully-resolved JSON [default: .]
   export-data    Render a data dictionary as JSON with per-column data profiles
+  render         Render a data dictionary as a self-contained HTML page [default: .]
   translate      Translate a dictionary's assertions into R, Python, or SQL
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary

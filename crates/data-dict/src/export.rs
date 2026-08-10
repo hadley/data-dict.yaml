@@ -2,13 +2,14 @@
 //! `site/export.md`).
 //!
 //! [`export_spec`] resolves the dictionary alone; [`export_data`] additionally
-//! profiles each table's source data. Both validate the spec first and return
+//! profiles each table's source data; [`export_auto`] profiles only when at
+//! least one source file is present. All validate the spec first and return
 //! the run's [`ProblemSet`] plus the document, which is `None` when that
 //! fails — the same failure `validate-spec` reports. The data itself is never
 //! validated against the dictionary: a table whose `source` is missing or
 //! unreadable is reported as a warning and exported without its profiles.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
@@ -57,6 +58,24 @@ pub struct Export {
     relationships: Vec<ExportRelationship>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     glossary: Vec<ExportGlossaryEntry>,
+}
+
+impl Export {
+    /// Each table's source file, in declaration order and still relative to
+    /// the dictionary's own directory. Tables without a `source` contribute
+    /// nothing, and a path repeated across tables is returned once.
+    pub fn source_paths(&self) -> Vec<&Path> {
+        let mut paths: Vec<&Path> = Vec::new();
+        for table in &self.tables {
+            if let Some(source) = &table.source {
+                let path = Path::new(&source.parquet);
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+        paths
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +138,11 @@ struct ExportColumn {
     referenced_by: Vec<ExportColumnRef>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     values: Vec<JsonScalar>,
+    /// What each value means, keyed by the value, for an enum written in the
+    /// map form. Absent for the list form, where the values speak for
+    /// themselves.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    value_labels: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     range: Option<ExportRange>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -224,6 +248,19 @@ enum ExportProfile {
     },
 }
 
+impl ExportProfile {
+    /// Drop the sample values. For a column that declares its `values` they
+    /// say nothing: the declaration is exhaustive, so the reader already has
+    /// every value the column can hold, in full rather than as a sample.
+    fn drop_samples(&mut self) {
+        match self {
+            ExportProfile::Scaled { sample_values, .. }
+            | ExportProfile::Valued { sample_values, .. } => sample_values.clear(),
+            ExportProfile::Minimal { .. } => {}
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ExportDistinct {
     count: usize,
@@ -271,7 +308,7 @@ struct ExportValueCount {
 }
 
 /// A literal JSON value: the only scalar type in the document.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 #[serde(untagged)]
 enum JsonScalar {
     Bool(bool),
@@ -322,13 +359,56 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
     let Some(dict) = validate_and_lower(&doc, &mut problems) else {
         return (problems, None);
     };
-
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
+    let profiles = profile_sources(&dict, base_dir, &mut problems);
+    let export = build(&dict, profiles);
+    (problems, Some(export))
+}
 
+/// Render the dictionary, profiling source data only when at least one table's
+/// source file is actually present: with none, this is [`export_spec`] — no
+/// data is read and no missing-source warnings are raised — and otherwise it
+/// is [`export_data`], where the tables whose sources are missing still warn.
+pub fn export_auto(dict_path: &Path) -> (ProblemSet, Option<Export>) {
+    let (mut problems, doc) = match load(dict_path) {
+        Ok(loaded) => loaded,
+        Err(problems) => return (problems, None),
+    };
+    let Some(dict) = validate_and_lower(&doc, &mut problems) else {
+        return (problems, None);
+    };
+    let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
+    let profiles = if any_source_present(&dict, base_dir) {
+        profile_sources(&dict, base_dir, &mut problems)
+    } else {
+        HashMap::new()
+    };
+    let export = build(&dict, profiles);
+    (problems, Some(export))
+}
+
+/// Whether any table's `source.parquet` resolves to an existing file.
+fn any_source_present(dict: &DataDict, base_dir: &Path) -> bool {
+    dict.tables.iter().any(|table| {
+        table
+            .source
+            .as_ref()
+            .is_some_and(|source| base_dir.join(&source.parquet.value).is_file())
+    })
+}
+
+/// Profile every table whose source can be read, keyed by table name. A source
+/// that's missing (M04) or unreadable (M05) is reported as a warning and that
+/// table is skipped.
+fn profile_sources(
+    dict: &DataDict,
+    base_dir: &Path,
+    problems: &mut ProblemSet,
+) -> HashMap<String, TableData> {
     let mut profiles: HashMap<String, TableData> = HashMap::new();
     for table in &dict.tables {
         let Some((parquet_path, actual)) =
-            crate::read_parquet(table, base_dir, Severity::Warning, &mut problems)
+            crate::read_parquet(table, base_dir, Severity::Warning, problems)
         else {
             continue;
         };
@@ -347,19 +427,40 @@ pub fn export_data(dict_path: &Path) -> (ProblemSet, Option<Export>) {
             }
         }
     }
-    let export = build(&dict, profiles);
-    (problems, Some(export))
+    profiles
 }
 
 // --- document assembly -------------------------------------------------
+
+/// Render a Markdown prose field (`description`, `details`, a glossary
+/// definition) to HTML, so consumers don't need a Markdown implementation of
+/// their own. Raw HTML in the source is escaped rather than passed through,
+/// so dictionary text can't smuggle markup into a page that embeds the
+/// export.
+fn markdown_html(text: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, html};
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let parser = Parser::new_ext(text, options).map(|event| match event {
+        Event::Html(s) => Event::Text(s),
+        Event::InlineHtml(s) => Event::Text(s),
+        other => other,
+    });
+    let mut out = String::new();
+    html::push_html(&mut out, parser);
+    out.trim_end().to_string()
+}
+
+fn prose(text: &Option<String>) -> Option<String> {
+    text.as_deref().map(markdown_html)
+}
 
 fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
     Export {
         format_version: EXPORT_VERSION,
         name: dict.name.clone(),
         label: dict.label.clone(),
-        description: dict.description.clone(),
-        details: dict.details.clone(),
+        description: prose(&dict.description),
+        details: prose(&dict.details),
         origin: dict.origin.clone(),
         learn_more: dict.learn_more.clone(),
         version: dict.version.as_ref().map(|v| match v {
@@ -388,7 +489,7 @@ fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
             .iter()
             .map(|entry| ExportGlossaryEntry {
                 term: entry.term.clone(),
-                definition: entry.definition.clone(),
+                definition: markdown_html(&entry.definition),
             })
             .collect(),
     }
@@ -403,8 +504,8 @@ fn build_table(
     ExportTable {
         name: table.name.value.clone(),
         label: table.label.as_ref().map(|s| s.value.clone()),
-        description: table.description.as_ref().map(|s| s.value.clone()),
-        details: table.details.as_ref().map(|s| s.value.clone()),
+        description: table.description.as_ref().map(|s| markdown_html(&s.value)),
+        details: table.details.as_ref().map(|s| markdown_html(&s.value)),
         origin: table.origin.clone(),
         source: table.source.as_ref().map(|s| ExportSource {
             parquet: s.parquet.value.clone(),
@@ -476,11 +577,28 @@ fn build_column(
         Vec::new()
     };
 
+    let values = col
+        .values
+        .as_ref()
+        .map(representation_scalars)
+        .unwrap_or_default();
+    let value_labels = col
+        .values
+        .as_ref()
+        .map(representation_labels)
+        .unwrap_or_default();
+    let mut profile = profiles.remove(&path.join("."));
+    if let Some(profile) = &mut profile
+        && !values.is_empty()
+    {
+        profile.drop_samples();
+    }
+
     ExportColumn {
         name: col.name.value.clone(),
         label: col.label.clone(),
-        description: col.description.clone(),
-        details: col.details.clone(),
+        description: prose(&col.description),
+        details: prose(&col.details),
         display: col.display.clone(),
         col_type: col
             .col_type
@@ -492,11 +610,8 @@ fn build_column(
         constraints,
         references,
         referenced_by,
-        values: col
-            .values
-            .as_ref()
-            .map(representation_scalars)
-            .unwrap_or_default(),
+        values,
+        value_labels,
         range: col.range.as_ref().and_then(|range| {
             let [min, max] = range.items.as_slice() else {
                 return None;
@@ -521,7 +636,7 @@ fn build_column(
             .iter()
             .map(|a| build_assertion(a, table))
             .collect(),
-        profile: profiles.remove(&path.join(".")),
+        profile,
     }
 }
 
@@ -552,6 +667,20 @@ fn representation_scalars(rep: &Representation) -> Vec<JsonScalar> {
         .collect()
 }
 
+/// The label each enum value was written with, keyed by the value. Empty
+/// unless the values were given as a map; enum values are strings, so a value
+/// is always a usable key.
+fn representation_labels(rep: &Representation) -> BTreeMap<String, String> {
+    rep.items
+        .iter()
+        .zip(&rep.labels)
+        .filter_map(|(item, label)| match &item.value {
+            Scalar::String(value) => Some((value.clone(), label.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
     let mut columns = Vec::new();
     if let Some(expr) = &assertion.expr {
@@ -559,7 +688,7 @@ fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
     }
     ExportAssertion {
         expression: assertion.text.value.clone(),
-        description: assertion.description.clone(),
+        description: prose(&assertion.description),
         columns,
     }
 }
@@ -699,7 +828,7 @@ fn build_relationship(rel: &Relationship) -> Option<ExportRelationship> {
         })
         .collect();
     Some(ExportRelationship {
-        description: rel.description.clone(),
+        description: prose(&rel.description),
         cardinality,
         declared_cardinality,
         pairs,
