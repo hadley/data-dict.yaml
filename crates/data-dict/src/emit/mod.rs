@@ -12,6 +12,36 @@
 //! `a == 1 & b == 2` for Python and quietly mean `a == (1 & b) == 2`. Each
 //! target therefore declares its own precedence, and [`Ctx::child`] parenthesises
 //! against that rather than against the language's.
+//!
+//! # How the parenthesising works
+//!
+//! The IR is a tree, so it carries grouping in its shape and needs no
+//! parentheses of its own; the printer's job is to put back exactly the
+//! parentheses that make the flat text re-parse to that same shape, in the
+//! target's grammar.
+//!
+//! Three pieces do it:
+//!
+//! 1. [`Target::prec`] maps a node to the precedence of the operator it will be
+//!    spelled as, on the target's own scale ([`prec`] holds a default scale that
+//!    suits the SQL family). It answers "how tightly does the text this node
+//!    produces hold together?", which is a property of the spelling, not of the
+//!    IR: a node emitted as a function call binds as [`prec::ATOM`] however
+//!    loose the operator it came from — see DuckDB's `SIMILAR TO`.
+//! 2. A `write` implementation never recurses directly. It descends through
+//!    [`Ctx::child`], passing the precedence of the operator it is emitting and
+//!    which [`Side`] the operand sits on. `child` asks the target for the
+//!    child's own precedence and wraps when the surrounding operator binds more
+//!    tightly than the child, or binds equally tightly and the child is on the
+//!    right — the latter because these operators are left-associative, so
+//!    `a - (b - c)` is not `a - b - c`.
+//! 3. Positions that are already delimited — a function argument, a list item, a
+//!    `CASE` branch — pass [`prec::DELIMITED`], which is below every operator
+//!    and so never wraps. [`Ctx::free`] is that case.
+//!
+//! Because the decision is local (one parent precedence, one child precedence, a
+//! side) a target only has to be honest in `prec` and consistent about routing
+//! through `child`; it never reasons about parentheses itself.
 
 mod duckdb;
 
