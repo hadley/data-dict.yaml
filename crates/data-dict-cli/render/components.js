@@ -215,7 +215,7 @@ function ThemeToggle() {
 function HistBar({ x, colX, colW, bw, bh, height, special, label, count, total, isHistogram }) {
   const [hot, setHot] = useState(false);
   const on = hot ? " hot" : "";
-  return html`<g>cargo run -p data-dict-cli -- render site/examples/otters.yaml --live --assets crates/data-dict-cli/render
+  return html`<g>
     <rect class=${"band" + on} x=${colX} y="0" width=${colW} height=${height} />
     <rect class=${"bar" + (special ? " special" : "") + on}
       x=${x.toFixed(2)} y=${(height - bh).toFixed(2)}
