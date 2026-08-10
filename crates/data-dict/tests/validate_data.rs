@@ -2003,6 +2003,36 @@ fn dividing_by_zero_withdraws_the_verdict() {
 }
 
 #[test]
+fn a_remainder_takes_its_sign_from_the_divisor() {
+    // `MOD(-7, 3)` is 2, not -1: the divisor's sign wins, as in R and Python.
+    let yaml = build_asserted(&[-7], &[None], &assertion("MOD(a, 3) = 2"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    let yaml = build_asserted(&[-7], &[None], &assertion("MOD(a, -3) = -1"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    // A float divisor takes the same rule.
+    let yaml = build_asserted(&[-7], &[None], &assertion("MOD(a, 2.5) = 0.5"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_remainder_never_follows_the_dividend() {
+    let yaml = build_asserted(&[-7, -6], &[None, None], &assertion("MOD(a, 3) <= 0"));
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "(a=-7)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn a_zero_modulus_withdraws_the_verdict() {
+    let yaml = build_asserted(&[1, 0], &[Some(5), Some(5)], &assertion("MOD(b, a) = 0"));
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D10", "divides by zero", "row 2"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
 fn integer_overflow_withdraws_the_verdict() {
     let huge = i64::MAX;
     let yaml = build_asserted(&[1, huge], &[None, None], &assertion("a * 2 > 0"));

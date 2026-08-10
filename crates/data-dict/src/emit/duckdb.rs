@@ -176,6 +176,7 @@ const DIVISION: Fidelity = Fidelity::Divergent(
 );
 
 /// `MOD` by zero is null here, and reported by data-dict, for the same reason.
+/// The sign of a remainder is guarded; only the zero divisor diverges.
 const MODULO: Fidelity =
     Fidelity::Divergent("DuckDB yields null for a zero modulus, where data-dict reports it (D10).");
 
@@ -270,9 +271,22 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
         Op::Ceil => simple(cx, "ceil")?,
         // DuckDB rounds halves away from zero, as the language does.
         Op::Round => simple(cx, "round")?,
+        // DuckDB's `mod` takes its sign from the dividend where the language
+        // takes it from the divisor. Adding the divisor and folding again
+        // corrects that, and keeps an integer result an integer — which
+        // `x - y * floor(x / y)` would not, since `/` is float division here.
         Op::Mod => {
             cx.fidelity(MODULO);
-            simple(cx, "mod")?;
+            let (x, y) = (&args[0], &args[1]);
+            cx.push("mod(mod(");
+            cx.free(x)?;
+            cx.push(", ");
+            cx.free(y)?;
+            cx.push(") + ");
+            cx.child(prec::ADD, Side::Right, y)?;
+            cx.push(", ");
+            cx.free(y)?;
+            cx.push(")");
         }
         Op::Min => simple(cx, "min")?,
         Op::Max => simple(cx, "max")?,

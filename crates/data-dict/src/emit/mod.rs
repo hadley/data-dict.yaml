@@ -427,6 +427,22 @@ mod tests {
     }
 
     #[test]
+    fn modulo_is_folded_twice_to_follow_the_divisor() {
+        // DuckDB's `mod` follows the dividend, so the sign needs the guard.
+        assert_eq!(sql("MOD(n, 3) = 0"), r#"mod(mod("n", 3) + 3, 3) = 0"#);
+        // A compound divisor is bracketed where it lands beside the `+`, and
+        // bare where a comma already ends it.
+        assert_eq!(
+            sql("MOD(n, qty + 1) = 0"),
+            r#"mod(mod("n", "qty" + 1) + ("qty" + 1), "qty" + 1) = 0"#
+        );
+        assert_eq!(
+            sql("MOD(n + 1, 3) = 0"),
+            r#"mod(mod("n" + 1, 3) + 3, 3) = 0"#
+        );
+    }
+
+    #[test]
     fn divergences_attach_a_note_by_being_used() {
         assert!(notes("qty > 0").is_empty());
         assert!(notes("n / qty > 1")[0].contains("infinity"));
@@ -483,19 +499,12 @@ mod r_tests {
     }
 
     #[test]
-    fn modulo_takes_its_sign_from_the_dividend() {
-        // R's `%%` follows the divisor, so the language's rule is arithmetic.
-        assert_eq!(r("MOD(n, 3) = 0"), "n - 3L * trunc(n / 3L) == 0L");
-        // A compound dividend keeps its brackets inside the division, or `/`
-        // would take only the last term.
-        assert_eq!(
-            r("MOD(n + 1, 3) = 0"),
-            "n + 1L - 3L * trunc((n + 1L) / 3L) == 0L"
-        );
-        assert_eq!(
-            r("MOD(n, qty + 1) = 0"),
-            "n - (qty + 1L) * trunc(n / (qty + 1L)) == 0L"
-        );
+    fn modulo_is_the_native_operator() {
+        // `%%` follows the divisor, as the language does.
+        assert_eq!(r("MOD(n, 3) = 0"), "n %% 3L == 0L");
+        // `%%` binds tighter than arithmetic, so a compound operand brackets.
+        assert_eq!(r("MOD(n + 1, 3) = 0"), "(n + 1L) %% 3L == 0L");
+        assert_eq!(r("MOD(n, qty + 1) = 0"), "n %% (qty + 1L) == 0L");
     }
 
     #[test]

@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: MOD(b, a) = 0
+    columns:
+      - name: a
+        type: number(quantity)
+        range: [-1000000, 1000000]
+      - name: b
+        type: number(quantity)
+        range: [-1000000, 1000000]
+────────────────────────────────────────
+error[D10]: An assertion must be computable for every row.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: MOD(b, a) = 0
+   |                 ^^^^^^^^^^^^^ divides by zero at row 2

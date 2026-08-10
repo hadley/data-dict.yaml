@@ -1,11 +1,11 @@
 //! `R(tidyverse)` — dplyr and stringr.
 //!
 //! R's `&`, `|` and `!` are already three-valued over `NA`, so the logic needs
-//! nothing. Three things do need work: `%in%` answers `FALSE` for an `NA`
-//! subject where the language says null, `%%` takes its sign from the divisor
-//! where the language takes it from the dividend, and adding a duration to a
-//! `Date` keeps it a `Date` where the language produces a datetime. Each is
-//! guarded, so those three are exact rather than approximate.
+//! nothing, and `%%` agrees with the language about a remainder's sign. Two
+//! things do need work: `%in%` answers `FALSE` for an `NA` subject where the
+//! language says null, and adding a duration to a `Date` keeps it a `Date`
+//! where the language produces a datetime. Both are guarded, so they are exact
+//! rather than approximate.
 
 use super::{Ctx, Fidelity, Side, Target, Unsupported};
 use crate::assert_expr::{
@@ -16,8 +16,8 @@ use crate::assert_expr::{
 pub struct RTidyverse;
 
 /// R's precedence, which differs from SQL's in one place that matters: an
-/// infix `%…%` operator binds *tighter* than `*` and `/`, so `%in%` has a level
-/// of its own above them.
+/// infix `%…%` operator binds *tighter* than `*` and `/`, so `%in%` and `%%`
+/// have a level of their own above them.
 mod p {
     pub const OR: u8 = 1;
     pub const AND: u8 = 2;
@@ -38,11 +38,10 @@ impl Target for RTidyverse {
     fn prec(&self, e: &TypedExpr) -> u8 {
         match &e.kind {
             NodeKind::Or(..) => p::OR,
-            // A guarded `IN` is an `|`, and a guarded `MOD` is a subtraction:
-            // both sit where their emitted form sits, not where the language's
-            // operator would.
+            // A guarded `IN` is an `|`, and `MOD` is `%%`: both sit where their
+            // emitted form sits, not where the language's operator would.
             NodeKind::In { .. } => p::OR,
-            NodeKind::Func { op: Op::Mod, .. } => p::ADD,
+            NodeKind::Func { op: Op::Mod, .. } => p::SPECIAL,
             NodeKind::And(..) => p::AND,
             NodeKind::Not(_) => p::NOT,
             NodeKind::Compare { .. } | NodeKind::Between { .. } => p::CMP,
@@ -381,22 +380,9 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             cx.fidelity(ROUNDING);
             cx.call("round", &refs)?;
         }
-        // R's `%%` takes its sign from the divisor; the language takes it from
-        // the dividend, which this arithmetic restores.
         Op::Mod => {
             cx.fidelity(MODULO_ZERO);
-            let (x, y) = (&args[0], &args[1]);
-            cx.child(p::ADD, Side::Left, x)?;
-            cx.push(" - ");
-            cx.child(p::MUL, Side::Right, y)?;
-            // The division inside `trunc` is an operator position, not a
-            // delimited one: a compound dividend has to keep its brackets or
-            // `/` steals its last term.
-            cx.push(" * trunc(");
-            cx.child(p::MUL, Side::Left, x)?;
-            cx.push(" / ");
-            cx.child(p::MUL, Side::Right, y)?;
-            cx.push(")");
+            cx.infix(p::SPECIAL, "%%", &args[0], &args[1])?;
         }
         Op::Min | Op::Max | Op::Sum | Op::Avg => {
             cx.fidelity(EMPTY_FOLD);

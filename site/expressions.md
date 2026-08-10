@@ -317,9 +317,9 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
   description: Shares are recorded to two decimal places.
 ```
 
-#### `MOD(x, y)`
+#### `MOD(x, y)` {#mod}
 
-`number, number → number`. The remainder of `x / y`, taking its sign from `x` (so `MOD(-7, 3)` is `-1`). A zero `y` is [an error](expression-execution.md#no-result), as it is for `/`.
+`number, number → number`. The remainder of `x / y`, taking its sign from `y` (so `MOD(-7, 3)` is `2` and `MOD(7, -3)` is `-2`). This is the convention R and Python use; C and SQL take the sign from `x` instead. A zero `y` is [an error](expression-execution.md#no-result), as it is for `/`.
 
 ```yaml
 - assert: MOD(minutes, 15) = 0
