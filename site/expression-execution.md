@@ -27,17 +27,25 @@ A **mixed-grain** assertion such as `value <= 2 * MIN(value)` is a `row` asserti
 
 Evaluation works over the language's six [types](expressions.md#types) plus null, and **numbers are integers or floats**, [as the language describes](expressions.md#integers-and-floats) — integer arithmetic is exact, and `/` always produces a float.
 
-Null is used for one thing only: a value that is missing or unknown. It is never used to stand for a value that arithmetic failed to produce.
+Null is used for one thing only: a value that is missing or unknown. It is never used to stand for a value that arithmetic failed to produce, and never for a value that is there but isn't a number: [an infinity and a NaN are values](expressions.md#non-finite).
 
 #### Arithmetic with no result {#no-result}
 
-Two situations leave an expression with no answer to give. Neither yields a value; both are reported, and the assertion's verdict for that table is withdrawn rather than guessed at — a `D09` or `D10` replaces the `D07` that would otherwise be reported.
+One situation leaves an expression with no answer to give. It yields no value; it is reported, and the assertion's verdict for that table is withdrawn rather than guessed at — a `D09` replaces the `D07` that would otherwise be reported.
 
-**Dividing by zero** ([D10](validation.md#data-validation-checks)), in `/` or in `MOD`. Silence here would be worse than it looks: the alternative of yielding null means the row *passes*, since [null passes](#what-counts-as-a-violation), so `total / qty > 1` would go quietly unenforced on exactly the rows whose `qty` is most suspect. An infinity or a NaN would be no better, since neither is a number the language has.
-
-**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` at the extreme negative integer, in `ROUND` with a large negative `digits`, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to infinity, not to a wrong number, and an expression that would produce one is already an error by the rule above.
+**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` and `MOD` at the extreme negative integer, in an `interval` count, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to `INF`, which is [a value the language has](expressions.md#non-finite), so the expression still reaches a verdict.
 
 This does mean evaluation is not total — some data can stop an assertion from reaching a verdict. That is a deliberate trade. A rule that cannot be computed has not been checked, and saying so is more useful than a pass nobody earned.
+
+#### Non-finite values {#non-finite}
+
+Division by zero is an infinity or a NaN, [as the language specifies](expressions.md#non-finite): `7 / 0` is `INF`, `0 / 0` is a NaN, `MOD(x, 0)` is a NaN. Nothing is reported, and evaluation carries on.
+
+This is safe because comparing anything against a NaN gives `false`, so the row is reported as a violation. Giving null instead would be unsafe, because [null passes](#what-counts-as-a-violation): `total / qty > 1` would then go unchecked on exactly the rows whose `qty` is most suspect.
+
+A NaN or an infinity in the data is treated the same way as one the arithmetic produced. `validate-data` reads a float column as it finds it, so such a value is a value, not a missing one and not a broken column: `IS NULL` is `false` for it, `required` is satisfied by it ([D01](validation.md#data-validation-checks)), `COUNT` counts it, an aggregate folds it in, and any comparison against a NaN is `false`.
+
+The profile treats the same values differently, on purpose: it counts them [separately](export.md#profile) instead of binning them. A profile shows where values sit on the number line, and an infinity has no place there — it would stretch every bin. An assertion just asks whether a rule holds, and there an infinity is an ordinary value.
 
 ### Time
 
@@ -117,11 +125,28 @@ These differences are broad enough to be worth naming here rather than only in a
 
 **Regular expression flavour.** The language uses RE2. So do polars and DuckDB, which are therefore exact. stringr matches with ICU, base R's `grepl` with PCRE, and Python's `re` with its own flavour; all three accept the common syntax and differ only in corners. Where that matters, the explicit list form of `COLUMNS(...)` avoids the regex entirely.
 
-**Empty and all-null aggregates.** The language returns null when there is nothing to fold, and an assertion [passes vacuously](expressions.md#empty-input) as a result. R, polars and pandas return the fold's identity instead — `0` for `SUM`, `false` for `ANY`, `true` for `ALL` — and R gives `Inf`/`-Inf` for `MIN`/`MAX`. So `SUM(qty) > 0` passes here on an empty table and fails in R. The SQL targets agree with the language, `ANY`/`ALL` by [an explicit guard](#why-these-spellings).
+**Empty and all-null aggregates.** The language returns null when there is nothing to fold, and an assertion [passes vacuously](expressions.md#empty-input) as a result. R, polars and pandas return the fold's identity instead — `0` for `SUM`, `false` for `ANY`, `true` for `ALL` — and R gives `Inf`/`-Inf` for `MIN`/`MAX`, which the language gives only for a column that actually contains one. So `SUM(qty) > 0` passes here on an empty table and fails in R. The SQL targets agree with the language, `ANY`/`ALL` by [an explicit guard](#why-these-spellings).
 
-**Arithmetic with no result.** The language [reports](#no-result) a zero divisor and an integer overflow rather than producing a value, and no target can be made to do the same, because raising is a statement and a translation is an expression. The disagreements differ per target and per case: PostgreSQL raises on both; DuckDB raises on overflow but gives `inf`/`nan` for a zero divisor; R gives `Inf` and `NA`; Python raises `ZeroDivisionError` but has unbounded integers; polars and pandas give infinities and wrap at 64 bits. Every target therefore carries a note, and a dictionary whose data trips either case should be trusted only through `validate-data`.
+**Arithmetic with no result.** The language [reports](#no-result) an integer overflow rather than producing a value, and no target can be made to do the same, because raising is a statement and a translation is an expression. The disagreements differ per target: PostgreSQL and DuckDB raise, R has no 64-bit integer at all and gives a double, Python's integers are unbounded, and polars and pandas wrap at 64 bits. Every target therefore carries a note, and a dictionary whose data trips it should be trusted only through `validate-data`.
 
-**pandas needs a stance of its own.** NumPy-backed pandas compares `NaN` with the opposite convention to three-valued logic — `NaN == x` is `False` where the language says null. pandas translations therefore assume nullable ("Arrow-backed") dtypes, under which comparisons yield `NA` and `&`/`|` follow the same Kleene rules as the language. The assumption travels as a note rather than as guard code; guarding every comparison for NaN-backed frames is not attempted.
+Division by zero splits the targets the other way. [The language gives an infinity or a NaN](expressions.md#non-finite), and so do DuckDB, R, polars and pandas, so those four agree. PostgreSQL raises `division_by_zero` and Python raises `ZeroDivisionError`, so those two — and `SQL(ANSI)`, which is portable only where both engines agree — refuse where the language answers.
+
+**What a NaN means.** The language says two things about a NaN: [comparing against one gives `false`, and it is a value rather than a missing one](expressions.md#non-finite). The targets answer both three different ways.
+
+| Target | `NaN = NaN`, `NaN > 1` | `NaN IS NULL` | an aggregate over a NaN |
+|--------|------------------------|---------------|-------------------------|
+| the language | `false` | `false` | folded in |
+| `SQL(duckdb)`, `Python(polars)` | `true` | `false` | folded in |
+| `SQL(postgres)` | `true` | `false` | folded in |
+| `R(*)` | `NA` | `TRUE` | dropped by `na.rm` |
+| `Python(pandas)`, Arrow-backed | `NA` | `True` | dropped |
+| `Python(pandas)`, NumPy-backed | `False` | `True` | dropped |
+
+: {tbl-colwidths="[30,24,16,30]"}
+
+Every disagreement goes the same way: the target says `true` or null where the language says `false`, and both of those [pass](#what-counts-as-a-violation). So on a row holding a NaN a translated rule is more forgiving than this one, never stricter. A target that can recover the language's answer with a short guard does so; one that can't says so in a note. Either way, a dictionary whose float columns hold NaNs should be checked with `validate-data`.
+
+**pandas needs a stance of its own.** Both pandas backends treat a NaN as *missing* — `isna` is `True` and every aggregate drops it — where [the language treats it as a value](expressions.md#non-finite). The two backends then disagree with each other about comparison: NumPy-backed pandas says `False`, which is the language's answer, and Arrow-backed pandas says `NA`, which isn't. pandas translations still assume nullable ("Arrow-backed") dtypes, because that backend's `&` and `|` follow the same three-valued logic as the language — and every rule uses that logic, while only a column that actually holds a NaN uses NaN comparison. Both assumptions travel as notes rather than as guard code; guarding every comparison and every aggregate for pandas is not attempted.
 
 ### Selecting multiple columns
 
@@ -244,13 +269,13 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 | `x / y`, floats involved | `x / y` | Divergent |
 | `x / y`, both integers | `CAST(x AS DOUBLE PRECISION) / y` | Divergent |
 | `d + i`, `d - i`, `t + i`, `t - i` | `d + i`, `d - i` | Exact |
-| `x = y` | `x = y` | Exact |
-| `x != y`, `x <> y` | `x <> y` | Exact |
-| `x < y`, `x <= y`, `x > y`, `x >= y` | same | Exact |
+| `x = y` | `x = y` | Divergent on `number`, else Exact |
+| `x != y`, `x <> y` | `x <> y` | Divergent on `number`, else Exact |
+| `x < y`, `x <= y`, `x > y`, `x >= y` | same | Divergent on `number`, else Exact |
 | `x IS [NOT] NULL` | `x IS [NOT] NULL` | Exact |
 | `NOT x`, `x AND y`, `x OR y` | `NOT x`, `x AND y`, `x OR y` | Exact |
-| `x [NOT] BETWEEN lo AND hi` | same | Exact |
-| `x [NOT] IN (…)` | same | Exact |
+| `x [NOT] BETWEEN lo AND hi` | same | Divergent on `number`, else Exact |
+| `x [NOT] IN (…)` | same | Divergent on `number`, else Exact |
 | `s [NOT] LIKE p` | `s [NOT] LIKE p` | Exact |
 | `s SIMILAR TO p` | — | **Unsupported** |
 | `CASE WHEN … END` | `CASE WHEN … END` | Exact |
@@ -271,7 +296,10 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 | `COUNT_DISTINCT(x)` | `COUNT(DISTINCT x)` | Exact |
 | `ANY(b)` | `CASE WHEN COUNT(b) = 0 THEN NULL ELSE MAX(CASE WHEN b THEN 1 ELSE 0 END) = 1 END` | Guarded |
 | `ALL(b)` | as `ANY`, with `MIN` | Guarded |
+| `IS_INFINITE(x)` | `x = CAST('Infinity' AS DOUBLE PRECISION) OR x = CAST('-Infinity' AS DOUBLE PRECISION)` | Guarded |
+| `IS_NAN(x)`, `IS_FINITE(x)` | — | **Unsupported** |
 | a number literal | `42`, `3.14` — integers without a point | Exact |
+| `INF`, `NAN` | `CAST('Infinity' AS DOUBLE PRECISION)`, `CAST('NaN' AS DOUBLE PRECISION)` | Exact |
 | a string literal | `'…'`, single quotes doubled | Exact |
 | a date/datetime literal | `DATE '2000-01-01'`, `TIMESTAMP '…'` | Exact |
 | `NULL`, `TRUE`, `FALSE` | `NULL`, `TRUE`, `FALSE` | Exact |
@@ -285,6 +313,7 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 |-----------|-----|
 | `SIMILAR TO` | Standard SQL has an operator spelled `SIMILAR TO`, but it matches a different pattern language than [the language's RE2](expressions.md#pattern-matching), and DuckDB and PostgreSQL spell regex matching differently (`regexp_matches` / `~`). Emitting the standard operator would be a mistranslation, so the target refuses instead. Use `SQL(duckdb)` or `SQL(postgres)`. |
 | `LIKE` with a computed pattern | The `ESCAPE`-based prefix and suffix translations require the pattern to be a literal so it can be escaped at translation time. A literal pattern is the ordinary case. |
+| `IS_NAN`, `IS_FINITE` | Detecting a NaN needs `isnan` in DuckDB and `x = 'NaN'` in PostgreSQL, and the standard `x <> x` idiom works on neither, because both engines make a NaN equal to itself. There is no portable spelling, so the target refuses rather than emitting one that is wrong on one engine. Use `SQL(duckdb)` or `SQL(postgres)`. |
 
 : {tbl-colwidths="[28,72]"}
 
@@ -294,9 +323,11 @@ Each guard below exists because the two engines disagree, or because both disagr
 
 **Integer division.** `1 / 2` is `0` in PostgreSQL and `0.5` in DuckDB, and [the language says `0.5`](expressions.md#integers-and-floats). Casting one operand makes both engines agree with the language.
 
-**Zero divisors are left bare.** [The language reports them](#no-result), and so does PostgreSQL, so the plain spelling is exactly right there. DuckDB is the odd one out: `7/0` is `inf`, `0/0` is `nan`, and `MOD(7, 0)` is null. No portable expression raises, so this cannot be guarded, only declared — it is the one place `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
+**Zero divisors are left bare.** [The language gives an infinity or a NaN](expressions.md#non-finite), and so does DuckDB — `7/0` is `inf`, `0/0` is `nan` — so the plain spelling is exactly right there. PostgreSQL is the odd one out: it raises `division_by_zero`, and raises on `MOD(7, 0)` too, where DuckDB gives null for an integer modulus. No portable expression gives an infinity, so this can't be guarded, only declared. It is one of the two places `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
 
-**A floored modulo needs a guard.** [The language takes `MOD`'s sign from the divisor](expressions.md#mod), as R and Python do; the SQL standard, PostgreSQL and DuckDB all take it from the dividend. `MOD(MOD(x, y) + y, y)` corrects the sign on both engines, and keeps an integer result an integer — the `x - y * FLOOR(x / y)` form would not, since the language's `/` is float division. The zero divisor is why this mapping is Divergent rather than Guarded.
+**Comparison against a NaN can't be guarded.** [The language says](expressions.md#non-finite) `NAN = NAN` is `false` and `NAN > 1` is `false`. Both engines instead sort a NaN above every number and make it equal to itself, so both say `true` where the language says `false`. There is no portable fix. The usual way to spot a NaN is `x <> x`, and that is exactly what these engines break: if a NaN equals itself, `x <> x` is `false` for a NaN too. Testing for one needs `isnan` in DuckDB and `x = 'NaN'` in PostgreSQL, so the comparison operators are Divergent wherever a `number` can reach them. That is the second place `SQL(ANSI)` means different things on the two engines, and the reason `IS_NAN` and `IS_FINITE` are refused. `IS_INFINITE` is fine, because comparing against an infinity works the same on both.
+
+**A floored modulo needs a guard.** [The language takes `MOD`'s sign from the divisor](expressions.md#mod), as R and Python do; the SQL standard, PostgreSQL and DuckDB all take it from the dividend. `MOD(MOD(x, y) + y, y)` corrects the sign on both engines, and keeps an integer result an integer — the `x - y * FLOOR(x / y)` form would not, since the language's `/` is float division. The zero divisor is why this mapping is Divergent rather than Guarded: the language gives a NaN, PostgreSQL raises, and DuckDB gives null for an integer modulus.
 
 **Shifting a date needs no cast.** `date + interval` produces a timestamp in both engines, and [so does the language](expressions.md#arithmetic) — the rule was chosen to match them. Nothing to guard.
 

@@ -41,7 +41,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S09 | Missing `$learn_more` | W | The document omits the recommended `$learn_more` key. |
 | S10 | Duplicate name | E | Two column descriptors within the same table share a `name`, or two table descriptors within the dictionary share a `name`. |
 | S11 | Empty name | E | A table name or a column `name` is empty. |
-| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings, so a value that reads as a number or a boolean counts only if quoted; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. For a `list(element_type)` column the values must match the element type (the innermost, for nested lists). |
+| S12 | Wrong value type | E | A value in `range` or `examples` does not match the column's `type` — a number type wants numbers; `string` wants strings, so a value that reads as a number or a boolean counts only if quoted; `date` wants an ISO 8601 date (e.g. `2024-01-31`); `datetime` wants an ISO 8601 datetime, with an offset (e.g. `2024-01-31T09:30:00Z`) unless the column has a `time_zone`, in which case it's zoneless (e.g. `2024-01-31T09:30:00`). A `range` bound may instead be `-.inf` (minimum) or `.inf` (maximum) to leave that end open, on any range type. `.nan` is never a valid bound in either position: a NaN has no position on the number line, so it cannot describe an extreme. For a `list(element_type)` column the values must match the element type (the innermost, for nested lists). |
 | S13 | Descending range | E | A `range`'s minimum is greater than its maximum. An open bound counts as ordered only in its own place — `-.inf` as the minimum and `.inf` as the maximum; `.inf` as a minimum or `-.inf` as a maximum runs backwards. |
 | S14 | Time zone without datetime | E | A column has `time_zone` but its type is not `datetime` — or a list whose innermost element type is. |
 | S15 | Malformed time zone | E | A `time_zone` is not `naive`, `UTC`, or an IANA `Area/Location` name with a known area. The shape is checked, not the full tz database, so the accepted set doesn't go stale as zones are added or renamed. |
@@ -92,7 +92,7 @@ How Parquet's nested shapes read as data-dict types, for the M01 comparison:
 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
-| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. On a `list` or `struct` column, `required` is about the container itself: a null list counts, an empty one does not. |
+| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. On a `list` or `struct` column, `required` is about the container itself: a null list counts, an empty one does not. A [NaN or an infinity](expressions.md#non-finite) is a value rather than a missing one, so a float column holding them satisfies `required`; assert `IS_FINITE(x)` if they should be excluded too. |
 | D02 | Duplicate values | E | A `unique` column contains duplicate values, or the combination of all `primary_key` columns does not uniquely identify every row. Only [comparable types](#comparable-types) are checked. Null/missing values are never counted as duplicates; for a composite primary key, a row with a null in any key column is not compared. |
 | D03 | Uniqueness not verified | W | A `unique` column or `primary_key` uses a type whose values can't be reliably compared, so its uniqueness was not checked. |
 | D04 | Value outside enum | E | An `enum` column contains a (non-null) value that is not one of its declared `values`. Applies inside nested types too: the elements of a `list(enum)` column, and every `enum` field reachable through `struct` fields (recursively, including through `list(struct)`), are checked against their declared `values`. |
@@ -101,9 +101,10 @@ How Parquet's nested shapes read as data-dict types, for the M01 comparison:
 | D07 | Assertion violated | E | An `assert` [expression](expressions.md) is false. A row-level assertion reports how many rows it is false for and identifies the first few; an aggregate assertion is a single verdict about the table, so it reports only that it is false. A row passes when the expression is true **or** null, so an assertion is never also a null check (see [evaluation](expression-execution.md#what-counts-as-a-violation)). |
 | D08 | Assertion not checked | E | An `assert` expression could not be evaluated against the data: it references a column that can't be read as the type the dictionary declares for it, or a `LIKE` / `SIMILAR TO` pattern it reads *from* the data is not a valid regular expression. A literal pattern is rejected at the spec level (S21), so only a computed one can get this far. An unevaluated rule has not been satisfied, so this is an error rather than a silent pass: the dictionary states a rule the data cannot be held to, and one of the two has to change. |
 | D09 | Assertion overflowed | E | Integer arithmetic in an `assert` expression left the 64-bit range, so the expression no longer computes what it says. |
-| D10 | Assertion divided by zero | E | An `assert` expression divided by zero, in `/` or in `MOD`. Reported rather than yielding null, because a null result would make the row *pass* — leaving the rule unenforced on exactly the rows a zero denominator makes suspect. |
 
 : {tbl-colwidths="[7,23,5,65]"}
+
+Dividing by zero is not among these: `7 / 0` is `INF` and `0 / 0` is a NaN, [as the language specifies](expressions.md#non-finite), and a comparison against a NaN is `false`, so a row whose arithmetic goes non-finite is reported as an ordinary D07 violation.
 
 ### Comparable types {#comparable-types}
 
@@ -113,13 +114,13 @@ The uniqueness check (D02) compares values directly, so it only runs on types wh
 
 For **Parquet**:
 
-* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values — including 16-bit floats — treat `-0.0` and `+0.0` as equal and all NaNs as a single value. Legacy `INT96` timestamps are compared as datetimes, by the instant they denote.
+* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values — including 16-bit floats — are compared by [identity rather than by `=`](expressions.md#non-finite): `-0.0` and `+0.0` are one value, and all NaNs are one value. That is deliberately not the language's `=`, under which no NaN equals any NaN — a uniqueness check asks whether a value has been seen before, which is a question about identity, and answering it with `=` would let a column of a million NaNs pass as a million distinct keys. Legacy `INT96` timestamps are compared as datetimes, by the instant they denote.
 
 * JSON and BSON, whose byte representation does not determine equality (two documents can differ only in whitespace or key order and still be equal), are **not** compared. Neither is any Parquet logical type the validator does not recognize — including future types such as `VARIANT` or `GEOMETRY`.
 
 For a non-comparable column, running the check anyway could silently miss duplicates and pass a dataset that should fail, so the check is skipped with a D03 warning instead. A composite primary key is skipped whole if any of its columns is non-comparable.
 
-The foreign-key check (D05) is governed by the same comparability rule: the foreign-key column and the primary-key column it references are compared by the same normalized value form, so both must be comparable. The two columns need not share a physical representation: values are compared as values, so a key stored as `INT64` can be referenced by an `INT32` column, and a byte-encoded decimal by an int-encoded one. When the two columns have no common comparable form at all (say, a string referencing a number), no value can match, and every non-null child value is reported. If either column uses a non-comparable type, the reference could silently mismatch, so the check is skipped with a D06 warning instead.
+The foreign-key check (D05) is governed by the same comparability rule, identity included, so a NaN in a child column matches a NaN in the parent: the foreign-key column and the primary-key column it references are compared by the same normalized value form, so both must be comparable. The two columns need not share a physical representation: values are compared as values, so a key stored as `INT64` can be referenced by an `INT32` column, and a byte-encoded decimal by an int-encoded one. When the two columns have no common comparable form at all (say, a string referencing a number), no value can match, and every non-null child value is reported. If either column uses a non-comparable type, the reference could silently mismatch, so the check is skipped with a D06 warning instead.
 
 ### Assertions {#assertions}
 
@@ -127,7 +128,7 @@ An `assert` expression is checked for form at the spec level (S19–S23, S30) an
 
 `NOW()` is bound once for the whole `validate-data` run, so every assertion in the run agrees on the current time. [Executing expressions](expression-execution.md) is the reference for what evaluation means.
 
-D08, D09 and D10 are the three ways an assertion can fail to reach a verdict: its columns can't be read as their declared types, a pattern it reads from the data won't compile, or [its arithmetic has no result](expression-execution.md#no-result). All three are errors, and each replaces the D07 that assertion would otherwise report. A rule that could not be computed has neither held nor been broken, and none of the three is allowed to read as a pass.
+D08 and D09 are the two ways an assertion can fail to reach a verdict: its columns can't be read as their declared types or a pattern it reads from the data won't compile, and [its integer arithmetic has no result](expression-execution.md#no-result). Both are errors, and each replaces the D07 that assertion would otherwise report. A rule that could not be computed has neither held nor been broken, and neither is allowed to read as a pass.
 
 ### Enum membership {#enum-membership}
 
