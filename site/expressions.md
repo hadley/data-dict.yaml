@@ -1,6 +1,6 @@
 # Expressions
 
-data-dict provides a small expression language: a SQL-like sublanguage for stating a rule about the values in a single table. You write one wherever a dictionary needs to say something a keyword can't, which today means the `assert` key of a column or table [constraint](spec.md#column-constraints):
+data-dict provides a small expression language: a SQL-like sublanguage for stating a rule about the values in a single table. You write one wherever a dictionary needs to say something a keyword can't: in a [constraint](spec.md#column-constraints), or [definition](spec.md#definitions):
 
 ```yaml
 tables:
@@ -14,6 +14,10 @@ tables:
         constraints:
           - required
           - assert: LENGTH(postcode) <= 10
+    definitions:
+      - name: complete
+        description: Respondents who answered every question.
+        expr: COLUMNS('q[1-8]') IS NOT NULL
 ```
 
 An expression is always written against the columns of one table: bare names are that table's column names, and an expression on a column sees every other column too. So the two constraints above differ in where they're written, not in what they can say — a column constraint sits next to the column it's mostly about, and a table constraint is the natural home for a rule that spans columns.
@@ -473,9 +477,9 @@ Expressions are checked when the dictionary is validated, against the columns of
 
 Five rules decide whether an expression is well formed, and a sixth — that [every operand whose type matters has one](#types) — applies throughout. The more the dictionary says about a column, the more of an expression can be checked.
 
-### The expression as a whole must be boolean
+### Constraint expressions as a whole must be boolean
 
-An expression states a rule, so its result must be a truth value. A bare non-boolean column is not a rule on its own; compare or test it (`qty > 0`, `postcode IS NOT NULL`). A bare top-level `COLUMNS(...)` is fine so long as every column it selects is boolean.
+A constraint states a rule, so its result must be a truth value. A bare non-boolean column is not a rule on its own; compare or test it (`qty > 0`, `postcode IS NOT NULL`). A bare top-level `COLUMNS(...)` is fine so long as every column it selects is boolean.
 
 ### Operands must match their operator or function
 

@@ -34,6 +34,7 @@ The content keys all hold the actual information about the data:
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
+* `definitions`: a list of named expressions — metrics and filters — defined on this table (see [Definitions](#definitions)).
 * `todo`: work that remains on this table (see [Todo](#todo)).
 
 For example:
@@ -352,6 +353,36 @@ constraints:
 ```
 
 [Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
+
+### Definitions
+
+A table's `definitions` property is a list of named expressions — the metrics, filters, and derviations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
+
+Each entry is a map with:
+
+* `name` (required): the definition's name. Must be non-empty and unique within the table.
+* `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
+* `description`: human-readable description of what the expression computes and when to use it.
+
+The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
+
+* A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
+* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows.
+* Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
+
+```yaml
+tables:
+  - name: orders
+    definitions:
+      - name: net_revenue
+        description: Realized revenue excluding returned orders.
+        expr: SUM(order_total) FILTER (WHERE status_cd = 90)
+      - name: is_enterprise
+        description: For historical reasons, the Enterprise segment also includes Mid-Market-3.
+        expr: tile_size IN ('Mid-Market-3', 'Enterprise-1', 'Enterprise-2', 'Enterprise-3')
+```
+
+Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns — but the metadata and data levels never evaluate them.
 
 ## Relationships
 
