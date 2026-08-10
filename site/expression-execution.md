@@ -25,27 +25,21 @@ A **mixed-grain** assertion such as `value <= 2 * MIN(value)` is a `row` asserti
 
 ### Values
 
-Evaluation works over the language's six [types](expressions.md#types) plus null, and **numbers are integers or floats**, [as the language describes](expressions.md#integers-and-floats) — integer arithmetic is exact, and `/` always produces a float.
+Evaluation works over the language's six [types](expressions.md#types) plus null, and **numbers are integers or floats**, [as the language describes](floating-point.md#integers-and-floats) — integer arithmetic is exact, and `/` always produces a float.
 
-Null is used for one thing only: a value that is missing or unknown. It is never used to stand for a value that arithmetic failed to produce, and never for a value that is there but isn't a number: [an infinity and a NaN are values](expressions.md#non-finite).
+Null is used for one thing only: a value that is missing or unknown. It is never used to stand for a value that arithmetic failed to produce, and never for a value that is there but isn't a number: [an infinity and a NaN are values](floating-point.md#non-finite).
 
 #### Arithmetic with no result {#no-result}
 
 One situation leaves an expression with no answer to give. It yields no value; it is reported, and the assertion's verdict for that table is withdrawn rather than guessed at — a `D09` replaces the `D07` that would otherwise be reported.
 
-**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` and `MOD` at the extreme negative integer, in an `interval` count, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to `INF`, which is [a value the language has](expressions.md#non-finite), so the expression still reaches a verdict.
+**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` and `MOD` at the extreme negative integer, in an `interval` count, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to `INF`, which is [a value the language has](floating-point.md#non-finite), so the expression still reaches a verdict.
 
 This does mean evaluation is not total — some data can stop an assertion from reaching a verdict. That is a deliberate trade. A rule that cannot be computed has not been checked, and saying so is more useful than a pass nobody earned.
 
 #### Non-finite values {#non-finite}
 
-Division by zero is an infinity or a NaN, [as the language specifies](expressions.md#non-finite): `7 / 0` is `INF`, `0 / 0` is a NaN, `MOD(x, 0)` is a NaN. Nothing is reported, and evaluation carries on.
-
-This is safe because comparing anything against a NaN gives `false`, so the row is reported as a violation. Giving null instead would be unsafe, because [null passes](#what-counts-as-a-violation): `total / qty > 1` would then go unchecked on exactly the rows whose `qty` is most suspect.
-
-A NaN or an infinity in the data is treated the same way as one the arithmetic produced. `validate-data` reads a float column as it finds it, so such a value is a value, not a missing one and not a broken column: `IS NULL` is `false` for it, `required` is satisfied by it ([D01](validation.md#data-validation-checks)), `COUNT` counts it, an aggregate folds it in, and any comparison against a NaN is `false`.
-
-The profile treats the same values differently, on purpose: it counts them [separately](export.md#profile) instead of binning them. A profile shows where values sit on the number line, and an infinity has no place there — it would stretch every bin. An assertion just asks whether a rule holds, and there an infinity is an ordinary value.
+Division by zero is not among the situations above: `7 / 0` is `INF`, `0 / 0` is a NaN, `MOD(x, 0)` is a NaN. Nothing is reported, and evaluation carries on. A NaN or an infinity read from the data is treated the same way as one the arithmetic produced. [Floating point](floating-point.md#evaluation) covers both, and why comparing against a NaN gives `false` rather than null.
 
 ### Time
 
@@ -129,9 +123,9 @@ These differences are broad enough to be worth naming here rather than only in a
 
 **Arithmetic with no result.** The language [reports](#no-result) an integer overflow rather than producing a value, and no target can be made to do the same, because raising is a statement and a translation is an expression. The disagreements differ per target: PostgreSQL and DuckDB raise, R has no 64-bit integer at all and gives a double, Python's integers are unbounded, and polars and pandas wrap at 64 bits. Every target therefore carries a note, and a dictionary whose data trips it should be trusted only through `validate-data`.
 
-Division by zero splits the targets the other way. [The language gives an infinity or a NaN](expressions.md#non-finite), and so do DuckDB, R, polars and pandas, so those four agree. PostgreSQL raises `division_by_zero` and Python raises `ZeroDivisionError`, so those two — and `SQL(ANSI)`, which is portable only where both engines agree — refuse where the language answers.
+Division by zero splits the targets the other way. [The language gives an infinity or a NaN](floating-point.md#non-finite), and so do DuckDB, R, polars and pandas, so those four agree. PostgreSQL raises `division_by_zero` and Python raises `ZeroDivisionError`, so those two — and `SQL(ANSI)`, which is portable only where both engines agree — refuse where the language answers.
 
-**What a NaN means.** The language says two things about a NaN: [comparing against one gives `false`, and it is a value rather than a missing one](expressions.md#non-finite). The targets answer both three different ways.
+**What a NaN means.** The language says two things about a NaN: [comparing against one gives `false`, and it is a value rather than a missing one](floating-point.md#non-finite). The targets answer both three different ways.
 
 | Target | `NaN = NaN`, `NaN > 1` | `NaN IS NULL` | an aggregate over a NaN |
 |--------|------------------------|---------------|-------------------------|
@@ -146,7 +140,7 @@ Division by zero splits the targets the other way. [The language gives an infini
 
 Every disagreement goes the same way: the target says `true` or null where the language says `false`, and both of those [pass](#what-counts-as-a-violation). So on a row holding a NaN a translated rule is more forgiving than this one, never stricter. A target that can recover the language's answer with a short guard does so; one that can't says so in a note. Either way, a dictionary whose float columns hold NaNs should be checked with `validate-data`.
 
-**pandas needs a stance of its own.** Both pandas backends treat a NaN as *missing* — `isna` is `True` and every aggregate drops it — where [the language treats it as a value](expressions.md#non-finite). The two backends then disagree with each other about comparison: NumPy-backed pandas says `False`, which is the language's answer, and Arrow-backed pandas says `NA`, which isn't. pandas translations still assume nullable ("Arrow-backed") dtypes, because that backend's `&` and `|` follow the same three-valued logic as the language — and every rule uses that logic, while only a column that actually holds a NaN uses NaN comparison. Both assumptions travel as notes rather than as guard code; guarding every comparison and every aggregate for pandas is not attempted.
+**pandas needs a stance of its own.** Both pandas backends treat a NaN as *missing* — `isna` is `True` and every aggregate drops it — where [the language treats it as a value](floating-point.md#non-finite). The two backends then disagree with each other about comparison: NumPy-backed pandas says `False`, which is the language's answer, and Arrow-backed pandas says `NA`, which isn't. pandas translations still assume nullable ("Arrow-backed") dtypes, because that backend's `&` and `|` follow the same three-valued logic as the language — and every rule uses that logic, while only a column that actually holds a NaN uses NaN comparison. Both assumptions travel as notes rather than as guard code; guarding every comparison and every aggregate for pandas is not attempted.
 
 ### Selecting multiple columns
 
@@ -321,11 +315,11 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 
 Each guard below exists because the two engines disagree, or because both disagree with the language.
 
-**Integer division.** `1 / 2` is `0` in PostgreSQL and `0.5` in DuckDB, and [the language says `0.5`](expressions.md#integers-and-floats). Casting one operand makes both engines agree with the language.
+**Integer division.** `1 / 2` is `0` in PostgreSQL and `0.5` in DuckDB, and [the language says `0.5`](floating-point.md#integers-and-floats). Casting one operand makes both engines agree with the language.
 
-**Zero divisors are left bare.** [The language gives an infinity or a NaN](expressions.md#non-finite), and so does DuckDB — `7/0` is `inf`, `0/0` is `nan` — so the plain spelling is exactly right there. PostgreSQL is the odd one out: it raises `division_by_zero`, and raises on `MOD(7, 0)` too, where DuckDB gives null for an integer modulus. No portable expression gives an infinity, so this can't be guarded, only declared. It is one of the two places `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
+**Zero divisors are left bare.** [The language gives an infinity or a NaN](floating-point.md#non-finite), and so does DuckDB — `7/0` is `inf`, `0/0` is `nan` — so the plain spelling is exactly right there. PostgreSQL is the odd one out: it raises `division_by_zero`, and raises on `MOD(7, 0)` too, where DuckDB gives null for an integer modulus. No portable expression gives an infinity, so this can't be guarded, only declared. It is one of the two places `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
 
-**Comparison against a NaN can't be guarded.** [The language says](expressions.md#non-finite) `NAN = NAN` is `false` and `NAN > 1` is `false`. Both engines instead sort a NaN above every number and make it equal to itself, so both say `true` where the language says `false`. There is no portable fix. The usual way to spot a NaN is `x <> x`, and that is exactly what these engines break: if a NaN equals itself, `x <> x` is `false` for a NaN too. Testing for one needs `isnan` in DuckDB and `x = 'NaN'` in PostgreSQL, so the comparison operators are Divergent wherever a `number` can reach them. That is the second place `SQL(ANSI)` means different things on the two engines, and the reason `IS_NAN` and `IS_FINITE` are refused. `IS_INFINITE` is fine, because comparing against an infinity works the same on both.
+**Comparison against a NaN can't be guarded.** [The language says](floating-point.md#non-finite) `NAN = NAN` is `false` and `NAN > 1` is `false`. Both engines instead sort a NaN above every number and make it equal to itself, so both say `true` where the language says `false`. There is no portable fix. The usual way to spot a NaN is `x <> x`, and that is exactly what these engines break: if a NaN equals itself, `x <> x` is `false` for a NaN too. Testing for one needs `isnan` in DuckDB and `x = 'NaN'` in PostgreSQL, so the comparison operators are Divergent wherever a `number` can reach them. That is the second place `SQL(ANSI)` means different things on the two engines, and the reason `IS_NAN` and `IS_FINITE` are refused. `IS_INFINITE` is fine, because comparing against an infinity works the same on both.
 
 **A floored modulo needs a guard.** [The language takes `MOD`'s sign from the divisor](expressions.md#mod), as R and Python do; the SQL standard, PostgreSQL and DuckDB all take it from the dividend. `MOD(MOD(x, y) + y, y)` corrects the sign on both engines, and keeps an integer result an integer — the `x - y * FLOOR(x / y)` form would not, since the language's `/` is float division. The zero divisor is why this mapping is Divergent rather than Guarded: the language gives a NaN, PostgreSQL raises, and DuckDB gives null for an integer modulus.
 

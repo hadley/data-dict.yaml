@@ -92,7 +92,7 @@ How Parquet's nested shapes read as data-dict types, for the M01 comparison:
 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
-| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. On a `list` or `struct` column, `required` is about the container itself: a null list counts, an empty one does not. A [NaN or an infinity](expressions.md#non-finite) is a value rather than a missing one, so a float column holding them satisfies `required`; assert `IS_FINITE(x)` if they should be excluded too. |
+| D01 | Nulls in a required column | E | A `required` or `primary_key` column contains nulls. On a `list` or `struct` column, `required` is about the container itself: a null list counts, an empty one does not. A [NaN or an infinity](floating-point.md#non-finite) is a value rather than a missing one, so a float column holding them satisfies `required`; assert `IS_FINITE(x)` if they should be excluded too. |
 | D02 | Duplicate values | E | A `unique` column contains duplicate values, or the combination of all `primary_key` columns does not uniquely identify every row. Only [comparable types](#comparable-types) are checked. Null/missing values are never counted as duplicates; for a composite primary key, a row with a null in any key column is not compared. |
 | D03 | Uniqueness not verified | W | A `unique` column or `primary_key` uses a type whose values can't be reliably compared, so its uniqueness was not checked. |
 | D04 | Value outside enum | E | An `enum` column contains a (non-null) value that is not one of its declared `values`. Applies inside nested types too: the elements of a `list(enum)` column, and every `enum` field reachable through `struct` fields (recursively, including through `list(struct)`), are checked against their declared `values`. |
@@ -104,7 +104,7 @@ How Parquet's nested shapes read as data-dict types, for the M01 comparison:
 
 : {tbl-colwidths="[7,23,5,65]"}
 
-Dividing by zero is not among these: `7 / 0` is `INF` and `0 / 0` is a NaN, [as the language specifies](expressions.md#non-finite), and a comparison against a NaN is `false`, so a row whose arithmetic goes non-finite is reported as an ordinary D07 violation.
+Dividing by zero is not among these: `7 / 0` is `INF` and `0 / 0` is a NaN, [as the language specifies](floating-point.md#non-finite), and a comparison against a NaN is `false`, so a row whose arithmetic goes non-finite is reported as an ordinary D07 violation.
 
 ### Comparable types {#comparable-types}
 
@@ -114,7 +114,7 @@ The uniqueness check (D02) compares values directly, so it only runs on types wh
 
 For **Parquet**:
 
-* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values — including 16-bit floats — are compared by [identity rather than by `=`](expressions.md#non-finite): `-0.0` and `+0.0` are one value, and all NaNs are one value. That is deliberately not the language's `=`, under which no NaN equals any NaN — a uniqueness check asks whether a value has been seen before, which is a question about identity, and answering it with `=` would let a column of a million NaNs pass as a million distinct keys. Legacy `INT96` timestamps are compared as datetimes, by the instant they denote.
+* Numbers, booleans, strings, enums, dates, and datetimes are compared by value. Decimals are compared by numeric value, regardless of how they are encoded. Floating-point values — including 16-bit floats — are compared by [identity rather than by `=`](floating-point.md#non-finite): `-0.0` and `+0.0` are one value, and all NaNs are one value. That is deliberately not the language's `=`, under which no NaN equals any NaN — a uniqueness check asks whether a value has been seen before, which is a question about identity, and answering it with `=` would let a column of a million NaNs pass as a million distinct keys. Legacy `INT96` timestamps are compared as datetimes, by the instant they denote.
 
 * JSON and BSON, whose byte representation does not determine equality (two documents can differ only in whitespace or key order and still be equal), are **not** compared. Neither is any Parquet logical type the validator does not recognize — including future types such as `VARIANT` or `GEOMETRY`.
 

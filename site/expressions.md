@@ -65,46 +65,7 @@ The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and 
 
 ### Integers and floats {#integers-and-floats}
 
-There is one `number` type, and no expression is ever ill-typed for mixing whole numbers with fractional ones. Underneath, though, a number is held one of two ways — as an **integer** or as a **float** — and which one it is decides how exact the arithmetic is:
-
-* A literal without a decimal point is an integer (`42`); one with a decimal point is a float (`42.0`, `3.14`). A whole-numbered column read from the data is an integer, a fractional one a float.
-* `+`, `-`, `*` and `MOD` over two integers give an integer. Every other combination gives a float. `MOD(x, 0)` is the one exception: it is [a NaN](#non-finite), and a NaN is a float.
-* `/` **always** gives a float, so `1 / 2` is `0.5`. This is the one place the two representations would otherwise disagree about the answer, and it follows R, Python and DuckDB rather than SQL's integer division.
-* Of the aggregates, `SUM` of integers is an integer and `AVG` is always a float, as their own entries say; `COUNT`, `COUNT_DISTINCT` and `ROW_COUNT` are integers.
-
-Integers are 64-bit and exact. Arithmetic that overflows that range is not silently wrapped or rounded — it is reported when the data is validated, as [D09](validation.md#data-validation-checks). Floats are 64-bit IEEE 754 and carry all the usual caveats, so an equality test on a computed float (`price * qty = total`) is rarely what you want; compare a rounded value, or bound the difference. Floats also carry IEEE 754's three values that have no place on the number line — `INF`, `-INF` and a NaN — which arithmetic can produce and a column can hold; see [infinity and NaN](#non-finite).
-
-The distinction matters mostly to [translation](expression-execution.md#translating-expressions), where a target language's `/` may or may not agree with this rule.
-
-### Infinity and NaN {#non-finite}
-
-A float can also be positive infinity, negative infinity, or a NaN ("not a number"). These are values like any other. They are not null, they are not errors, and an expression that produces one carries on with it.
-
-They arrive two ways. **Arithmetic produces them**, following IEEE 754: `7 / 0` is `INF`, `-7 / 0` is `-INF`, `0 / 0` is a NaN, and `MOD(x, 0)` is a NaN. **Data contains them**, since a float column may hold any of the three, and `validate-data` reads what is there rather than rejecting it.
-
-They are written `INF` and `NAN`. `-INF` is [unary minus](#operators) applied to `INF`, exactly as a leading `-` works on any other number. All three are `number`s and go wherever a number goes.
-
-Three predicates ask which kind of number a value is:
-
-| Function | Signature | True when |
-|----------|-----------|-----------|
-| `IS_FINITE(x)` | `number → boolean` | `x` is an ordinary number. |
-| `IS_INFINITE(x)` | `number → boolean` | `x` is `INF` or `-INF`. |
-| `IS_NAN(x)` | `number → boolean` | `x` is a NaN. |
-
-: {tbl-colwidths="[24,26,50]"}
-
-All three are ordinary scalar functions, and so [null-propagating](#operators): `IS_NAN(NULL)` is null, not `false`. Asking whether a value is *missing* remains `IS NULL`'s job, and `IS NULL` is `false` for a NaN — a NaN is present, it is simply not a number.
-
-**Comparison follows IEEE 754.** A NaN is unordered, so every comparison against one is `false` except `<>`, which is `true`: `NAN = NAN` is `false`, `NAN > 1` is `false`, `NAN < 1` is `false`, and `NAN <> NAN` is `true`. The infinities compare normally — `-INF < x < INF` for every finite `x`, and `INF = INF` is `true`. `BETWEEN` and `IN` inherit these answers, since [both are defined by comparison](#membership).
-
-Answering `false` rather than null is deliberate, and it is why a zero divisor needs no diagnostic. Under [`CHECK` semantics](#truth-and-null) null passes, so a null answer would quietly retire a rule on exactly the rows a NaN makes suspect; `false` reports them. The consequence is worth stating plainly: **an assertion is violated by a NaN wherever it compares one.** `total / qty > 1` is `false` on a row where `total` and `qty` are both `0`, and that row is reported. Write `IS_NAN(total / qty) OR total / qty > 1` to tolerate it, or `qty <> 0 AND total / qty > 1` to exclude the zero itself.
-
-Two spellings that are otherwise interchangeable stop being so here. `NOT (x < y)` and `x >= y` differ when either side is a NaN: the first is `true`, the second `false`. Where a column can hold one, prefer the positively-stated form, or conjoin `IS_FINITE(...)`.
-
-**Equality is not identity.** `=` is IEEE, so no NaN equals any NaN. But several places have to decide whether two values are *the same value* rather than whether they compare equal, and there the language uses one **identity order** instead: values run `-INF` < every finite number < `INF` < NaN, all NaNs count as one value, and `-0.0` and `+0.0` count as one value. The identity order governs `MIN`, `MAX` and `COUNT_DISTINCT` here, and the `unique`/`primary_key` ([D02](validation.md#data-validation-checks)) and `foreign_key` ([D05](validation.md#data-validation-checks)) checks at [the data level](validation.md#comparable-types). So `COUNT_DISTINCT` of a column of nothing but NaNs is 1; `MIN` of a column containing a NaN is its smallest ordinary value, and `MAX` is the NaN.
-
-`SUM` and `AVG` are arithmetic rather than ordering, so they follow IEEE and propagate: one NaN anywhere in the column makes both a NaN, and an `INF` and a `-INF` in the same column sum to a NaN. `COUNT` counts a NaN, because a NaN is not null.
+There is one `number` type, and no expression is ever ill-typed for mixing whole numbers with fractional ones. Underneath, though, a number is held as an **integer** or as a **float**, and a float can also be an infinity or a NaN. Which it is decides how exact the arithmetic is, what `7 / 0` means, and how a comparison answers. [Floating point](floating-point.md) is the reference for all of it.
 
 ### Type classes {#type-classes}
 
@@ -174,7 +135,7 @@ The same rules apply to a qualified name in a relationship's [`join`](spec.md#re
 | Form | Type | Examples |
 |------|------|----------|
 | Integer or decimal | `number` | `42`, `3.14`. A leading `-` is unary minus, not part of the literal. |
-| `INF` / `NAN` | `number` | The [non-finite](#non-finite) floats. `-INF` is unary minus applied to `INF`. |
+| `INF` / `NAN` | `number` | The [non-finite](floating-point.md#non-finite) floats. `-INF` is unary minus applied to `INF`. |
 | Single-quoted text | `string` | `'ABC'`, `'O''Brien'` — double a quote to include one. |
 | `TRUE` / `FALSE` | `boolean` | |
 | `NULL` | none | Compatible with every type. |
@@ -197,7 +158,7 @@ Below, `T` stands for any type, and a signature like `number → number` reads "
 |----------|-----------|-------|
 | `-x` | `number → number` | Unary minus. |
 | `x + y`, `x - y` | `number, number → number` | |
-| `x * y`, `x / y` | `number, number → number` | `/` always gives a [float](#integers-and-floats). A zero divisor gives [an infinity or a NaN](#non-finite), not an error. |
+| `x * y`, `x / y` | `number, number → number` | `/` always gives a [float](#integers-and-floats). A zero divisor gives [an infinity or a NaN](floating-point.md#non-finite), not an error. |
 | `d + i`, `i + d`, `d - i` | `date, interval → datetime` | Shifts a date by a duration. |
 | `t + i`, `i + t`, `t - i` | `datetime, interval → datetime` | Shifts a datetime by a duration. |
 
@@ -217,7 +178,7 @@ Shifting a **date** gives a `datetime`, not a date. An interval can be shorter t
 
 : {tbl-colwidths="[28,25,47]"}
 
-Both sides must be [comparable](#comparability). String comparison is by code point, and so case-sensitive. A [NaN](#non-finite) is unordered, so every comparison against one is `false` except `<>`, which is `true`.
+Both sides must be [comparable](#comparability). String comparison is by code point, and so case-sensitive. A [NaN](floating-point.md#comparison) is unordered, so every comparison against one is `false` except `<>`, which is `true`.
 
 ### Null tests
 
@@ -243,7 +204,7 @@ Both sides must be [comparable](#comparability). String comparison is by code po
 
 | Operator | Signature | Notes |
 |----------|-----------|-------|
-| `x BETWEEN lo AND hi` | `T, T, T → boolean` | Inclusive on both ends, and null if any of the three operands is null. A [NaN](#non-finite) subject is `false`. |
+| `x BETWEEN lo AND hi` | `T, T, T → boolean` | Inclusive on both ends, and null if any of the three operands is null. A [NaN](floating-point.md#comparison) subject is `false`. |
 | `x NOT BETWEEN lo AND hi` | `T, T, T → boolean` | |
 | `x IN (a, b, …)` | `T, T… → boolean` | Each list item must be comparable with `x`. |
 | `x NOT IN (a, b, …)` | `T, T… → boolean` | Null if `x` is null or `x` matches nothing but the list contains a null. |
@@ -350,7 +311,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 #### `MOD(x, y)` {#mod}
 
-`number, number → number`. The remainder of `x / y`, taking its sign from `y` (so `MOD(-7, 3)` is `2` and `MOD(7, -3)` is `-2`). This is the convention R and Python use; C and SQL take the sign from `x` instead. A zero `y` gives [a NaN](#non-finite), as `0 / 0` does — the one place `MOD` over two integers does not give an integer, since a NaN is a float.
+`number, number → number`. The remainder of `x / y`, taking its sign from `y` (so `MOD(-7, 3)` is `2` and `MOD(7, -3)` is `-2`). This is the convention R and Python use; C and SQL take the sign from `x` instead. A zero `y` gives [a NaN](floating-point.md#non-finite), as `0 / 0` does — the one place `MOD` over two integers does not give an integer, since a NaN is a float.
 
 ```yaml
 - assert: MOD(minutes, 15) = 0
@@ -359,7 +320,7 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 #### `IS_FINITE(x)`, `IS_INFINITE(x)`, `IS_NAN(x)` {#non-finite-predicates}
 
-`number → boolean`. Which kind of number `x` is: an ordinary one, an infinity, or a NaN. See [infinity and NaN](#non-finite) for what each answers and why `IS NULL` is not among them.
+`number → boolean`. Which kind of number `x` is: an ordinary one, an infinity, or a NaN. See [infinity and NaN](floating-point.md#non-finite) for what each answers and why `IS NULL` is not among them.
 
 ```yaml
 - assert: IS_FINITE(total / qty)
@@ -461,7 +422,7 @@ These are not SQL's `ANY` and `ALL`. There those names are quantifiers over a su
 
 #### Empty and all-null input {#empty-input}
 
-Aggregates skip nulls — and only nulls, so a [NaN or an infinity](#non-finite) is folded in like any other value. A column holding nothing but nulls behaves exactly like a table with no rows, and every aggregate gives the same answer either way:
+Aggregates skip nulls — and only nulls, so a [NaN or an infinity](floating-point.md#identity) is folded in like any other value. A column holding nothing but nulls behaves exactly like a table with no rows, and every aggregate gives the same answer either way:
 
 * `MIN`, `MAX`, `SUM`, `AVG`, `ANY` and `ALL` return null.
 * `COUNT` and `COUNT_DISTINCT` return 0.

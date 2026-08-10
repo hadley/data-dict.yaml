@@ -25,6 +25,8 @@ website:
         text: Expressions
       - href: expression-execution.md
         text: Executing expressions
+      - href: floating-point.md
+        text: Floating point
       - href: validation.md
         text: Validation
       - href: export.md

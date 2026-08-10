@@ -154,7 +154,7 @@ Numeric and temporal columns (`number`, `number(...)`, `date`, `datetime`) summa
 }
 ```
 
-The three non-finite counts are values, not missing data. They are kept out of the bins and the observed extremes because neither has a place on the number line, but they are what [`IS_NAN` and `IS_INFINITE`](expressions.md#non-finite) test for in an assertion, and an assertion folds them into an aggregate rather than skipping them.
+The three non-finite counts are values, not missing data. They are kept out of the bins and the observed extremes because neither has a place on the number line, but they are what [`IS_NAN` and `IS_INFINITE`](floating-point.md#non-finite) test for in an assertion, and an assertion folds them into an aggregate rather than skipping them.
 
 String, boolean, and enum columns summarize by value:
 
