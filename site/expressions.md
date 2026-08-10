@@ -361,6 +361,17 @@ An aggregate folds a column over every row of the table into a single value, so 
 
 Their signatures are written over the [type classes](#type-classes).
 
+#### Filtering: `FILTER (WHERE ...)` {#filter}
+
+Any aggregate may be narrowed to a subset of rows with a `FILTER (WHERE ...)` clause, written after the closing parenthesis:
+
+```yaml
+- name: net_revenue
+  expr: SUM(order_total) FILTER (WHERE status_cd = 90)
+```
+
+The condition is a `row`-shape boolean expression over the same table, and only rows where it is true are folded; following [CHECK semantics](#truth-and-null), a row whose condition is null is excluded, exactly as `false` is. A filter that admits no rows leaves the aggregate with [empty input](#empty-input), so `SUM(x) FILTER (WHERE false)` is null and `COUNT(x) FILTER (WHERE false)` is 0.
+
 #### `MIN(x)`, `MAX(x)`
 
 `Ordered T → T`. The smallest and largest non-null value of `x`, in that type's own order — so `MIN` of a `date` column is the earliest date, and of a `string` column the first by code point.
@@ -470,7 +481,7 @@ The lambda form (`COLUMNS(c -> ...)`) and the star modifiers (`EXCLUDE`, `REPLAC
 
 Expressions are checked when the dictionary is validated, against the columns of the enclosing table alone — before any data is read. A malformed expression, an unknown column, an ill-typed expression, an empty column selection, and a nested aggregate are each reported separately; see [validation](validation.md) for the codes and severities.
 
-Five rules decide whether an expression is well formed, and a sixth — that [every operand whose type matters has one](#types) — applies throughout. The more the dictionary says about a column, the more of an expression can be checked.
+Six rules decide whether an expression is well formed, and a seventh — that [every operand whose type matters has one](#types) — applies throughout. The more the dictionary says about a column, the more of an expression can be checked.
 
 ### The expression as a whole must be boolean
 
@@ -492,6 +503,10 @@ Two operands may be compared when any of the following holds:
 ### A `CASE` must have one result type
 
 Its type is the common type of its branches; branches of differing types make the whole `CASE` typeless, which then passes any comparison it's used in. That's permitted but rarely what you want.
+
+### A `FILTER` clause belongs on an aggregate
+
+[`FILTER (WHERE ...)`](#filter) narrows the rows an aggregate folds, so it's only meaningful on an aggregate call; on any other function it's an error. The condition must be a `row`-shape boolean expression — it is evaluated once per row to decide whether that row counts.
 
 ### An aggregate can't contain another aggregate
 
@@ -520,7 +535,7 @@ unary          := "-" unary | primary
 primary        := literal | column | funcall | columns | case | "(" expr ")"
 cmp            := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 literal        := number | string | "TRUE" | "FALSE" | "NULL"
-funcall        := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
+funcall        := IDENT "(" (expr ("," expr)*)? ")" ("FILTER" "(" "WHERE" expr ")")?   // incl. NOW(), interval(n, unit)
 columns        := "COLUMNS" "(" ("*" | string | "[" name ("," name)* "]") ")"
 case           := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
 column         := name ("." name)*
@@ -531,6 +546,6 @@ QUOTED         := "`" ( [^`] | "``" )+ "`"
 
 A function name is always an `IDENT`; only columns can be quoted.
 
-The aggregates need no grammar of their own: each is an ordinary `funcall`, and `ROW_COUNT()` is the empty-argument case the rule already admits. None of their names is reserved either, so a column called `count` or `min` remains reachable without backticks — a name followed by `(` is a call, and anything else is a column.
+The aggregates need no grammar of their own: each is an ordinary `funcall`, and `ROW_COUNT()` is the empty-argument case the rule already admits. None of their names is reserved either, so a column called `count` or `min` remains reachable without backticks — a name followed by `(` is a call, and anything else is a column. The grammar admits a `FILTER` clause on any call, but only aggregates may carry one; `LENGTH(x) FILTER (WHERE ...)` is a type-check error, not a syntax error.
 
-The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`. A column named after one of them is still reachable [in backticks](#column-references).
+The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`, `FILTER`, `WHERE`. A column named after one of them is still reachable [in backticks](#column-references).
