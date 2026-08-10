@@ -1,6 +1,6 @@
 # Expressions
 
-data-dict provides a small expression language: a SQL-like sublanguage for stating a rule about the values in a single table. You write one wherever a dictionary needs to say something a keyword can't: in a [constraint](spec.md#column-constraints), or [definition](spec.md#definitions):
+data-dict provides a small expression language: a SQL-like sublanguage for describing computations. You use expression wherever a dictionary needs to express something that a keyword can't, for example, in a [constraint](spec.md#column-constraints), or [definition](spec.md#definitions):
 
 ```yaml
 tables:
