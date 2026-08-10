@@ -90,10 +90,24 @@ function DetailsBlock({ source, hl }) {
    from the data are all facts rather than prose, so each is set off in its own
    chip; the page's text face keeps them readable, which a code face would not
    for a long label. */
+/* Long values would swamp the line, so a chip shows at most this many
+   characters; a cut value expands in place on click (the full text can be far
+   too long for a tooltip). */
+const VAL_MAX = 70;
+
+function Chip({ value, hl }) {
+  const s = String(value);
+  const cut = s.length > VAL_MAX;
+  const [open, setOpen] = useState(false);
+  const shown = cut && !open ? s.slice(0, VAL_MAX - 1) + "…" : s;
+  if (!cut) return html`<span class="val"><${Marked} text=${s} ql=${hl} /></span>`;
+  return html`<button type="button" class="val cut ${open ? "open" : ""}"
+    title=${open ? "Click to collapse" : "Click to see the full value"}
+    onClick=${() => setOpen(!open)}><${Marked} text=${shown} ql=${hl} /></button>`;
+}
+
 function ValueList({ items, hl }) {
-  return items.map(
-    (v, i) => html`${i ? " " : ""}<span class="val"><${Marked} text=${String(v)} ql=${hl} /></span>`
-  );
+  return items.map((v, i) => html`${i ? " " : ""}<${Chip} value=${v} hl=${hl} />`);
 }
 
 function MetaLine({ label, items, hl }) {
@@ -118,7 +132,7 @@ function ValueDefs({ values, labels, hl }) {
     <span class="lbl">values:</span>
     <dl class="val-defs">
       ${values.map((v) => html`
-        <dt><span class="val"><${Marked} text=${String(v)} ql=${hl} /></span></dt>
+        <dt><${Chip} value=${v} hl=${hl} /></dt>
         <dd><${Marked} text=${labels[v] ?? ""} ql=${hl} /></dd>`)}
     </dl>
   </div>`;

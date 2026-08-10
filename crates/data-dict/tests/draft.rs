@@ -317,6 +317,30 @@ fn long_values_fall_back_to_block_lists_and_quoting() {
 }
 
 #[test]
+fn very_long_values_are_ellipsis_truncated() {
+    let dir = temp_dir();
+    let path = dir.join("notes.parquet");
+    let long = "x".repeat(200);
+    let values: Vec<&str> = [long.as_str(), "short note", "short note", long.as_str()]
+        .into_iter()
+        .collect();
+    write_parquet(
+        &path,
+        &["REQUIRED BYTE_ARRAY note (UTF8)"],
+        vec![Col::Str(strings(values))],
+    );
+    let content = draft_new(&dir, &[path]);
+    assert!(
+        content.contains(&format!("{}…", "x".repeat(69))),
+        "a 200-character value should be cut to 69 chars + ellipsis:\n{content}"
+    );
+    assert!(
+        !content.contains(&"x".repeat(70)),
+        "no run of 70+ x's should survive:\n{content}"
+    );
+}
+
+#[test]
 fn approximate_distinct_counts_soften_the_wording() {
     let dir = temp_dir();
     let path = dir.join("visits.parquet");

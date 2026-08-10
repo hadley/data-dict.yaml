@@ -262,6 +262,10 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
   background: var(--inset); border: 1px solid var(--rule); border-radius: 4px;
   padding: 0 3px; color: var(--ink);
 }
+/* a chip cut short for its length: click reveals the whole value, wrapped */
+button.val { font: inherit; }
+.val.cut { cursor: pointer; }
+.val.cut.open { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 /* an enum whose values are labelled: the value, then what it means */
 .val-defs {
   display: grid; grid-template-columns: auto 1fr;

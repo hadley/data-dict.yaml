@@ -37,6 +37,10 @@ const ENUM_MAX_VALUES: usize = 12;
 /// profiler reports so a consumer can show more on demand.
 const DRAFT_EXAMPLES: usize = 5;
 
+/// Long values would swamp the dictionary, so drafted strings are cut to this
+/// many characters, ending in an ellipsis when cut.
+const DRAFT_VALUE_MAX: usize = 70;
+
 /// The notes for the work only a human can do. They are `todo` keys, so
 /// they travel with the file — and keep S31 reporting them — until done.
 const DATASET_TODO: &str = "Write a `description` of the dataset.";
@@ -321,7 +325,12 @@ fn infer_column(col: &ColumnProfile, rows: usize) -> DraftColumn {
     // An enum candidate lists every distinct value, so accepting its todo is
     // exactly the `examples` → `values` rename it suggests.
     let examples = match &enum_values {
-        Some(values) => Some(values.iter().map(|v| yaml_scalar(v)).collect()),
+        Some(values) => Some(
+            values
+                .iter()
+                .map(|v| yaml_scalar(&truncate_value(v)))
+                .collect(),
+        ),
         None => matches!(dict_type, Some("string" | "number" | "number(id)")).then(|| {
             evenly_spaced(&col.examples, DRAFT_EXAMPLES)
                 .map(render_plain)
@@ -445,8 +454,17 @@ fn render_plain(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Int(i) => i.to_string(),
         Value::Float(f) => f.get().to_string(),
-        Value::Text(s) => yaml_scalar(s),
+        Value::Text(s) => yaml_scalar(&truncate_value(s)),
     }
+}
+
+fn truncate_value(s: &str) -> String {
+    if s.chars().count() <= DRAFT_VALUE_MAX {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(DRAFT_VALUE_MAX - 1).collect();
+    out.push('…');
+    out
 }
 
 /// Render a date or timestamp value as the ISO 8601 string its column's
