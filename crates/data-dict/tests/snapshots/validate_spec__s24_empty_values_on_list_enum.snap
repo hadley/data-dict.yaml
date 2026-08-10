@@ -18,4 +18,4 @@ LL |     columns:
 LL |       - name: categories
 LL |         type: list(enum)
 LL |         values: []
-   |                 ^ is empty
+   |                 ^^ is empty

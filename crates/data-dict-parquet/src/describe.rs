@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::metadata::column_type_info;
-use crate::profile::{ColumnProfile, Distinct, Histogram, profile};
+use crate::profile::{ColumnProfile, DEFAULT_MAX_BINS, Distinct, Histogram, profile};
 use crate::value::{TimeGrain, Value, ValueKind, date_iso, datetime_iso, time_iso};
 use crate::{ColumnTypeInfo, ParquetError};
 
@@ -146,7 +146,7 @@ pub fn describe(path: &Path, column: Option<&str>) -> Result<FileDescription, Pa
         )));
     }
     let selection = column.map(|name| vec![name]);
-    let file = profile(path, selection.as_deref())?;
+    let file = profile(path, selection.as_deref(), DEFAULT_MAX_BINS)?;
 
     let columns = file
         .columns
@@ -248,10 +248,34 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
         .first()
         .map(|bin| bin.upper - bin.lower)
         .unwrap_or(1.0);
+    let edges: Vec<(String, String)> = histogram
+        .bins
+        .iter()
+        .map(|bin| {
+            (
+                edge_label(bin.lower, kind, width),
+                edge_label(bin.upper, kind, width),
+            )
+        })
+        .collect();
+    // Right-pad each side of the range to its own widest label, so the `,`
+    // and `]` line up down the column even when signs or digit counts differ
+    // between bins.
+    let lower_width = edges
+        .iter()
+        .map(|(lower, _)| lower.chars().count())
+        .max()
+        .unwrap_or(0);
+    let upper_width = edges
+        .iter()
+        .map(|(_, upper)| upper.chars().count())
+        .max()
+        .unwrap_or(0);
     let bins = histogram
         .bins
         .iter()
-        .map(|bin| BinView {
+        .zip(edges)
+        .map(|(bin, (lower_label, upper_label))| BinView {
             lower: edge_scalar(bin.lower, kind, width),
             upper: edge_scalar(bin.upper, kind, width),
             count: bin.count,
@@ -259,10 +283,10 @@ fn histogram_view(histogram: &Histogram, kind: &ValueKind) -> HistogramView {
             // every bin is `(lower, upper]`, except the first, which closes
             // at both ends so the minimum has a home.
             label: format!(
-                "{}{}, {}]",
+                "{}{:>lower_width$}, {:>upper_width$}]",
                 if bin.lower_inclusive { '[' } else { '(' },
-                edge_label(bin.lower, kind, width),
-                edge_label(bin.upper, kind, width)
+                lower_label,
+                upper_label,
             ),
         })
         .collect();
@@ -549,20 +573,34 @@ fn render_rows(
     Ok(())
 }
 
-/// A bar scaled against the largest count, in half-character steps: `▇` per
-/// full cell with `▌` as the half step, or a sliver `▏` for a count too small
-/// to earn even that, so a nonzero count is never invisible.
+/// The seven partial-width block characters from the Unicode Block Elements
+/// range (U+258B–U+258F), indexed by eighths of a cell minus one — `PARTIAL[0]`
+/// is one eighth, `PARTIAL[6]` is seven eighths. A whole cell is [`FULL_CELL`].
+const PARTIAL_CELL: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+
+/// A whole filled cell. Deliberately the *full* block (U+2588), not one of
+/// the vertical shading blocks (e.g. U+2587) — those grow from the bottom of
+/// the cell and render visibly shorter than the horizontal partial-width
+/// blocks in [`PARTIAL_CELL`], which always fill a cell's full height.
+/// Mixing the two made a half-filled cell look taller than a full one.
+const FULL_CELL: char = '█';
+
+/// A bar scaled against the largest count, at eighth-cell resolution: a
+/// [`FULL_CELL`] per whole cell, a [`PARTIAL_CELL`] for a fractional one, or
+/// the narrowest sliver (one eighth) for a count too small to round to even
+/// that, so a nonzero count is never invisible.
 fn bar(count: usize, max: usize) -> String {
     if count == 0 {
         return String::new();
     }
-    let halves = (count * BAR_WIDTH * 2 + max / 2) / max;
-    if halves == 0 {
-        return "▏".to_string();
+    let eighths = (count * BAR_WIDTH * 8 + max / 2) / max;
+    if eighths == 0 {
+        return PARTIAL_CELL[0].to_string();
     }
-    let mut bar = "▇".repeat(halves / 2);
-    if halves % 2 == 1 {
-        bar.push('▌');
+    let mut bar = FULL_CELL.to_string().repeat(eighths / 8);
+    let remainder = eighths % 8;
+    if remainder > 0 {
+        bar.push(PARTIAL_CELL[remainder - 1]);
     }
     bar
 }
@@ -602,15 +640,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bars_scale_in_half_steps_and_never_vanish() {
-        assert_eq!(bar(56, 56), "▇".repeat(12));
-        assert_eq!(bar(0, 56), "");
-        assert_eq!(bar(28, 56), "▇".repeat(6));
-        // The half step doubles the resolution...
-        assert_eq!(bar(53, 56), format!("{}▌", "▇".repeat(11)));
-        assert_eq!(bar(2, 56), "▌");
-        // ...and below even half a cell, a sliver keeps the count visible.
-        assert_eq!(bar(2, 100), "▏");
+    fn bars_render_every_eighth_step_and_an_empty_bin() {
+        // With max = 96 (BAR_WIDTH * 8), counts 1..=8 round to eighths
+        // 1..=8: the seven partial glyphs, then a whole cell — every size a
+        // single cell can take, plus 0, which draws nothing (an empty bin).
+        let max = 96;
+        let expected = [
+            (0, ""),
+            (1, "▏"),
+            (2, "▎"),
+            (3, "▍"),
+            (4, "▌"),
+            (5, "▋"),
+            (6, "▊"),
+            (7, "▉"),
+            (8, "█"),
+        ];
+        for (count, glyph) in expected {
+            assert_eq!(bar(count, max), glyph, "count {count}");
+        }
+        assert_eq!(bar(56, 56), "█".repeat(12));
+        assert_eq!(bar(28, 56), "█".repeat(6));
+        // The eighth step gives finer resolution than a half-cell...
+        assert_eq!(bar(53, 56), format!("{}▍", "█".repeat(11)));
+        // ...and below even a whole eighth, a sliver keeps the count visible.
+        assert_eq!(bar(1, 100_000), "▏");
     }
 
     #[test]

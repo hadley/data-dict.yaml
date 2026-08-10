@@ -23,7 +23,8 @@ pub use metadata::{
 };
 pub use parquet::errors::ParquetError;
 pub use profile::{
-    Bin, ColumnProfile, Distinct, FileProfile, Histogram, NotFinite, profile, profile_paths,
+    Bin, ColumnProfile, DEFAULT_MAX_BINS, Distinct, FileProfile, Histogram, NotFinite, profile,
+    profile_paths,
 };
 pub use scan::{ColumnNeeds, ColumnRequest, ColumnStats, column_stats};
 pub use sketch::ValueCount;

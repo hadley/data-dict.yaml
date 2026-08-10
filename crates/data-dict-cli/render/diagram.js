@@ -96,7 +96,13 @@ for (const table of dict.tables) {
   const size = table.rows ? `${table.rows.toLocaleString()} × ${cols}` : `${cols} cols`;
   const sizeTitle = `${table.rows ? `${table.rows.toLocaleString()} rows × ` : ""}${cols} columns`;
   box.innerHTML =
-    `<h2>${esc(table.name)}` +
+    // The name and its chevron open the table's page. `draggable` is off for the
+    // same reason the column names' is: the heading is how a table is dragged, and
+    // a link would drag itself instead.
+    `<h2><a class="tlink" draggable="false" href="#${esc(table.name)}">` +
+    `<span class="tn">${esc(table.name)}</span>` +
+    `<span class="go" aria-hidden="true">` +
+    `<svg viewBox="0 0 16 16"><path d="M12.15,8c0,.19-.04.36-.11.53s-.19.32-.35.47l-5.77,5.66c-.23.23-.52.34-.86.34-.22,0-.42-.05-.61-.16s-.34-.26-.45-.44-.16-.39-.16-.61c0-.34.13-.64.39-.9l5.04-4.89L4.24,3.12c-.26-.26-.39-.56-.39-.89,0-.22.05-.43.16-.62s.26-.33.45-.44.39-.16.61-.16c.34,0,.62.11.86.34l5.77,5.66c.16.15.27.31.34.47s.11.34.11.53Z"/></svg></span></a>` +
     `<span class="count">${table.demo ? "example · " : ""}${size}</span>` +
     `<button class="eye" type="button" aria-pressed="false"` +
     ` title="Lay the diagram out around this table">` +
@@ -523,10 +529,11 @@ function tipForWire(rel) {
   const box = el("div");
   if (rel.description) {
     box.appendChild(tipProse(rel.description));
-    return box;
+  } else {
+    box.appendChild(tipHead(rel.join));
+    box.appendChild(el("p", null, rel.declared_cardinality));
   }
-  box.appendChild(tipHead(rel.join));
-  box.appendChild(el("p", null, rel.declared_cardinality));
+  if (rel.todo) box.appendChild(todoNote(rel.todo));
   return box;
 }
 
@@ -540,14 +547,16 @@ function tipFor(target) {
     const sub = facts.table.label ? `${facts.table.label} · ${facts.size}` : facts.size;
     box.appendChild(tipHead(facts.table.name, sub));
     if (facts.table.description) box.appendChild(tipProse(facts.table.description));
+    if (facts.table.todo) box.appendChild(todoNote(facts.table.todo));
     return box;
   }
   const name = target.querySelector(".name");
   const cut = name.scrollWidth > name.clientWidth + 1;
-  if (!cut && !facts.column.label && !facts.column.description) return null;
+  if (!cut && !facts.column.label && !facts.column.description && !facts.column.todo) return null;
   if (cut) box.appendChild(tipHead(facts.column.name, facts.column.type ?? ""));
   if (facts.column.label) box.appendChild(el("p", "tip-label", facts.column.label));
   if (facts.column.description) box.appendChild(tipProse(facts.column.description));
+  if (facts.column.todo) box.appendChild(todoNote(facts.column.todo));
   return box;
 }
 
@@ -940,10 +949,14 @@ stage.addEventListener("pointerdown", (event) => {
   const handle = event.target.closest(DRAG_HANDLE);
   // The eye sits in the handle, and a press on it is a click, not a drag.
   if (!handle || event.button !== 0 || event.target.closest(".eye")) return;
+  // A modified press on the heading's link is the browser's to answer — opening
+  // the table in a new tab or window — so the drag never starts.
+  const link = event.target.closest("a.tlink");
+  if (link && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
   const box = handle.parentElement;
   const node = placed?.nodes[box.dataset.table];
   if (!node) return;
-  dragged = { el: box, node, from: { x: event.clientX, y: event.clientY }, at: { x: node.x, y: node.y } };
+  dragged = { el: box, node, link, from: { x: event.clientX, y: event.clientY }, at: { x: node.x, y: node.y } };
   // A dragged table comes to the front and stays there. Renumbering when the
   // counter climbs too far keeps every box below the tooltip and the controls,
   // which a long session of dragging used to overtake.
@@ -961,15 +974,131 @@ stage.addEventListener("pointermove", (event) => {
   if (!dragged) return;
   dragged.node.x = Math.max(STAGE_PAD, dragged.at.x + event.clientX - dragged.from.x);
   dragged.node.y = Math.max(STAGE_PAD, dragged.at.y + event.clientY - dragged.from.y);
+  dragged.moved = true; // a press that never moved leaves the saved layout alone
   tidyBtn.disabled = false; // something has moved, so there is something to tidy
   follow();
 });
 for (const done of ["pointerup", "pointercancel"]) {
-  stage.addEventListener(done, () => {
+  stage.addEventListener(done, (event) => {
+    if (dragged?.moved) saveArrangement();
+    // Dragging captures the pointer to the heading, which is where the click that
+    // follows is delivered — the link inside it never sees one. So a press that
+    // ended where it began follows the link itself, and one that moved is a drag
+    // and opens nothing. Keyboard activation is untouched: it fires a real click
+    // on the link, with no pointer to capture.
+    else if (dragged?.link && event.type === "pointerup") {
+      location.hash = dragged.link.getAttribute("href");
+    }
     dragged?.el.classList.remove("dragging");
     dragged = null;
   });
 }
+
+// --------------------------------------------------------- remember the layout
+
+// An arrangement someone dragged into place outlives the page it was made on.
+// Keyed by the dictionary rather than by the URL: the same page is served from a
+// port under `--live` and opened straight from disk once written out, and those
+// would otherwise remember separately.
+const LAYOUT_KEY = `dd-layout:${fingerprint()}`;
+
+// Enough to tell two dictionaries apart, not to detect an edit: a dictionary
+// that gained or lost a table keeps its saved arrangement, which `restore` then
+// applies to whatever is still there.
+function fingerprint() {
+  const of = [dict.description ?? "", ...dict.tables.map((table) => table.name).sort()].join("\0");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < of.length; i++) {
+    h ^= of.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+// One record holds `tables` (where each box was dragged to) and `pan` (where the
+// board was sitting). They are written by different gestures and restored
+// independently: panning a board you never arranged is still worth remembering.
+//
+// Storage can be refused outright for a file:// page, the same way the theme
+// toggle's can, and what comes back is whatever was last written under this key.
+// Anything unreadable counts as nothing saved.
+function readLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY));
+    return saved && typeof saved === "object" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLayout(record) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(record));
+  } catch {}
+}
+
+function forgetLayout() {
+  try {
+    localStorage.removeItem(LAYOUT_KEY);
+  } catch {}
+}
+
+const panNow = () => ({ x: Math.round(canvas.scrollLeft), y: Math.round(canvas.scrollTop) });
+
+function saveArrangement() {
+  const tables = {};
+  for (const [id, node] of Object.entries(placed.nodes)) {
+    tables[id] = { x: Math.round(node.x), y: Math.round(node.y) };
+  }
+  writeLayout({ ...readLayout(), tables, pan: panNow() });
+}
+
+// Only a drag ever rewrites `tables`, so scrolling through a layout you didn't
+// arrange — one an eye rebuilt, say — can't quietly replace the arrangement you
+// did.
+function savePan() {
+  writeLayout({ ...readLayout(), pan: panNow() });
+}
+
+// Saved positions over the top of a fresh layout. A table with nothing saved for
+// it keeps the place the layout gave it, so a table added to the dictionary since
+// still lands somewhere sensible — though nothing stops it landing under a
+// restored neighbour, which is what `tidy` is for.
+function restore(nodes) {
+  const saved = readLayout()?.tables;
+  if (!saved) return false;
+  let used = false;
+  for (const [id, node] of Object.entries(nodes)) {
+    const at = saved[id];
+    if (!Number.isFinite(at?.x) || !Number.isFinite(at?.y)) continue;
+    node.x = Math.max(STAGE_PAD, at.x);
+    node.y = Math.max(STAGE_PAD, at.y);
+    used = true;
+  }
+  return used;
+}
+
+// Put the board back where it was sitting. The browser clamps this to whatever is
+// scrollable, so a board that shrank since lands as close as it can.
+function restorePan() {
+  const pan = readLayout()?.pan;
+  if (!pan) return;
+  canvas.scrollLeft = pan.x;
+  canvas.scrollTop = pan.y;
+}
+
+// Panning is a stream of scroll events, so the write waits for it to settle.
+// Restoring the pan scrolls the board too, and writing the same numbers back is
+// harmless.
+let panSettling;
+canvas.addEventListener(
+  "scroll",
+  () => {
+    clearTimeout(panSettling);
+    panSettling = setTimeout(savePan, 250);
+  },
+  { passive: true }
+);
 
 // -------------------------------------------------------------------- render
 
@@ -1011,6 +1140,12 @@ function markEnd(box) {
   box.classList.toggle("at-end", rows.scrollTop + rows.clientHeight >= rows.scrollHeight - 1);
 }
 
+// A saved arrangement and pan are put back only as the board first appears. Every
+// later redraw is someone asking for a layout — `tidy`, or an eye rebuilding the
+// board around a table — and answering those with the old positions would look
+// broken, while `keepView` already has an opinion about where to leave the view.
+let opening = true;
+
 // Draws the board from whatever is currently on it. Safe to call again: it clears
 // the wires and markers it made last time, and rebuilds the badge map.
 async function draw(was = null) {
@@ -1024,6 +1159,10 @@ async function draw(was = null) {
   const t0 = performance.now();
   const layout = await window.LAYOUT(dict, metrics, canvas.clientWidth, was);
   const ms = performance.now() - t0;
+
+  const first = opening;
+  opening = false;
+  const restored = first && restore(layout.nodes);
 
   stage.style.width = `${layout.width}px`;
   stage.style.height = `${layout.height}px`;
@@ -1149,6 +1288,15 @@ async function draw(was = null) {
   reflow = place;
   placed = layout;
 
+  // A restored table can sit outside the area the layout asked for, exactly as a
+  // dragged one can, so the stage is grown to whatever came back. `tidy` is the
+  // way out of an arrangement, so it has to be live from the start.
+  if (restored) {
+    fitStage();
+    tidyBtn.disabled = false;
+  }
+  if (first) restorePan();
+
   for (const box of nodeEls.values()) if (!box.hidden) markEnd(box);
 
   // Not shown on the page, but kept where a console or a test can read it: these
@@ -1194,11 +1342,13 @@ function countCrossings(drawn) {
   return n;
 }
 
-// Tidy only offers itself once a table has been dragged: until then the
-// layout is already tidy.
+// Tidy only offers itself once a table has been dragged, or once a saved
+// arrangement has been put back: until then the layout is already tidy. Tidying
+// discards the saved arrangement, so it doesn't return on the next visit.
 const tidyBtn = document.getElementById("tidy");
 tidyBtn.addEventListener("click", () => {
   for (const box of nodeEls.values()) box.style.zIndex = "";
+  forgetLayout();
   tidyBtn.disabled = true;
   draw();
 });

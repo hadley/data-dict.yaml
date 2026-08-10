@@ -32,17 +32,40 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Validate a data-dict.yaml file or directory against the spec [default: .]
-    ValidateSpec { path: Option<PathBuf> },
+    /// Generate a starting data-dict.yaml from parquet files
+    ///
+    /// Profiles each file and writes one table per file (named after its
+    /// stem), with inferred column types, observed ranges and examples, and a
+    /// `todo` note for everything only a human can decide — descriptions,
+    /// enum candidates, constraints, the primary key. The output passes
+    /// `validate-spec` with no errors (each `todo` is a warning), so work
+    /// through the todos incrementally under it.
+    ///
+    /// If the output file already exists, tables are appended for the inputs
+    /// it doesn't have yet; the existing text is preserved byte for byte.
+    Draft {
+        /// Parquet files to describe, one table per file
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Where to write; `-` for stdout
+        #[arg(short, long, default_value = "./data-dict.yaml")]
+        output: PathBuf,
+    },
+    /// Validate a data-dict.yaml file or directory against the spec
+    ValidateSpec {
+        /// A data-dict.yaml file or a directory containing one (defaults to
+        /// the current directory)
+        path: Option<PathBuf>,
+    },
     /// Validate a dataset's column names and types against a data dictionary
     ValidateMeta(ValidateArgs),
     /// Validate a dataset's values against a data dictionary
     ValidateData(ValidateArgs),
-    /// Render a data dictionary as fully-resolved JSON [default: .]
+    /// Render a data dictionary as fully-resolved JSON
     ExportSpec(ExportArgs),
     /// Render a data dictionary as JSON with per-column data profiles
     ExportData(ExportArgs),
-    /// Render a data dictionary as a self-contained HTML page [default: .]
+    /// Render a data dictionary as a self-contained HTML page
     ///
     /// The page holds a relationship diagram, a searchable index of the
     /// tables and columns, and the glossary, all in one file that works
@@ -61,8 +84,8 @@ enum Command {
     Spec,
     /// Skill for reading and understanding a data dictionary
     SkillRead,
-    /// Skill for creating or updating a data dictionary
-    SkillWrite,
+    /// Skill for creating a data dictionary
+    SkillCreate,
     /// Run the language server over stdio (used by editor extensions).
     #[cfg(feature = "lsp")]
     #[command(hide = true)]
@@ -72,7 +95,8 @@ enum Command {
 /// Shared arguments for `export-spec` and `export-data`.
 #[derive(clap::Args)]
 struct ExportArgs {
-    /// A data-dict.yaml file or a directory containing one
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
     path: Option<PathBuf>,
     /// Pretty-print the JSON (default is compact, one document per line)
     #[arg(long)]
@@ -82,7 +106,8 @@ struct ExportArgs {
 /// Arguments for `render`.
 #[derive(clap::Args)]
 struct RenderArgs {
-    /// A data-dict.yaml file or a directory containing one
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
     path: Option<PathBuf>,
     /// Where to write the page (default: the dictionary's path with an
     /// `.html` extension)
@@ -107,7 +132,9 @@ struct RenderArgs {
 /// Shared arguments for `validate-meta` and `validate-data`.
 #[derive(clap::Args)]
 struct ValidateArgs {
-    dict: PathBuf,
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
+    dict: Option<PathBuf>,
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
@@ -117,7 +144,7 @@ struct ValidateArgs {
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
-const WRITE_SKILL: &str = include_str!("../skills/write-data-dict.md");
+const CREATE_SKILL: &str = include_str!("../skills/create-data-dict.md");
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -127,6 +154,7 @@ fn main() -> ExitCode {
     };
     match command {
         Command::Describe { path, column, json } => run_describe(&path, column.as_deref(), json),
+        Command::Draft { paths, output } => run_draft(&paths, &output),
         Command::ValidateSpec { path } => {
             let path = match resolve_dict_path(path) {
                 Ok(path) => path,
@@ -160,8 +188,8 @@ fn main() -> ExitCode {
             print!("{READ_SKILL}");
             ExitCode::SUCCESS
         }
-        Command::SkillWrite => {
-            print!("{WRITE_SKILL}");
+        Command::SkillCreate => {
+            print!("{CREATE_SKILL}");
             ExitCode::SUCCESS
         }
         #[cfg(feature = "lsp")]
@@ -229,6 +257,68 @@ fn run_describe(path: &Path, column: Option<&str>, json: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Draft a dictionary for `paths`, writing to `output` (`-` for stdout).
+/// An existing output file switches to append mode: only tables the
+/// dictionary doesn't already have are added, and its text is left untouched.
+fn run_draft(paths: &[PathBuf], output: &Path) -> ExitCode {
+    let to_stdout = output == Path::new("-");
+    let existing = if to_stdout {
+        None
+    } else {
+        match std::fs::read_to_string(output) {
+            Ok(content) => Some(content),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => {
+                eprintln!("{}: {err}", output.display());
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+    let output_dir = if to_stdout {
+        PathBuf::from(".")
+    } else {
+        match output.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    };
+
+    let outcome = match data_dict::draft(paths, &output_dir, existing.as_deref()) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for name in &outcome.skipped {
+        eprintln!("skipped `{name}`: the dictionary already has that table");
+    }
+    if to_stdout {
+        print!("{}", outcome.content);
+        return ExitCode::SUCCESS;
+    }
+    if outcome.added.is_empty() {
+        println!("{}: nothing to add", output.display());
+        return ExitCode::SUCCESS;
+    }
+    if let Err(err) = std::fs::write(output, &outcome.content) {
+        eprintln!("{}: {err}", output.display());
+        return ExitCode::FAILURE;
+    }
+    let noun = if outcome.added.len() == 1 {
+        "table"
+    } else {
+        "tables"
+    };
+    println!(
+        "{}: added {} {noun} ({})",
+        output.display(),
+        outcome.added.len(),
+        outcome.added.join(", ")
+    );
+    ExitCode::SUCCESS
 }
 
 fn resolve_dict_path(path: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -391,7 +481,7 @@ fn stderr_style() -> RenderStyle {
 /// Run a meta or data validation and turn its outcome into rendered output and
 /// an exit code.
 fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
-    let dict = match resolve_dict_path(Some(args.dict)) {
+    let dict = match resolve_dict_path(args.dict) {
         Ok(dict) => dict,
         Err(err) => {
             eprintln!("{err}");

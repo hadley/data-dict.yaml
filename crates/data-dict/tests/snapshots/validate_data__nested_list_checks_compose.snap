@@ -30,4 +30,4 @@ LL |   - name: matrix
 LL |       - name: grid
 ...
 LL |         values: [a, b]
-   |                 ^^^^^ has 1 value outside the allowed set (`zz`; row: 2)
+   |                 ^^^^^^ has 1 value outside the allowed set (`zz`; row: 2)

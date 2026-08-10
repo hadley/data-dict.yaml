@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/draft.rs
+expression: outcome.content
+---
+$version: 0.1.0
+$learn_more: http://data-dict.tidyverse.org/
+
+tables:
+  - name: pups
+    source:
+      parquet: pups.parquet
+    todo: |
+      - Record a `primary_key`, if present.
+    columns:
+      - name: pup_count
+        type: number
+        range: [0, 2]
+        examples: [0, 1, 2]
+        todo: |
+          - Add a `description`.
+          - Pick a more specific numeric type, and keep whichever of `range` and
+            `examples` is appropriate.
+          - Specify `constraints`. Some options suggested by the data:
+            - constraints: [required] # all values present

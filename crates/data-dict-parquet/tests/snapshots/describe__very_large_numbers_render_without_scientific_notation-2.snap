@@ -1,0 +1,105 @@
+---
+source: crates/data-dict-parquet/tests/describe.rs
+expression: "sanitize(&json, &path)"
+---
+{
+  "path": "<file>.parquet",
+  "rows": 6,
+  "columns": [
+    {
+      "name": "population",
+      "type": "number",
+      "parquet_type": "INT64",
+      "distinct": {
+        "exact": 6
+      },
+      "missing": 0,
+      "min": 1,
+      "max": 999999999999,
+      "histogram": {
+        "bins": [
+          {
+            "lower": 1,
+            "upper": 200000000001,
+            "count": 5
+          },
+          {
+            "lower": 200000000001,
+            "upper": 400000000001,
+            "count": 0
+          },
+          {
+            "lower": 400000000001,
+            "upper": 600000000001,
+            "count": 0
+          },
+          {
+            "lower": 600000000001,
+            "upper": 800000000001,
+            "count": 0
+          },
+          {
+            "lower": 800000000001,
+            "upper": 1000000000001,
+            "count": 1
+          }
+        ],
+        "nan_count": 0
+      },
+      "examples": [
+        1,
+        1000000000,
+        2500000000,
+        7800000000,
+        8100000000,
+        999999999999
+      ]
+    },
+    {
+      "name": "budget",
+      "type": "number",
+      "parquet_type": "DOUBLE",
+      "missing": 0,
+      "min": 1.0,
+      "max": 999900000000000.0,
+      "histogram": {
+        "bins": [
+          {
+            "lower": 1.0,
+            "upper": 199980000000001.0,
+            "count": 5
+          },
+          {
+            "lower": 199980000000001.0,
+            "upper": 399960000000001.0,
+            "count": 0
+          },
+          {
+            "lower": 399960000000001.0,
+            "upper": 599940000000001.0,
+            "count": 0
+          },
+          {
+            "lower": 599940000000001.0,
+            "upper": 799920000000000.0,
+            "count": 0
+          },
+          {
+            "lower": 799920000000000.0,
+            "upper": 999900000000000.0,
+            "count": 1
+          }
+        ],
+        "nan_count": 0
+      },
+      "examples": [
+        1.0,
+        1000000000000.0,
+        2500000000000.0,
+        7800000000000.0,
+        8100000000000.0,
+        999900000000000.0
+      ]
+    }
+  ]
+}

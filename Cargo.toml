@@ -17,8 +17,8 @@ repository = "https://github.com/hadley/data-dict.yaml"
 data-dict = { path = "crates/data-dict", version = "0.0.1" }
 data-dict-lsp = { path = "crates/data-dict-lsp", version = "0.0.1" }
 clap = { version = "4", features = ["derive"] }
-quarto-yaml = "0.1.0"
-quarto-yaml-validation = "0.1.0"
+quarto-yaml = { git = "https://github.com/posit-dev/quarto-yaml" }
+quarto-yaml-validation = { git = "https://github.com/posit-dev/quarto-yaml" }
 quarto-source-map = "0.1.0"
 annotate-snippets = "0.12"
 parquet = { version = "54", default-features = false }

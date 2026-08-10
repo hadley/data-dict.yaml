@@ -32,4 +32,4 @@ LL |   - name: animals
 LL |           - name: country
 LL |             type: enum
 LL |             values: [US, CA]
-   |                     ^^^^^^^ has 1 value outside the allowed set (`XX`; row: 2)
+   |                     ^^^^^^^^ has 1 value outside the allowed set (`XX`; row: 2)

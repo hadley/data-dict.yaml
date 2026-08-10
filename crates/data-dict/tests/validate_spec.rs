@@ -1009,6 +1009,110 @@ fn s24_empty_enum_values_map_form() {
     );
 }
 
+// --- todo (S31) ------------------------------------------------------------
+
+// Every remaining `todo` warns, wherever it sits: the dataset, a table, a
+// column, a struct field, and a relationship — one warning per note.
+#[test]
+fn s31_todo_at_every_level() {
+    let diagnostic = warning_dict(indoc! {"
+        todo: Describe the dataset as a whole.
+        tables:
+          - name: food
+            todo: Confirm the grain with the data team.
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2, 3]
+              - name: status
+                type: string
+                examples: [active, closed]
+                todo: Looks like an enum — confirm the full set of values.
+              - name: addr
+                type: struct
+                fields:
+                  - name: zip
+                    type: string
+                    examples: ['97201']
+                    todo: Is this always 5 digits?
+          - name: category
+            columns:
+              - name: id
+                type: number(id)
+                constraints: [primary_key]
+                examples: [1, 2]
+              - name: food_id
+                type: number(id)
+                constraints: [foreign_key]
+                examples: [1, 2]
+        relationships:
+          - join: category.food_id = food.id
+            cardinality: many-to-one
+            todo: Check whether this is really many-to-one.
+    "});
+    diagnostic.assert_contains(&["S31", "unresolved todo"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A multi-task todo is one string: a literal block scalar keeps a bulleted
+// list readable, and it still warns once per key.
+#[test]
+fn s31_block_todo_with_bullets() {
+    let diagnostic = warning_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x, y]
+                todo: |
+                  - Add a `description`.
+                  - Specify `constraints`. Some options suggested by the data:
+                    - constraints: [required] # all values present
+    "});
+    diagnostic.assert_contains(&["S31", "unresolved todo"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A `todo` is a single string; the list form is rejected structurally.
+#[test]
+fn todo_list_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x, y]
+                todo:
+                  - Write the description.
+                  - Check whether nulls are allowed.
+    "});
+    diagnostic.assert_contains(&["Expected string"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A `todo`'s notes are strings; anything else is rejected structurally.
+#[test]
+fn todo_non_string_rejected() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: a
+                type: string
+                examples: [x]
+                todo: 42
+    "});
+    diagnostic.assert_contains(&["Expected"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // --- version (S17) -------------------------------------------------------
 
 // The three valid forms of the optional top-level `version`: a date, a
@@ -1302,7 +1406,97 @@ fn s28_invalid_nested_list_element_type() {
     assert_snapshot!(diagnostic);
 }
 
-// S07: a nested list of quantities still wants `range`, not `examples`.
+// A numeric or temporal column may give both `range` and `examples` — the
+// extremes and a typical value say different things. Each type still requires
+// its own key; the other is optional, whichever way round.
+#[test]
+fn s07_numeric_and_temporal_may_pair_range_and_examples() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: plain
+                type: number
+                range: [1, 99]
+                examples: [1, 20, 50, 70, 99]
+              - name: ident
+                type: number(id)
+                range: [1, 500]
+                examples: [1, 250, 500]
+              - name: weight
+                type: number(quantity)
+                units: kg
+                range: [0.5, 9.5]
+                examples: [0.5, 3.2, 9.5]
+              - name: seen_on
+                type: date
+                range: [2020-01-01, 2024-12-31]
+                examples: [2020-01-01, 2022-06-15, 2024-12-31]
+              - name: readings
+                type: list(number)
+                range: [0, 10]
+                examples: [1, 5, 9]
+    "});
+}
+
+// `string` is the one type left out of the pair: its bounds would order
+// lexicographically, which is rarely what a reader wants.
+#[test]
+fn s07_string_may_not_pair_a_range() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: word
+                type: string
+                range: [a, z]
+                examples: [a, m, z]
+    "});
+    diagnostic.assert_contains(&["S07", "`string` column must not use `range`"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// An optional `range` is checked as thoroughly as a required one: its bounds
+// must match the column's type (S12) and run in order (S13).
+#[test]
+fn s12_optional_range_on_a_number_is_type_checked() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: n
+                type: number
+                range: [low, 9]
+                examples: [1, 5, 9]
+    "});
+    diagnostic.assert_contains(&[
+        "S12",
+        "Each `range` value of a `number` column must be a number",
+    ]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s13_optional_range_on_a_number_must_be_ordered() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: n
+                type: number
+                range: [99, 1]
+                examples: [1, 50, 99]
+    "});
+    diagnostic.assert_contains(&["S13", "minimum must be less than or equal to its maximum"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// S07: a nested list resolves to its innermost element type, so a list of
+// quantities still requires a `range`. The `examples` beside it are legal for a
+// numeric type, so the absent `range` is the only finding.
 #[test]
 fn s07_nested_list_wrong_representation() {
     let diagnostic = failing_dict(indoc! {"

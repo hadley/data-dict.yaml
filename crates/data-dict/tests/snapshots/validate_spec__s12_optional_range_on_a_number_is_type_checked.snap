@@ -1,0 +1,22 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: n
+        type: number
+        range: [low, 9]
+        examples: [1, 5, 9]
+────────────────────────────────────────
+error[S12]: Each `range` value of a `number` column must be a number.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+LL |     columns:
+LL |       - name: n
+LL |         type: number
+LL |         range: [low, 9]
+   |                 ^^^ is a string

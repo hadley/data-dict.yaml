@@ -139,20 +139,29 @@ function JoinChip({ join }) {
 
 /* ---- Header and lead ------------------------------------------------------ */
 
-/* The way back sits beside the dataset's name rather than over the table it
-   leaves, so it is in the same place on every page. It only appears once there
-   is somewhere to go back from. */
+/* Inside a table, the dataset's name is itself the way back, led by a chevron.
+   The whole title is the target rather than a separate link beside it: it is the
+   biggest thing on the page and already names where it goes. */
 function Header({ onGlossary, atTable }) {
+  const name = DICT.name
+    ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
+    : "Data dictionary";
+  /* The chevron's slot is there on both pages — filled inside a table, empty
+     outside one — so the name lands in the same place either way and navigating
+     home doesn't slide the title sideways. */
+  const titled = (chevron) => html`
+    <span class="chev" aria-hidden="true"
+      ...${chevron ? { dangerouslySetInnerHTML: { __html: ICONS.back } } : {}} />
+    <span>${name}</span>`;
   return html`<header class="pagehead">
     <div class="head-title">
       <h1 class="title" id="dict-title">
-        ${DICT.name
-          ? html`<${NameLabel} label=${DICT.label}><span>${DICT.name}</span><//>`
-          : "Data dictionary"}
+        ${atTable
+          ? html`<a class="homelink" href="#" title="Back to every table"
+              onClick=${(e) => { e.preventDefault(); goHome(); }}>${titled(true)}</a>`
+          : html`<span class="title-row">${titled(false)}</span>`}
       </h1>
-      ${atTable &&
-        html`<a class="homelink" href="#" title="Back to every table"
-          onClick=${(e) => { e.preventDefault(); goHome(); }}>home</a>`}
+      <${TodoFlag} source=${DICT.todo} />
     </div>
     <div class="head-actions">
       ${glossItems.length > 0 &&
@@ -261,6 +270,7 @@ function TableGroup({ table: t, ql, m }) {
         <${NameLabel} label=${t.label}>
           <a class="tname" href=${href}><${Marked} text=${t.name} ql=${ql} /></a>
         <//>
+        <${TodoFlag} source=${t.todo} />
       </td>
       <td class="num size">
         <span class="srows">${t.rows == null ? "—" : t.rows.toLocaleString()}</span>
@@ -379,6 +389,7 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
           k === "primary_key"
             ? html`<span class="key">PK</span>`
             : html`<span class="key fk">FK</span>`)}
+        <${TodoFlag} source=${c.todo} />
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
       ${c.type && html`<${MetaLine} label="type" items=${[c.type]} hl=${hl} />`}
@@ -459,6 +470,7 @@ function TablePage({ table: t, targetCol }) {
         <div class="tpage-headmain">
           <div class="tpage-title-row">
             <span class="mtitle"><${NameLabel} label=${t.label}><span>${t.name}</span><//></span>
+            <${TodoFlag} source=${t.todo} />
           </div>
           <div class="tpage-substat">${substat}</div>
           <div class="tpage-main">

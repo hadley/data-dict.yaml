@@ -26,4 +26,4 @@ LL |     columns:
 LL |       - name: status
 LL |         type: enum
 LL |         range: [0, 10]
-   |                ^^^^^^ has type `enum` but uses `range`
+   |                ^^^^^^^ has type `enum` but uses `range`

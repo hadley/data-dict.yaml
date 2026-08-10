@@ -13,6 +13,8 @@ The descriptive keys — `name`, `label`, `description`, and `details` — ident
 
 The dataset may also carry an optional `origin` key: a link to the code that produced it (see [Origin](#origin)). The same key is available on each table.
 
+Every level of the dictionary — this top level, a table, a column, a struct field, a relationship — may also carry a `todo` key recording work that remains to be done; see [Todo](#todo).
+
 In the common case of a dictionary that describes a single table, these top-level keys should be used to describe the dataset, leaving the table itself undescribed.
 
 The content keys all hold the actual information about the data:
@@ -32,6 +34,7 @@ The content keys all hold the actual information about the data:
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
+* `todo`: work that remains on this table (see [Todo](#todo)).
 
 For example:
 
@@ -109,13 +112,14 @@ Each descriptor has the following properties:
 * `type`: the column's data type (see [Types](#types)). Should match (approximately) the underlying data type. Optional — see below.
 * `constraints`: a list of column-level constraints (see [Column constraints](#column-constraints)).
 * `display`: controls whether the column should appear in user-facing output (see [Display](#display)).
+* `todo`: work that remains on this column (see [Todo](#todo)).
 
 Some properties only apply to certain types:
 
 * `units`: the unit of measurement, for `number(quantity)` columns only (see [Measures](#measures)).
 * `time_zone`: the time zone, for `datetime` columns only (see [Time zones](#time-zones)).
 
-Each column also needs to describe some representative values, using exactly one of `values`, `range`, or `examples`. See [Representative values](#representative-values) for details.
+Each column also needs to describe some representative values, using `values`, `range`, or `examples` as its type requires. See [Representative values](#representative-values) for details.
 
 A column may also be listed with only its `name` and no `type`. This acknowledges the column without describing it and you should use it for columns that you don't care about but don't want flagged as undocumented. Such a column makes no claims about its contents, so it's never checked, but it must still exist in the data. Such columns should not be used in analysis or exposed in user interfaces.
 
@@ -215,7 +219,7 @@ The element type in `list(element_type)` may be any type: `string`, `number`, `n
 
 #### Struct fields
 
-A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, etc). It doesn't yet support: `label`, `display`, and `constraints`.
+A `struct` column may include a `fields` property — an ordered list of field descriptors. A field descriptor is a reduced column descriptor: it carries the properties that name, type, and document the field (e.g. `name`, `type`, `description`, `details`, `todo`, etc). It doesn't yet support: `label`, `display`, and `constraints`.
 
 A field may itself be `list(...)` or `struct` (with its own `fields`), allowing deep nesting.
 
@@ -249,13 +253,15 @@ A rule about a field's values is written as an assertion on the enclosing column
 
 #### Representative values
 
-Most typed columns carry exactly one of the following three properties to represent the data they contain. The exceptions are `boolean` (values are always `true`/`false`) and `struct` (whose fields carry their own).
+Most typed columns carry at least one of the following three properties to represent the data they contain, chosen by the column's type. The exceptions are `boolean` (values are always `true`/`false`) and `struct` (whose fields carry their own).
+
+A numeric or temporal column may give both `range` and `examples`, since the two say different things: the extremes the column reaches, and what a typical value looks like. One is usually enough — reach for the pair only when the extremes alone would mislead, as in a column whose maximum is a rare outlier. Which one the type *requires* is unchanged; the other is optional.
 
 * `values`: the allowed values for an `enum` column. Can be a list (`[M, F, U]`) when values are self-explanatory, or a map (`{M: Male, F: Female, U: Unknown}`) when values need labels. The values themselves must be **strings**, and there must be at least one of them; in the map form the labels must be strings too. (`boolean` columns implicitly have `values: [true, false]`, no need to explicitly include it.)
-* `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Used for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Both elements must match the column's type, and the minimum must not exceed the maximum.
+* `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it — a value outside the range will generate a warning, not a validation error. Required for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Optional on the other numeric types, `number` and `number(id)`, where it may accompany their `examples`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`.
-* `examples`: a list of ~5 representative values from the column. Used for all other types: `string`, `number`, and `number(id)`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
+* `examples`: a list of ~5 representative values from the column. Required for all other types: `string`, `number`, and `number(id)`. Optional on the ordered numeric and temporal types, where it may accompany their `range`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them.
 
 `boolean` columns are the exception to this rule because they can only contain `true`, `false`, and (if not required) `null`.
 
@@ -356,6 +362,7 @@ constraints:
 * `description`: human-readable description of the relationship. Only needed if it's not clear from the context.
 * `conflicts`: a list of column names that appear on both sides of the join with different meanings. These fields would cause ambiguity in a join and may need to be renamed or dropped.
 * `aliases`: a map from alias to table name, naming the role each side of the join plays. See [aliases](#aliases).
+* `todo`: work that remains on this relationship (see [Todo](#todo)).
 
 For example:
 
@@ -425,3 +432,20 @@ If you use a `number`, we recommend [semantic versioning](https://datapackage.or
 version:
   date: 2024-01-31
 ```
+
+## Todo
+
+`todo` records work that remains before the dictionary is complete: a description still to be written, a type to confirm with a domain expert, a constraint you suspect but haven't verified. Its value is a single string saying what's left to do. When several tasks are outstanding, write them as one note — a literal block scalar (`|`) keeps a bulleted list readable:
+
+```yaml
+- name: status
+  type: string
+  examples: [active, pending, closed]
+  todo: |
+    - Add a `description`.
+    - Looks like an enum — confirm the full set of `values` and switch the `type`.
+```
+
+`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, and a relationship. Put each note on the thing it's about, so the work travels with its subject.
+
+Every remaining `todo` is reported when the spec is validated (see S31 in [validation](validation.md)), so a dictionary announces its own unfinished work each time it's checked. It's reported as a warning rather than an error, so an unfinished dictionary can still be validated against its data — but you should resolve every `todo` before you consider the dictionary finished.

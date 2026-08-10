@@ -20,4 +20,4 @@ LL |   - name: t
 LL |       - name: status
 LL |         type: enum
 LL |         values: [active, banned]
-   |                 ^^^^^^^^^^^^^^^ has 1 value outside the allowed set (`sleepy`; row: 4)
+   |                 ^^^^^^^^^^^^^^^^ has 1 value outside the allowed set (`sleepy`; row: 4)

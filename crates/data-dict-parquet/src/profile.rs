@@ -38,8 +38,17 @@ const TOP_VALUES: usize = 20;
 /// Examples reported. Enough that a consumer can show a useful handful and
 /// still have more to reveal on demand.
 const EXAMPLES: usize = 20;
-/// Histogram bins spanning a column's range.
-const BINS: usize = 20;
+
+/// The default cap on [`bin_count`] for callers with no chart of their own
+/// to size bins for (a CLI table, or a caller that never reads the
+/// histogram at all).
+pub const DEFAULT_MAX_BINS: usize = 20;
+
+fn bin_count(row_count: usize, max_bins: usize) -> usize {
+    // Use the Terrell–Scott rule to avoid having to compute IQR etc
+    let n = (2.0 * row_count.max(1) as f64).cbrt();
+    (n.round() as usize).clamp(5, max_bins.max(5))
+}
 
 /// A summary of one column's data.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,7 +71,7 @@ pub struct ColumnProfile {
     /// The [`TOP_VALUES`] most frequent values, most frequent first. Empty for
     /// continuous kinds, which aren't counted per value.
     pub value_counts: Vec<ValueCount>,
-    /// The distribution across [`BINS`] equal-width bins, for kinds on a
+    /// The distribution across [`bin_count`] equal-width bins, for kinds on a
     /// numeric scale that hold at least one value.
     pub histogram: Option<Histogram>,
     /// Up to [`EXAMPLES`] representative values, spread along the sorted
@@ -161,8 +170,14 @@ pub struct Bin {
 }
 
 /// Profile every column of a Parquet file, or just `columns` when given, in the
-/// order requested. Unknown column names are an error.
-pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, ParquetError> {
+/// order requested. Unknown column names are an error. `max_bins` caps each
+/// column's histogram (see [`bin_count`]); callers that never look at a
+/// histogram can pass [`DEFAULT_MAX_BINS`].
+pub fn profile(
+    path: &Path,
+    columns: Option<&[&str]>,
+    max_bins: usize,
+) -> Result<FileProfile, ParquetError> {
     let ctx = FileContext::open(path)?;
     let meta = ctx.parquet();
     let row_count = ctx.rows();
@@ -175,7 +190,7 @@ pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, Par
         .par_iter()
         .map(|target| {
             if target.readable() {
-                profile_column(path, target)
+                profile_column(path, target, max_bins)
             } else {
                 Ok(stub(target, footer_nulls(meta, target.leaf)))
             }
@@ -193,14 +208,19 @@ pub fn profile(path: &Path, columns: Option<&[&str]>) -> Result<FileProfile, Par
 pub fn profile_paths(
     path: &Path,
     paths: &[Vec<String>],
+    max_bins: usize,
 ) -> Result<Vec<Option<ColumnProfile>>, ParquetError> {
     paths
         .par_iter()
-        .map(|field_path| profile_path(path, field_path))
+        .map(|field_path| profile_path(path, field_path, max_bins))
         .collect()
 }
 
-fn profile_path(path: &Path, field_path: &[String]) -> Result<Option<ColumnProfile>, ParquetError> {
+fn profile_path(
+    path: &Path,
+    field_path: &[String],
+    max_bins: usize,
+) -> Result<Option<ColumnProfile>, ParquetError> {
     let ctx = FileContext::open(path)?;
     let Some(leaf) = ctx.leaf_path(field_path) else {
         return Ok(None);
@@ -223,7 +243,8 @@ fn profile_path(path: &Path, field_path: &[String]) -> Result<Option<ColumnProfi
         .is_binnable()
         .then(|| footer_range(ctx.parquet(), leaf, target.repr))
         .flatten();
-    let mut accumulator = Accumulator::new(&target, range);
+    let bins = bin_count(ctx.rows(), max_bins);
+    let mut accumulator = Accumulator::new(&target, range, bins);
     scan_path(&ctx, leaf, &field_path[1..], &mut accumulator)?;
 
     if accumulator.unprofilable {
@@ -239,10 +260,14 @@ fn profile_path(path: &Path, field_path: &[String]) -> Result<Option<ColumnProfi
 
     if accumulator.bins.is_none()
         && target.kind.is_binnable()
-        && let Some(bins) =
-            BinCounts::spanning(&accumulator.min, &accumulator.max, integral(&target.kind))
+        && let Some(spanned) = BinCounts::spanning(
+            &accumulator.min,
+            &accumulator.max,
+            integral(&target.kind),
+            bins,
+        )
     {
-        let mut binner = BinOnly { bins };
+        let mut binner = BinOnly { bins: spanned };
         scan_path(&ctx, leaf, &field_path[1..], &mut binner)?;
         accumulator.bins = Some(binner.bins);
     }
@@ -368,7 +393,11 @@ fn footer_nulls(meta: &ParquetMetaData, leaf: Option<usize>) -> Option<usize> {
     })
 }
 
-fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, ParquetError> {
+fn profile_column(
+    path: &Path,
+    target: &Target,
+    max_bins: usize,
+) -> Result<ColumnProfile, ParquetError> {
     let ctx = FileContext::open(path)?;
     let leaf = ctx
         .leaf(&target.name)
@@ -381,7 +410,8 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
         .is_binnable()
         .then(|| footer_range(ctx.parquet(), leaf, target.repr))
         .flatten();
-    let mut accumulator = Accumulator::new(target, range);
+    let bins = bin_count(ctx.rows(), max_bins);
+    let mut accumulator = Accumulator::new(target, range, bins);
     scan(&ctx, leaf, &mut accumulator)?;
 
     if accumulator.unprofilable {
@@ -405,10 +435,14 @@ fn profile_column(path: &Path, target: &Target) -> Result<ColumnProfile, Parquet
     // reduced the column to its extremes.
     if accumulator.bins.is_none()
         && target.kind.is_binnable()
-        && let Some(bins) =
-            BinCounts::spanning(&accumulator.min, &accumulator.max, integral(&target.kind))
+        && let Some(spanned) = BinCounts::spanning(
+            &accumulator.min,
+            &accumulator.max,
+            integral(&target.kind),
+            bins,
+        )
     {
-        let mut binner = BinOnly { bins };
+        let mut binner = BinOnly { bins: spanned };
         scan(&ctx, leaf, &mut binner)?;
         accumulator.bins = Some(binner.bins);
     }
@@ -486,7 +520,7 @@ struct Accumulator {
 }
 
 impl Accumulator {
-    fn new(target: &Target, range: Option<(f64, f64)>) -> Self {
+    fn new(target: &Target, range: Option<(f64, f64)>, bins: usize) -> Self {
         Accumulator {
             ordered: target.kind.is_ordered(),
             continuous: target.kind.is_continuous(),
@@ -497,7 +531,7 @@ impl Accumulator {
             counts: SpaceSaving::new(TRACKED_VALUES),
             distinct: HyperLogLog::new(),
             sample: BottomK::new(SAMPLED_VALUES),
-            bins: range.map(|(low, high)| BinCounts::new(low, high, integral(&target.kind))),
+            bins: range.map(|(low, high)| BinCounts::new(low, high, integral(&target.kind), bins)),
             unprofilable: false,
         }
     }
@@ -603,8 +637,8 @@ fn integral(kind: &ValueKind) -> bool {
     kind.is_binnable() && !kind.is_continuous()
 }
 
-/// Counts falling in each of up to [`BINS`] equal-width bins spanning the
-/// observed range.
+/// Counts falling in each of up to `bins` equal-width bins spanning the
+/// observed range (see [`bin_count`]).
 struct BinCounts {
     low: f64,
     width: f64,
@@ -614,19 +648,19 @@ struct BinCounts {
 impl BinCounts {
     /// `integral` means the values are whole numbers (everything but floats:
     /// ints, and the temporal kinds' raw days/millis/…), so the bins get a
-    /// whole-number width too — fewer than [`BINS`] of them when the range is
+    /// whole-number width too — fewer than `bins` of them when the range is
     /// narrow — keeping every edge on a representable value.
-    fn new(low: f64, high: f64, integral: bool) -> Self {
+    fn new(low: f64, high: f64, integral: bool, bins: usize) -> Self {
         // A single value spans no range, so it gets one zero-width bin of its
-        // own rather than twenty empty ones around it.
+        // own rather than `bins` empty ones around it.
         let span = high - low;
         let (bins, width) = if span <= 0.0 {
             (1, 0.0)
         } else if integral {
-            let width = (span / BINS as f64).ceil().max(1.0);
+            let width = (span / bins as f64).ceil().max(1.0);
             ((span / width).ceil() as usize, width)
         } else {
-            (BINS, span / BINS as f64)
+            (bins, span / bins as f64)
         };
         BinCounts {
             low,
@@ -639,10 +673,15 @@ impl BinCounts {
     /// bin or the values aren't numbers. The extremes are finite by
     /// construction (see [`crate::F64::new`]); the check restates that here, so
     /// that a non-finite edge can never silently turn every bin into NaN.
-    fn spanning(min: &Option<Value>, max: &Option<Value>, integral: bool) -> Option<BinCounts> {
+    fn spanning(
+        min: &Option<Value>,
+        max: &Option<Value>,
+        integral: bool,
+        bins: usize,
+    ) -> Option<BinCounts> {
         let low = min.as_ref()?.as_f64()?;
         let high = max.as_ref()?.as_f64()?;
-        (low.is_finite() && high.is_finite()).then(|| BinCounts::new(low, high, integral))
+        (low.is_finite() && high.is_finite()).then(|| BinCounts::new(low, high, integral, bins))
     }
 
     fn add(&mut self, value: f64, count: usize) {
@@ -798,7 +837,7 @@ fn prefer_dictionary(chunk: &ColumnChunkMetaData) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{BINS, BinCounts, NotFinite, find_leaf, scan_group};
+    use super::{BinCounts, NotFinite, bin_count, find_leaf, scan_group};
     use crate::reader::FileContext;
     use crate::value::Value;
     use parquet::file::properties::{WriterProperties, WriterVersion};
@@ -904,37 +943,48 @@ mod tests {
     #[test]
     fn integral_bins_have_whole_widths() {
         // A narrow integer range takes one bin per unit, not twenty slivers.
-        let bins = BinCounts::new(0.0, 9.0, true);
+        let bins = BinCounts::new(0.0, 9.0, true, 20);
         assert_eq!((bins.counts.len(), bins.width), (9, 1.0));
         // A wide one rounds the width up to the next whole number.
-        let bins = BinCounts::new(3250.0, 6300.0, true);
-        assert_eq!((bins.counts.len(), bins.width), (BINS, 153.0));
+        let bins = BinCounts::new(3250.0, 6300.0, true, 20);
+        assert_eq!((bins.counts.len(), bins.width), (20, 153.0));
         // The same range binned as floats keeps the exact fractional width.
-        let bins = BinCounts::new(0.0, 9.0, false);
-        assert_eq!((bins.counts.len(), bins.width), (BINS, 0.45));
+        let bins = BinCounts::new(0.0, 9.0, false, 20);
+        assert_eq!((bins.counts.len(), bins.width), (20, 0.45));
     }
 
     #[test]
     fn bins_are_half_open_except_the_first() {
-        let mut bins = BinCounts::new(0.0, 20.0, false);
+        let mut bins = BinCounts::new(0.0, 20.0, false, 20);
         bins.add(0.0, 1); // the minimum belongs to the first bin
         bins.add(1.0, 1); // as does its upper bound
         bins.add(1.5, 1); // above it, so the second
         bins.add(20.0, 1); // the maximum lands in the last
         let histogram = bins.finish(NotFinite::default());
-        assert_eq!(histogram.bins.len(), BINS);
+        assert_eq!(histogram.bins.len(), 20);
         assert_eq!(histogram.bins[0].count, 2);
         assert_eq!(histogram.bins[1].count, 1);
-        assert_eq!(histogram.bins[BINS - 1].count, 1);
+        assert_eq!(histogram.bins[19].count, 1);
         assert!(histogram.bins[0].lower_inclusive);
         assert!(!histogram.bins[1].lower_inclusive);
         assert_eq!(histogram.bins[0].lower, 0.0);
-        assert_eq!(histogram.bins[BINS - 1].upper, 20.0);
+        assert_eq!(histogram.bins[19].upper, 20.0);
+    }
+
+    #[test]
+    fn bin_count_scales_with_the_cube_root_of_row_count_and_caps() {
+        // The Terrell–Scott rule: round((2n)^(1/3)).
+        assert_eq!(bin_count(1_000, 20), 13);
+        assert_eq!(bin_count(1_000_000, 200), 126);
+        // A tiny column never drops below the floor...
+        assert_eq!(bin_count(1, 200), 5);
+        // ...and a huge one never exceeds whatever cap the caller passes.
+        assert_eq!(bin_count(10_000_000_000, 20), 20);
     }
 
     #[test]
     fn a_single_value_gets_one_bin() {
-        let mut bins = BinCounts::new(7.0, 7.0, false);
+        let mut bins = BinCounts::new(7.0, 7.0, false, 20);
         bins.add(7.0, 3);
         let histogram = bins.finish(NotFinite::default());
         assert_eq!(histogram.bins.len(), 1);

@@ -39,4 +39,4 @@ LL |   - name: orders
 LL |                   - name: statuses
 LL |                     type: list(enum)
 LL |                     values: [ok, late]
-   |                             ^^^^^^^^^ has 1 value outside the allowed set (`bogus`; row: 2)
+   |                             ^^^^^^^^^^ has 1 value outside the allowed set (`bogus`; row: 2)

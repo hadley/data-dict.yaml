@@ -18,4 +18,4 @@ LL |     columns:
 LL |       - name: active
 LL |         type: boolean
 LL |         examples: [true, false]
-   |                   ^^^^^^^^^^^^ has type `boolean` but uses `examples`
+   |                   ^^^^^^^^^^^^^ has type `boolean` but uses `examples`

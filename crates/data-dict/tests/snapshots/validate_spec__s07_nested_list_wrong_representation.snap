@@ -19,12 +19,3 @@ LL |     columns:
 LL |       - name: grid
 LL |         type: list(list(number(quantity)))
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ has type `list(list(number(quantity)))` but is missing `range`
-error[S07]: A `list(list(number(quantity)))` column must use `range`, not `examples`.
-  --> dict.yaml:9:19
-   |
-LL |   - name: t
-LL |     columns:
-LL |       - name: grid
-...
-LL |         examples: [1, 2]
-   |                   ^^^^^ has type `list(list(number(quantity)))` but uses `examples`

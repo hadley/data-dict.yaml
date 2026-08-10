@@ -22,7 +22,7 @@ use data_dict_parquet::{
 use crate::assert_expr::{ColumnsSelector, Expr, ExprKind};
 use crate::model::{
     Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
-    Table, Version,
+    Spanned, Table, Version,
 };
 use crate::problem::{ProblemKind, ProblemSet, Severity};
 use crate::{load, validate_and_lower};
@@ -30,6 +30,12 @@ use crate::{load, validate_and_lower};
 /// The version of the export document format itself, carried as the
 /// document's `$version` so consumers can detect shape changes.
 pub const EXPORT_VERSION: &str = "0.1.0";
+
+/// Cap on a histogram's bin count in the exported document, which renders it
+/// as an interactive chart with room for more resolution than a CLI table —
+/// matches the cap Positron's data explorer uses for the histogram it draws
+/// once a column is expanded.
+const MAX_HISTOGRAM_BINS: usize = 200;
 
 /// The export document. Field order matches the JSON shape documented in
 /// `site/export.md`. A key with nothing to say — a missing optional, an empty
@@ -47,6 +53,8 @@ pub struct Export {
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    todo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,6 +104,8 @@ struct ExportTable {
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    todo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<ExportSource>,
@@ -122,6 +132,8 @@ struct ExportColumn {
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    todo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display: Option<String>,
     #[serde(rename = "type")]
@@ -179,6 +191,8 @@ struct ExportAssertion {
 struct ExportRelationship {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    todo: Option<String>,
     cardinality: &'static str,
     /// The cardinality as written in the dictionary — the orientation the
     /// `join` text documents, before any left/right normalization.
@@ -454,6 +468,11 @@ fn prose(text: &Option<String>) -> Option<String> {
     text.as_deref().map(markdown_html)
 }
 
+/// The same, for a field the model keeps with its span.
+fn spanned_prose(text: &Option<Spanned<String>>) -> Option<String> {
+    text.as_ref().map(|s| markdown_html(&s.value))
+}
+
 fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
     Export {
         format_version: EXPORT_VERSION,
@@ -461,6 +480,7 @@ fn build(dict: &DataDict, mut profiles: HashMap<String, TableData>) -> Export {
         label: dict.label.clone(),
         description: prose(&dict.description),
         details: prose(&dict.details),
+        todo: spanned_prose(&dict.todo),
         origin: dict.origin.clone(),
         learn_more: dict.learn_more.clone(),
         version: dict.version.as_ref().map(|v| match v {
@@ -504,8 +524,9 @@ fn build_table(
     ExportTable {
         name: table.name.value.clone(),
         label: table.label.as_ref().map(|s| s.value.clone()),
-        description: table.description.as_ref().map(|s| markdown_html(&s.value)),
-        details: table.details.as_ref().map(|s| markdown_html(&s.value)),
+        description: spanned_prose(&table.description),
+        details: spanned_prose(&table.details),
+        todo: spanned_prose(&table.todo),
         origin: table.origin.clone(),
         source: table.source.as_ref().map(|s| ExportSource {
             parquet: s.parquet.value.clone(),
@@ -599,6 +620,7 @@ fn build_column(
         label: col.label.clone(),
         description: prose(&col.description),
         details: prose(&col.details),
+        todo: spanned_prose(&col.todo),
         display: col.display.clone(),
         col_type: col
             .col_type
@@ -829,6 +851,7 @@ fn build_relationship(rel: &Relationship) -> Option<ExportRelationship> {
         .collect();
     Some(ExportRelationship {
         description: prose(&rel.description),
+        todo: spanned_prose(&rel.todo),
         cardinality,
         declared_cardinality,
         pairs,
@@ -895,7 +918,7 @@ fn profile_table(
 
     let mut out = TableProfiles::new();
     if !scalars.is_empty() {
-        let profiled = profile(parquet_path, Some(&scalars))?;
+        let profiled = profile(parquet_path, Some(&scalars), MAX_HISTOGRAM_BINS)?;
         for column in profiled.columns {
             if let Some(profile) = profile_json(&column) {
                 out.insert(column.name.clone(), profile);
@@ -903,7 +926,11 @@ fn profile_table(
         }
     }
     if !nested.is_empty() {
-        for (path, profiled) in nested.iter().zip(profile_paths(parquet_path, &nested)?) {
+        for (path, profiled) in
+            nested
+                .iter()
+                .zip(profile_paths(parquet_path, &nested, MAX_HISTOGRAM_BINS)?)
+        {
             if let Some(profile) = profiled.as_ref().and_then(profile_json) {
                 out.insert(path.join("."), profile);
             }
