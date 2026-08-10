@@ -1,0 +1,1176 @@
+{
+  "$version": "0.1.0",
+  "origin": "R/clean.R",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "tables": [
+    {
+      "name": "account",
+      "description": "<p>Static characteristics of bank accounts. Each account belongs to a branch in a district and has a statement issuance frequency.</p>",
+      "source": {
+        "parquet": "data/account.parquet"
+      },
+      "columns": [
+        {
+          "name": "account_id",
+          "description": "<p>Unique identifier for the account.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "disp",
+              "column": "account_id"
+            },
+            {
+              "table": "order",
+              "column": "account_id"
+            },
+            {
+              "table": "trans",
+              "column": "account_id"
+            },
+            {
+              "table": "loan",
+              "column": "account_id"
+            }
+          ],
+          "examples": [
+            1,
+            1183,
+            2367,
+            3552,
+            11382
+          ]
+        },
+        {
+          "name": "district_id",
+          "description": "<p>District where the account's branch is located.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "district",
+            "column": "district_id"
+          },
+          "examples": [
+            1,
+            20,
+            39,
+            58,
+            77
+          ]
+        },
+        {
+          "name": "frequency",
+          "description": "<p>Frequency of statement issuance.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "POPLATEK MESICNE",
+            "POPLATEK TYDNE",
+            "POPLATEK PO OBRATU"
+          ],
+          "value_labels": {
+            "POPLATEK MESICNE": "Monthly",
+            "POPLATEK PO OBRATU": "After each transaction",
+            "POPLATEK TYDNE": "Weekly"
+          }
+        },
+        {
+          "name": "date",
+          "description": "<p>Date the account was created.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1993-01-01",
+            "max": "1997-12-29"
+          }
+        }
+      ]
+    },
+    {
+      "name": "client",
+      "description": "<p>Characteristics of bank clients. Gender and birth date were originally encoded together in a \"birth number\"; they have been split into separate fields in this version.</p>",
+      "source": {
+        "parquet": "data/client.parquet"
+      },
+      "columns": [
+        {
+          "name": "client_id",
+          "description": "<p>Unique identifier for the client.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "disp",
+              "column": "client_id"
+            }
+          ],
+          "examples": [
+            1,
+            1418,
+            2839,
+            4257,
+            13998
+          ]
+        },
+        {
+          "name": "gender",
+          "description": "<p>Client's gender.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "F",
+            "M"
+          ]
+        },
+        {
+          "name": "birth_date",
+          "description": "<p>Client's date of birth.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1911-08-20",
+            "max": "1987-09-27"
+          }
+        },
+        {
+          "name": "district_id",
+          "description": "<p>District where the client lives.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "district",
+            "column": "district_id"
+          },
+          "examples": [
+            1,
+            20,
+            39,
+            58,
+            77
+          ]
+        }
+      ]
+    },
+    {
+      "name": "disp",
+      "description": "<p>Dispositions linking clients to accounts. Describes the rights of clients to operate accounts. Only owners can issue permanent orders and apply for loans.</p>",
+      "source": {
+        "parquet": "data/disp.parquet"
+      },
+      "columns": [
+        {
+          "name": "disp_id",
+          "description": "<p>Unique identifier for the disposition.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "card",
+              "column": "disp_id"
+            }
+          ],
+          "examples": [
+            1,
+            1418,
+            2839,
+            4257,
+            13690
+          ]
+        },
+        {
+          "name": "client_id",
+          "description": "<p>The client who has access to the account.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "client",
+            "column": "client_id"
+          },
+          "examples": [
+            1,
+            1418,
+            2839,
+            4257,
+            13998
+          ]
+        },
+        {
+          "name": "account_id",
+          "description": "<p>The account the client has access to.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "account",
+            "column": "account_id"
+          },
+          "examples": [
+            1,
+            1183,
+            2367,
+            3552,
+            11382
+          ]
+        },
+        {
+          "name": "type",
+          "description": "<p>Type of disposition.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "OWNER",
+            "DISPONENT"
+          ],
+          "value_labels": {
+            "DISPONENT": "Limited access",
+            "OWNER": "Full rights (can issue orders and apply for loans)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "order",
+      "description": "<p>Permanent (standing) payment orders on accounts. These are recurring debits set up by account owners.</p>",
+      "source": {
+        "parquet": "data/order.parquet"
+      },
+      "columns": [
+        {
+          "name": "order_id",
+          "description": "<p>Unique identifier for the permanent order.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            29401,
+            31187,
+            32988,
+            34786,
+            46338
+          ]
+        },
+        {
+          "name": "account_id",
+          "description": "<p>Account the order is issued for.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "account",
+            "column": "account_id"
+          },
+          "examples": [
+            1,
+            1174,
+            2342,
+            3502,
+            11362
+          ]
+        },
+        {
+          "name": "bank_to",
+          "description": "<p>Two-letter code identifying the recipient's bank.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "AB",
+            "GH",
+            "MN",
+            "ST",
+            "YZ"
+          ]
+        },
+        {
+          "name": "account_to",
+          "description": "<p>Account number of the recipient.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            399,
+            24175644,
+            49756062,
+            73948222,
+            99994199
+          ]
+        },
+        {
+          "name": "amount",
+          "description": "<p>Amount debited per payment.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 14882
+          }
+        },
+        {
+          "name": "k_symbol",
+          "description": "<p>Characterization of the payment. Never null; unspecified payments carry an empty string rather than a null (1379 of 6471 rows).</p>",
+          "type": "enum",
+          "values": [
+            "POJISTNE",
+            "SIPO",
+            "LEASING",
+            "UVER",
+            ""
+          ],
+          "value_labels": {
+            "": "Not specified",
+            "LEASING": "Leasing",
+            "POJISTNE": "Insurance payment",
+            "SIPO": "Household payment",
+            "UVER": "Loan payment"
+          }
+        }
+      ]
+    },
+    {
+      "name": "trans",
+      "description": "<p>Individual transactions on accounts, including credits and debits from various sources.</p>",
+      "source": {
+        "parquet": "data/trans.parquet"
+      },
+      "columns": [
+        {
+          "name": "trans_id",
+          "description": "<p>Unique identifier for the transaction.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            1,
+            430263,
+            858506,
+            2060979,
+            3682987
+          ]
+        },
+        {
+          "name": "account_id",
+          "description": "<p>Account the transaction belongs to.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "account",
+            "column": "account_id"
+          },
+          "examples": [
+            1,
+            1183,
+            2367,
+            3552,
+            11382
+          ]
+        },
+        {
+          "name": "date",
+          "description": "<p>Date of the transaction.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1993-01-01",
+            "max": "1998-12-31"
+          }
+        },
+        {
+          "name": "type",
+          "description": "<p>Transaction direction.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "PRIJEM",
+            "VYDAJ",
+            "VYBER"
+          ],
+          "value_labels": {
+            "PRIJEM": "Credit",
+            "VYBER": "Withdrawal (cash)",
+            "VYDAJ": "Withdrawal (debit)"
+          }
+        },
+        {
+          "name": "operation",
+          "description": "<p>Mode of transaction.</p>",
+          "type": "enum",
+          "values": [
+            "VYBER KARTOU",
+            "VKLAD",
+            "PREVOD Z UCTU",
+            "VYBER",
+            "PREVOD NA UCET"
+          ],
+          "value_labels": {
+            "PREVOD NA UCET": "Remittance to another bank",
+            "PREVOD Z UCTU": "Collection from another bank",
+            "VKLAD": "Credit in cash",
+            "VYBER": "Cash withdrawal",
+            "VYBER KARTOU": "Credit card withdrawal"
+          }
+        },
+        {
+          "name": "amount",
+          "description": "<p>Amount of money in the transaction.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 87400
+          }
+        },
+        {
+          "name": "balance",
+          "description": "<p>Account balance after the transaction.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": -41126,
+            "max": 209637
+          }
+        },
+        {
+          "name": "k_symbol",
+          "description": "<p>Characterization of the transaction. Has two distinct kinds of missingness: a single space <code>\" \"</code> (53,433 rows) and a true null (481,881 rows). Treat both as \"not specified\".</p>",
+          "type": "enum",
+          "values": [
+            "POJISTNE",
+            "SLUZBY",
+            "UROK",
+            "SANKC. UROK",
+            "SIPO",
+            "DUCHOD",
+            "UVER",
+            " "
+          ],
+          "value_labels": {
+            " ": "Not specified",
+            "DUCHOD": "Old-age pension",
+            "POJISTNE": "Insurance payment",
+            "SANKC. UROK": "Sanction interest (negative balance)",
+            "SIPO": "Household payment",
+            "SLUZBY": "Payment for statement",
+            "UROK": "Interest credited",
+            "UVER": "Loan payment"
+          }
+        },
+        {
+          "name": "bank",
+          "description": "<p>Two-letter code identifying the partner's bank.</p>",
+          "type": "string",
+          "examples": [
+            "AB",
+            "GH",
+            "MN",
+            "ST",
+            "YZ"
+          ]
+        },
+        {
+          "name": "account",
+          "description": "<p>Account number of the transaction partner.</p>",
+          "type": "number(id)",
+          "examples": [
+            0,
+            24118912,
+            49954766,
+            74343323,
+            99994199
+          ]
+        }
+      ]
+    },
+    {
+      "name": "loan",
+      "description": "<p>Loans granted for accounts. At most one loan can be granted per account. This is the primary target table for the PKDD'99 discovery challenge. 682 rows.</p>",
+      "details": "<p>The raw export carries a 683rd row that is null in every column; <code>R/clean.R</code> drops it. See the dataset <code>origin</code> for details.</p>",
+      "source": {
+        "parquet": "data/loan.parquet"
+      },
+      "columns": [
+        {
+          "name": "loan_id",
+          "description": "<p>Unique identifier for the loan.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            4959,
+            5576,
+            6178,
+            6753,
+            7308
+          ]
+        },
+        {
+          "name": "account_id",
+          "description": "<p>Account the loan was granted for.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "unique",
+            "required"
+          ],
+          "references": {
+            "table": "account",
+            "column": "account_id"
+          },
+          "examples": [
+            2,
+            2962,
+            5742,
+            8688,
+            11362
+          ]
+        },
+        {
+          "name": "date",
+          "description": "<p>Date the loan was granted.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1993-07-05",
+            "max": "1998-12-08"
+          }
+        },
+        {
+          "name": "amount",
+          "description": "<p>Total amount of the loan.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 4980,
+            "max": 590820
+          }
+        },
+        {
+          "name": "duration",
+          "description": "<p>Duration of the loan in months.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 12,
+            "max": 60
+          }
+        },
+        {
+          "name": "payments",
+          "description": "<p>Monthly payment amount.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 304,
+            "max": 9910
+          }
+        },
+        {
+          "name": "status",
+          "description": "<p>Status of the loan.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "value_labels": {
+            "A": "Contract finished, no problems",
+            "B": "Contract finished, loan not paid",
+            "C": "Running contract, OK so far",
+            "D": "Running contract, client in debt"
+          }
+        }
+      ]
+    },
+    {
+      "name": "card",
+      "description": "<p>Credit cards issued to account holders via their dispositions. Multiple cards can be issued per account.</p>",
+      "source": {
+        "parquet": "data/card.parquet"
+      },
+      "columns": [
+        {
+          "name": "card_id",
+          "description": "<p>Unique identifier for the card.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            1,
+            230,
+            456,
+            684,
+            1247
+          ]
+        },
+        {
+          "name": "disp_id",
+          "description": "<p>Disposition linking the card to a client and account.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "disp",
+            "column": "disp_id"
+          },
+          "examples": [
+            9,
+            1388,
+            2929,
+            4457,
+            13660
+          ]
+        },
+        {
+          "name": "type",
+          "description": "<p>Type of credit card.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "junior",
+            "classic",
+            "gold"
+          ]
+        },
+        {
+          "name": "issued",
+          "description": "<p>Date the card was issued.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1993-11-07",
+            "max": "1998-12-29"
+          }
+        }
+      ]
+    },
+    {
+      "name": "district",
+      "description": "<p>Demographic data for Czech districts. One row per district, 77 in all. Column names A2–A16 are the original anonymized names from the PKDD'99 challenge.</p>",
+      "details": "<p>The raw export carries a 78th row whose <code>district_id</code> is the literal text <code>sdasdf</code> and whose every other column is null — junk written into the public source database. <code>R/clean.R</code> drops it. A12 and A15 each have one genuine null, which is why neither is marked <code>required</code>.</p>",
+      "source": {
+        "parquet": "data/district.parquet"
+      },
+      "columns": [
+        {
+          "name": "district_id",
+          "description": "<p>Unique identifier for the district.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "account",
+              "column": "district_id"
+            },
+            {
+              "table": "client",
+              "column": "district_id"
+            }
+          ],
+          "examples": [
+            1,
+            20,
+            39,
+            58,
+            77
+          ]
+        },
+        {
+          "name": "A2",
+          "description": "<p>District name.</p>",
+          "type": "string",
+          "constraints": [
+            "unique",
+            "required"
+          ],
+          "examples": [
+            "Benesov",
+            "Hradec Kralove",
+            "Nachod",
+            "Rokycany",
+            "Znojmo"
+          ]
+        },
+        {
+          "name": "A3",
+          "description": "<p>Region name.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Prague",
+            "central Bohemia",
+            "south Bohemia",
+            "west Bohemia",
+            "north Bohemia",
+            "east Bohemia",
+            "south Moravia",
+            "north Moravia"
+          ]
+        },
+        {
+          "name": "A4",
+          "description": "<p>Number of inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 42821,
+            "max": 1204953
+          }
+        },
+        {
+          "name": "A5",
+          "description": "<p>Number of municipalities with fewer than 499 inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 151
+          }
+        },
+        {
+          "name": "A6",
+          "description": "<p>Number of municipalities with 500–1999 inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 70
+          }
+        },
+        {
+          "name": "A7",
+          "description": "<p>Number of municipalities with 2000–9999 inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 20
+          }
+        },
+        {
+          "name": "A8",
+          "description": "<p>Number of municipalities with 10,000 or more inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 5
+          }
+        },
+        {
+          "name": "A9",
+          "description": "<p>Number of cities.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 11
+          }
+        },
+        {
+          "name": "A10",
+          "description": "<p>Ratio of urban inhabitants (percentage).</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 33.9,
+            "max": 100
+          }
+        },
+        {
+          "name": "A11",
+          "description": "<p>Average salary.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 8110,
+            "max": 12541
+          }
+        },
+        {
+          "name": "A12",
+          "description": "<p>Unemployment rate in 1995 (percentage).</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0.2,
+            "max": 7.3
+          }
+        },
+        {
+          "name": "A13",
+          "description": "<p>Unemployment rate in 1996 (percentage).</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.43,
+            "max": 9.4
+          }
+        },
+        {
+          "name": "A14",
+          "description": "<p>Number of entrepreneurs per 1000 inhabitants.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 81,
+            "max": 167
+          }
+        },
+        {
+          "name": "A15",
+          "description": "<p>Number of committed crimes in 1995.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 818,
+            "max": 85677
+          }
+        },
+        {
+          "name": "A16",
+          "description": "<p>Number of committed crimes in 1996.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 888,
+            "max": 99107
+          }
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "description": "<p>Account is located in a district.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "account",
+            "column": "district_id"
+          },
+          "right": {
+            "table": "district",
+            "column": "district_id"
+          }
+        }
+      ],
+      "join": "account.district_id = district.district_id"
+    },
+    {
+      "description": "<p>Client lives in a district.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "client",
+            "column": "district_id"
+          },
+          "right": {
+            "table": "district",
+            "column": "district_id"
+          }
+        }
+      ],
+      "join": "client.district_id = district.district_id"
+    },
+    {
+      "description": "<p>Disposition links a client to an account.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "disp",
+            "column": "client_id"
+          },
+          "right": {
+            "table": "client",
+            "column": "client_id"
+          }
+        }
+      ],
+      "join": "disp.client_id = client.client_id"
+    },
+    {
+      "description": "<p>Disposition links a client to an account.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "disp",
+            "column": "account_id"
+          },
+          "right": {
+            "table": "account",
+            "column": "account_id"
+          }
+        }
+      ],
+      "join": "disp.account_id = account.account_id"
+    },
+    {
+      "description": "<p>Permanent order belongs to an account.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "order",
+            "column": "account_id"
+          },
+          "right": {
+            "table": "account",
+            "column": "account_id"
+          }
+        }
+      ],
+      "join": "order.account_id = account.account_id"
+    },
+    {
+      "description": "<p>Transaction belongs to an account.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "trans",
+            "column": "account_id"
+          },
+          "right": {
+            "table": "account",
+            "column": "account_id"
+          }
+        }
+      ],
+      "join": "trans.account_id = account.account_id"
+    },
+    {
+      "description": "<p>Loan is granted for an account (at most one per account).</p>",
+      "cardinality": "one-to-one",
+      "declared_cardinality": "one-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "loan",
+            "column": "account_id"
+          },
+          "right": {
+            "table": "account",
+            "column": "account_id"
+          }
+        }
+      ],
+      "join": "loan.account_id = account.account_id"
+    },
+    {
+      "description": "<p>Credit card is issued via a disposition.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "card",
+            "column": "disp_id"
+          },
+          "right": {
+            "table": "disp",
+            "column": "disp_id"
+          }
+        }
+      ],
+      "join": "card.disp_id = disp.disp_id"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "POPLATEK MESICNE",
+      "definition": "<p>Monthly (statement issuance frequency).</p>"
+    },
+    {
+      "term": "POPLATEK TYDNE",
+      "definition": "<p>Weekly (statement issuance frequency).</p>"
+    },
+    {
+      "term": "POPLATEK PO OBRATU",
+      "definition": "<p>After each transaction (statement issuance frequency).</p>"
+    },
+    {
+      "term": "PRIJEM",
+      "definition": "<p>Credit (incoming transaction).</p>"
+    },
+    {
+      "term": "VYDAJ",
+      "definition": "<p>Withdrawal/debit (outgoing transaction).</p>"
+    },
+    {
+      "term": "VYBER",
+      "definition": "<p>Cash withdrawal.</p>"
+    },
+    {
+      "term": "VYBER KARTOU",
+      "definition": "<p>Credit card withdrawal.</p>"
+    },
+    {
+      "term": "VKLAD",
+      "definition": "<p>Cash deposit.</p>"
+    },
+    {
+      "term": "PREVOD Z UCTU",
+      "definition": "<p>Collection from another bank.</p>"
+    },
+    {
+      "term": "PREVOD NA UCET",
+      "definition": "<p>Remittance to another bank.</p>"
+    },
+    {
+      "term": "POJISTNE",
+      "definition": "<p>Insurance payment.</p>"
+    },
+    {
+      "term": "SIPO",
+      "definition": "<p>Household payment.</p>"
+    },
+    {
+      "term": "LEASING",
+      "definition": "<p>Leasing payment.</p>"
+    },
+    {
+      "term": "UVER",
+      "definition": "<p>Loan payment.</p>"
+    },
+    {
+      "term": "SLUZBY",
+      "definition": "<p>Payment for statement.</p>"
+    },
+    {
+      "term": "UROK",
+      "definition": "<p>Interest credited.</p>"
+    },
+    {
+      "term": "SANKC. UROK",
+      "definition": "<p>Sanction interest charged when account has negative balance.</p>"
+    },
+    {
+      "term": "DUCHOD",
+      "definition": "<p>Old-age pension.</p>"
+    },
+    {
+      "term": "DISPONENT",
+      "definition": "<p>A person with limited access rights to an account.</p>"
+    },
+    {
+      "term": "OWNER",
+      "definition": "<p>Account owner with full rights (can issue orders and apply for loans).</p>"
+    }
+  ]
+}

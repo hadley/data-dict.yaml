@@ -12,6 +12,8 @@ Export has two levels, mirroring [validation](validation.md):
 
 Both levels emit the same JSON document shape; `export-spec` just never populates the `profile` fields.
 
+For a ready-made example of the `export-spec` output, each dictionary on the [examples](examples/index.qmd) page offers its JSON export alongside the raw YAML.
+
 ## Output shape
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
