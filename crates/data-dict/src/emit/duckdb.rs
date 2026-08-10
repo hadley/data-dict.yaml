@@ -129,12 +129,7 @@ impl Target for DuckDb {
             } => {
                 cx.child(prec::CMP, Side::Left, needle)?;
                 cx.push(if *negated { " NOT IN (" } else { " IN (" });
-                for (i, item) in haystack.iter().enumerate() {
-                    if i > 0 {
-                        cx.push(", ");
-                    }
-                    cx.free(item)?;
-                }
+                cx.comma_separated(haystack, |cx, item| cx.free(item))?;
                 cx.push(")");
             }
             NodeKind::Like {

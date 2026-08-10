@@ -83,12 +83,10 @@ impl Target for RTidyverse {
             SelectorForm::Regex(pattern) => cx.push(&format!("matches({})", string(pattern))),
             SelectorForm::List => {
                 cx.push("c(");
-                for (i, column) in selection.columns.iter().enumerate() {
-                    if i > 0 {
-                        cx.push(", ");
-                    }
+                cx.comma_separated(&selection.columns, |cx, column| {
                     cx.push(&self.column(&column.path));
-                }
+                    Ok(())
+                })?;
                 cx.push(")");
             }
         }
@@ -175,10 +173,10 @@ impl Target for RTidyverse {
                 cx.push(")");
             }
             NodeKind::In {
-                operand,
-                list,
+                needle,
+                haystack,
                 negated,
-            } => write_in(cx, operand, list, *negated)?,
+            } => write_in(cx, needle, haystack, *negated)?,
             NodeKind::Like {
                 operand,
                 pattern,
@@ -302,12 +300,7 @@ fn write_in(
     cx.push("(");
     cx.child(p::SPECIAL, Side::Left, operand)?;
     cx.push(" %in% c(");
-    for (i, item) in list.iter().enumerate() {
-        if i > 0 {
-            cx.push(", ");
-        }
-        cx.free(item)?;
-    }
+    cx.comma_separated(list, |cx, item| cx.free(item))?;
     cx.push("))");
     Ok(())
 }

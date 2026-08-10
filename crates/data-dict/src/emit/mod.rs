@@ -213,13 +213,23 @@ impl<'t> Ctx<'t> {
     pub fn call(&mut self, name: &str, args: &[&TypedExpr]) -> Result<(), Unsupported> {
         self.push(name);
         self.push("(");
-        for (i, arg) in args.iter().enumerate() {
+        self.comma_separated(args, |cx, arg| cx.free(arg))?;
+        self.push(")");
+        Ok(())
+    }
+
+    /// `item, item, …`, each item written by `item`.
+    pub fn comma_separated<T>(
+        &mut self,
+        items: &[T],
+        mut item: impl FnMut(&mut Self, &T) -> Result<(), Unsupported>,
+    ) -> Result<(), Unsupported> {
+        for (i, x) in items.iter().enumerate() {
             if i > 0 {
                 self.push(", ");
             }
-            self.free(arg)?;
+            item(self, x)?;
         }
-        self.push(")");
         Ok(())
     }
 
