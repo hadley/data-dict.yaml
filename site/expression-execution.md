@@ -125,22 +125,7 @@ These differences are broad enough to be worth naming here rather than only in a
 
 Division by zero splits the targets the other way. [The language gives an infinity or a NaN](floating-point.md#non-finite), and so do DuckDB, R, polars and pandas, so those four agree. PostgreSQL raises `division_by_zero` and Python raises `ZeroDivisionError`, so those two — and `SQL(ANSI)`, which is portable only where both engines agree — refuse where the language answers.
 
-**What a NaN means.** The language says two things about a NaN: [comparing against one gives `false`, and it is a value rather than a missing one](floating-point.md#non-finite). The targets answer both three different ways.
-
-| Target | `NaN = NaN`, `NaN > 1` | `NaN IS NULL` | an aggregate over a NaN |
-|--------|------------------------|---------------|-------------------------|
-| the language | `false` | `false` | folded in |
-| `SQL(duckdb)`, `Python(polars)` | `true` | `false` | folded in |
-| `SQL(postgres)` | `true` | `false` | folded in |
-| `R(*)` | `NA` | `TRUE` | dropped by `na.rm` |
-| `Python(pandas)`, Arrow-backed | `NA` | `True` | dropped |
-| `Python(pandas)`, NumPy-backed | `False` | `True` | dropped |
-
-: {tbl-colwidths="[30,24,16,30]"}
-
-Every disagreement goes the same way: the target says `true` or null where the language says `false`, and both of those [pass](#what-counts-as-a-violation). So on a row holding a NaN a translated rule is more forgiving than this one, never stricter. A target that can recover the language's answer with a short guard does so; one that can't says so in a note. Either way, a dictionary whose float columns hold NaNs should be checked with `validate-data`.
-
-**pandas needs a stance of its own.** Both pandas backends treat a NaN as *missing* — `isna` is `True` and every aggregate drops it — where [the language treats it as a value](floating-point.md#non-finite). The two backends then disagree with each other about comparison: NumPy-backed pandas says `False`, which is the language's answer, and Arrow-backed pandas says `NA`, which isn't. pandas translations still assume nullable ("Arrow-backed") dtypes, because that backend's `&` and `|` follow the same three-valued logic as the language — and every rule uses that logic, while only a column that actually holds a NaN uses NaN comparison. Both assumptions travel as notes rather than as guard code; guarding every comparison and every aggregate for pandas is not attempted.
+**What a NaN means.** The language says two things about a NaN: [comparing against one gives `false`, and it is a value rather than a missing one](floating-point.md#non-finite). The targets answer both three different ways, and pandas needs a stance of its own because both its backends treat a NaN as missing. [Floating point](floating-point.md#across-languages) has the table and the reasoning.
 
 ### Selecting multiple columns
 
