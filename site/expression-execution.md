@@ -35,7 +35,7 @@ Two situations leave an expression with no answer to give. Neither yields a valu
 
 **Dividing by zero** ([D10](validation.md#data-validation-checks)), in `/` or in `MOD`. Silence here would be worse than it looks: the alternative of yielding null means the row *passes*, since [null passes](#what-counts-as-a-violation), so `total / qty > 1` would go quietly unenforced on exactly the rows whose `qty` is most suspect. An infinity or a NaN would be no better, since neither is a number the language has.
 
-**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `MOD` and `ABS` at the extreme negative integer, in `ROUND` with a large negative `digits`, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to infinity, not to a wrong number, and an expression that would produce one is already an error by the rule above.
+**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` at the extreme negative integer, in `ROUND` with a large negative `digits`, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to infinity, not to a wrong number, and an expression that would produce one is already an error by the rule above.
 
 This does mean evaluation is not total — some data can stop an assertion from reaching a verdict. That is a deliberate trade. A rule that cannot be computed has not been checked, and saying so is more useful than a pass nobody earned.
 
@@ -262,7 +262,7 @@ Columns are always quoted, so a name that collides with a keyword or differs onl
 | `CEIL(x)` | `CEILING(x)` | Exact |
 | `ROUND(x)` | `ROUND(CAST(x AS NUMERIC))` | Guarded |
 | `ROUND(x, d)` | `ROUND(CAST(x AS NUMERIC), d)` | Guarded |
-| `MOD(x, y)` | `MOD(x, y)` | Divergent |
+| `MOD(x, y)` | `MOD(MOD(x, y) + y, y)` | Divergent |
 | `NOW()` | `CURRENT_TIMESTAMP` | Exact |
 | `interval(n, unit)` | `INTERVAL 'n unit'` | Exact |
 | `MIN(x)`, `MAX(x)`, `SUM(x)`, `AVG(x)` | same | Exact |
@@ -295,6 +295,8 @@ Each guard below exists because the two engines disagree, or because both disagr
 **Integer division.** `1 / 2` is `0` in PostgreSQL and `0.5` in DuckDB, and [the language says `0.5`](expressions.md#integers-and-floats). Casting one operand makes both engines agree with the language.
 
 **Zero divisors are left bare.** [The language reports them](#no-result), and so does PostgreSQL, so the plain spelling is exactly right there. DuckDB is the odd one out: `7/0` is `inf`, `0/0` is `nan`, and `MOD(7, 0)` is null. No portable expression raises, so this cannot be guarded, only declared — it is the one place `SQL(ANSI)` output means different things on the two engines, and the reason `/` and `MOD` are Divergent rather than Exact.
+
+**A floored modulo needs a guard.** [The language takes `MOD`'s sign from the divisor](expressions.md#mod), as R and Python do; the SQL standard, PostgreSQL and DuckDB all take it from the dividend. `MOD(MOD(x, y) + y, y)` corrects the sign on both engines, and keeps an integer result an integer — the `x - y * FLOOR(x / y)` form would not, since the language's `/` is float division. The zero divisor is why this mapping is Divergent rather than Guarded.
 
 **Shifting a date needs no cast.** `date + interval` produces a timestamp in both engines, and [so does the language](expressions.md#arithmetic) — the rule was chosen to match them. Nothing to guard.
 

@@ -784,7 +784,7 @@ fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
             if *b == 0 {
                 return Err(Fault::DividedByZero);
             }
-            Value::Int(a.checked_rem(*b).ok_or(Fault::Overflow)?)
+            Value::Int(floored_rem_int(*a, *b))
         }
         (Op::Mod, [a, b]) => {
             let (a, b) = (
@@ -794,10 +794,38 @@ fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
             if b == 0.0 {
                 return Err(Fault::DividedByZero);
             }
-            Value::Float(a % b)
+            Value::Float(floored_rem_float(a, b))
         }
         _ => Value::Null,
     })
+}
+
+/// `MOD` takes its sign from the divisor, Rust's `%` from the dividend, so a
+/// remainder that came out on the wrong side is moved by one divisor. `b` must
+/// not be zero.
+///
+/// This never overflows: `wrapping_rem` only wraps for `i64::MIN % -1`, whose
+/// remainder is zero either way, and the correction adds two values of opposite
+/// sign.
+fn floored_rem_int(a: i64, b: i64) -> i64 {
+    let r = a.wrapping_rem(b);
+    if r != 0 && (r < 0) != (b < 0) {
+        r + b
+    } else {
+        r
+    }
+}
+
+/// The float counterpart of [`floored_rem_int`], and what Python's `%` computes.
+/// R reaches the same answer as `x - floor(x / y) * y`, which loses precision
+/// where this form does not.
+fn floored_rem_float(a: f64, b: f64) -> f64 {
+    let r = a % b;
+    if r != 0.0 && (r < 0.0) != (b < 0.0) {
+        r + b
+    } else {
+        r
+    }
 }
 
 /// The language rounds halves away from zero, unlike Rust's `round` for
@@ -965,4 +993,31 @@ fn like_to_regex(pattern: &str) -> String {
 /// caller checks against the data before deciding the assertion can run.
 pub(crate) fn column_requests(assertion: &TypedAssertion) -> Vec<TypedColumnRequest> {
     Plan::build(assertion).requests()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remainder_takes_its_sign_from_the_divisor() {
+        assert_eq!(floored_rem_int(7, 3), 1);
+        assert_eq!(floored_rem_int(-7, 3), 2);
+        assert_eq!(floored_rem_int(7, -3), -2);
+        assert_eq!(floored_rem_int(-7, -3), -1);
+        assert_eq!(floored_rem_int(6, 3), 0);
+        assert_eq!(floored_rem_int(-6, 3), 0);
+        // The one case Rust's `%` cannot compute, and the reason for the
+        // wrapping remainder.
+        assert_eq!(floored_rem_int(i64::MIN, -1), 0);
+        assert_eq!(floored_rem_int(i64::MIN, i64::MAX), i64::MAX - 1);
+        assert_eq!(floored_rem_int(i64::MAX, i64::MIN), -1);
+    }
+
+    #[test]
+    fn a_float_remainder_follows_the_same_rule() {
+        assert_eq!(floored_rem_float(-7.0, 2.5), 0.5);
+        assert_eq!(floored_rem_float(7.0, -2.5), -0.5);
+        assert_eq!(floored_rem_float(7.5, 2.5), 0.0);
+    }
 }
