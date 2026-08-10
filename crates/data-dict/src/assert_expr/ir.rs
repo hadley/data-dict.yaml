@@ -787,10 +787,6 @@ fn case_type(whens: &[(TypedExpr, TypedExpr)], els: Option<&TypedExpr>) -> Type 
     result.unwrap_or(Type::Any)
 }
 
-/// Turn a string literal that met a temporal operand into a real date or
-/// datetime, so a backend constructs one natively rather than relying on the
-/// target's own string coercion. This is the comparability rule that admits
-/// `birthdate >= '2000-01-01'`, applied to the value rather than the type.
 /// Take a literal `LIKE` pattern apart. `%` matches any run of characters and
 /// `_` any one; the language gives them no escape, so every other character is
 /// literal.
