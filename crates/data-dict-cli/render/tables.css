@@ -289,15 +289,15 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
   background: var(--inset);
 }
 .hist-svg { display: block; }
-.hist-svg .bar { fill: var(--hist-bar); transition: fill .08s ease; shape-rendering: crispEdges;}
+.hist-svg .hist-bar { fill: var(--hist-bar); transition: fill .08s ease; shape-rendering: crispEdges;}
 /* off-scale values (-Inf, Inf, NaN), split from the data by a divider */
-.hist-svg .bar.special { fill: var(--ink-faint); }
-.hist-svg .bar.hot { fill: var(--hist-bar-hot); }
+.hist-svg .hist-bar.special { fill: var(--ink-faint); }
+.hist-svg .hist-bar.hot { fill: var(--hist-bar-hot); }
 .hist-svg .hist-sep { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 2; }
 /* full-height backdrop for the hovered column, tinted to match the hot bar */
-.hist-svg .band { fill: transparent; transition: fill .08s ease; }
-.hist-svg .band.hot { fill: var(--hist-band); }
-.hist-svg .hit { fill: transparent; }
+.hist-svg .hist-band { fill: transparent; transition: fill .08s ease; }
+.hist-svg .hist-band.hot { fill: var(--hist-band); }
+.hist-svg .hist-hit { fill: transparent; }
 .hist-cap { color: var(--ink-soft); font-size: 11px; margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 /* the observed extremes as axis labels: min under the left edge, max under
    the right */

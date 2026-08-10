@@ -216,12 +216,12 @@ function HistBar({ x, colX, colW, bw, bh, height, special, label, count, total, 
   const [hot, setHot] = useState(false);
   const on = hot ? " hot" : "";
   return html`<g>
-    <rect class=${"band" + on} x=${colX} y="0" width=${colW} height=${height} />
-    <rect class=${"bar" + (special ? " special" : "") + on}
+    <rect class=${"hist-band" + on} x=${colX} y="0" width=${colW} height=${height} />
+    <rect class=${"hist-bar" + (special ? " special" : "") + on}
       x=${x.toFixed(2)} y=${(height - bh).toFixed(2)}
       width=${Math.max(0.5, bw).toFixed(2)} height=${bh.toFixed(2)}
       rx=${!isHistogram && bw > 3 ? "1" : null} />
-    <rect class="hit" x=${colX} y="0" width=${colW} height=${height}
+    <rect class="hist-hit" x=${colX} y="0" width=${colW} height=${height}
       onMouseEnter=${(e) => { setHot(true); showTip(barTip(label, count, total), e); }}
       onMouseMove=${moveTip}
       onMouseLeave=${() => { setHot(false); hideTip(); }} />
