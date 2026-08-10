@@ -108,6 +108,67 @@ fn export_spec_resolves_the_dictionary() {
     insta::assert_snapshot!(export_json(RICH_DICT));
 }
 
+/// Each assertion carries its translations: one entry per target, with the
+/// predicate as `code`. A target that can't express a construct still
+/// appears, carrying the refusal as `error` instead — and a translation that
+/// diverges on a documented edge says so in `notes`.
+#[test]
+fn assertions_export_their_translations() {
+    let json: serde_json::Value = serde_json::from_str(&export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        tables:
+          - name: people
+            columns:
+              - name: name
+                type: string
+                examples: [ada]
+              - name: postcode
+                type: string
+                examples: [SW1A 1AA]
+              - name: qty
+                type: number(quantity)
+                range: [0, .inf]
+                constraints:
+                  - assert: qty / 2 > 1
+            constraints:
+              - assert: name LIKE LOWER(postcode)
+    "#}))
+    .unwrap();
+    let columns = &json["tables"][0]["columns"];
+
+    let translations = &columns[2]["assertions"][0]["translations"];
+    assert_eq!(translations[0]["target"], "SQL(duckdb)");
+    assert_eq!(translations[0]["code"], r#""qty" / 2 > 1"#);
+    assert_eq!(translations[1]["target"], "R(tidyverse)");
+    assert_eq!(translations[1]["code"], "qty / 2L > 1L");
+    // Division by zero diverges from the language's semantics, and says so.
+    assert!(
+        translations[0]["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("infinity"))
+    );
+
+    // R has no computed LIKE pattern, so it refuses with a reason.
+    let table_assertion = &json["tables"][0]["constraints"][0];
+    let refused = &table_assertion["translations"][1];
+    assert_eq!(refused["target"], "R(tidyverse)");
+    assert!(refused.get("code").is_none());
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("computed pattern")
+    );
+    // DuckDB translates the same assertion fine.
+    assert_eq!(
+        table_assertion["translations"][0]["code"],
+        r#""name" LIKE lower("postcode")"#
+    );
+}
+
 /// An enum written as a map keeps its labels: the values themselves still list
 /// in declaration order, and each one's label is looked up by the value. The
 /// list form has nothing to label, so it exports no `value_labels` at all.

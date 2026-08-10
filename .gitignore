@@ -10,3 +10,4 @@ site/_site
 /target/
 .posit/assistant/settings.json
 site/examples/rendered/
+.tmp

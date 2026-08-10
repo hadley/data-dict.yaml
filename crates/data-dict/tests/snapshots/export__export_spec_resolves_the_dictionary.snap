@@ -122,6 +122,16 @@ expression: export_json(RICH_DICT)
               "description": "<p>Weights are positive.</p>",
               "columns": [
                 "weight"
+              ],
+              "translations": [
+                {
+                  "target": "SQL(duckdb)",
+                  "code": "\"weight\" > 0"
+                },
+                {
+                  "target": "R(tidyverse)",
+                  "code": "weight > 0L"
+                }
               ]
             }
           ]
@@ -141,6 +151,16 @@ expression: export_json(RICH_DICT)
           "columns": [
             "pet_id",
             "owner_id"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "\"pet_id\" IS NOT NULL AND \"owner_id\" IS NOT NULL"
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "if_all(matches(\"_id$\"), \\(x) !is.na(x))"
+            }
           ]
         }
       ]

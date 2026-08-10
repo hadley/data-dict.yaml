@@ -17,7 +17,7 @@ use crate::problem::{Problem, ProblemKind, ProblemSet};
 use crate::validate_spec::TableEnv;
 
 /// Every target that can be emitted today, in a stable order.
-fn registry() -> Vec<Box<dyn Target>> {
+pub(crate) fn registry() -> Vec<Box<dyn Target>> {
     vec![Box::new(DuckDb), Box::new(RTidyverse)]
 }
 
