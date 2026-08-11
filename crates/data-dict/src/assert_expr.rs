@@ -19,7 +19,7 @@
 //! unary       := "-" unary | primary
 //! primary     := literal | column | funcall | columns | case | "(" expr ")"
 //! cmp         := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
-//! literal     := number | string | "TRUE" | "FALSE" | "NULL"
+//! literal     := number | string | "TRUE" | "FALSE" | "NULL" | "INF" | "NAN"
 //! funcall     := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
 //! columns     := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
 //! case        := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
@@ -196,10 +196,11 @@ impl AssertExpr {
 
 /// Reserved words that may not stand in for a column reference, so a stray
 /// keyword where a term is expected fails cleanly rather than parsing as a
-/// column named after a keyword.
+/// column named after a keyword. A struct field is unaffected: after a `.` only
+/// a field name can follow, so `addr.inf` needs no backticks.
 const RESERVED: &[&str] = &[
     "and", "or", "not", "is", "null", "between", "in", "like", "similar", "to", "when", "then",
-    "else", "end", "true", "false",
+    "else", "end", "true", "false", "inf", "nan", "case", "columns", "now", "interval",
 ];
 
 struct Parser<'a> {
@@ -583,6 +584,8 @@ impl<'a> Parser<'a> {
             "true" => Ok(self.node(ExprKind::Bool(true), start)),
             "false" => Ok(self.node(ExprKind::Bool(false), start)),
             "null" => Ok(self.node(ExprKind::Null, start)),
+            "inf" => Ok(self.node(ExprKind::Number(NumLit::Float(f64::INFINITY)), start)),
+            "nan" => Ok(self.node(ExprKind::Number(NumLit::Float(f64::NAN)), start)),
             "case" => self.parse_case(start),
             "columns" => self.parse_columns(start),
             "now" => {
@@ -740,7 +743,8 @@ impl<'a> Parser<'a> {
 
     /// Extend a just-parsed column name into a field path: each `.` that
     /// immediately follows (no whitespace, like the name itself) must be
-    /// followed by another name — bare and unreserved, or backtick-quoted.
+    /// followed by another name, bare or backtick-quoted. A reserved word is a
+    /// name here — only a field can follow a `.`, so nothing is ambiguous.
     fn parse_field_segments(&mut self, first: String) -> Result<Vec<String>, ParseError> {
         let mut path = vec![first];
         while self.peek() == Some(b'.') {
@@ -749,17 +753,7 @@ impl<'a> Parser<'a> {
                 Some(b'`') => {
                     path.push(crate::expr_lex::parse_quoted_name(self.src, &mut self.pos)?);
                 }
-                Some(b) if b.is_ascii_alphabetic() || b == b'_' => {
-                    let at = self.pos;
-                    let word = self.read_word();
-                    if RESERVED.contains(&word.to_ascii_lowercase().as_str()) {
-                        return Err(ParseError {
-                            message: format!("unexpected keyword `{}`", word.to_uppercase()),
-                            at,
-                        });
-                    }
-                    path.push(word);
-                }
+                Some(b) if b.is_ascii_alphabetic() || b == b'_' => path.push(self.read_word()),
                 _ => return Err(self.err("expected a field name after `.`")),
             }
         }
@@ -1064,6 +1058,7 @@ fn signature(name: &str) -> Option<Sig> {
         "abs" | "floor" | "ceil" => Sig::scalar(&[1], NUMBER, Fixed(Ty::Number)),
         "round" => Sig::scalar(&[1, 2], NUMBER, Fixed(Ty::Number)),
         "mod" => Sig::scalar(&[2], NUMBER, Fixed(Ty::Number)),
+        "is_finite" | "is_infinite" | "is_nan" => Sig::scalar(&[1], NUMBER, Fixed(Ty::Bool)),
         "min" | "max" => Sig::agg(&[1], ORDERED, SameAsArg),
         "sum" | "avg" => Sig::agg(&[1], NUMBER, Fixed(Ty::Number)),
         "count_distinct" => Sig::agg(&[1], ORDERED, Fixed(Ty::Number)),
@@ -2092,6 +2087,38 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn inf_and_nan_are_number_literals() {
+        assert_eq!(number_literal("qty > inf"), NumLit::Float(f64::INFINITY));
+        assert!(matches!(
+            number_literal("qty > NaN"),
+            NumLit::Float(x) if x.is_nan()
+        ));
+        // `-INF` is unary minus over the literal, as a leading `-` always is.
+        let e = AssertExpr::parse("qty > -INF").unwrap();
+        let ExprKind::Compare { rhs, .. } = &e.root.kind else {
+            panic!("expected a comparison")
+        };
+        let ExprKind::Neg(inner) = &rhs.kind else {
+            panic!("expected unary minus")
+        };
+        assert!(matches!(
+            inner.kind,
+            ExprKind::Number(NumLit::Float(x)) if x == f64::INFINITY
+        ));
+    }
+
+    #[test]
+    fn a_column_named_after_a_literal_needs_backticks() {
+        // Bare, the name is the literal; the column is only reachable quoted.
+        assert_eq!(number_literal("0 < inf"), NumLit::Float(f64::INFINITY));
+        let quoted = AssertExpr::parse("`inf` > 0").unwrap();
+        let ExprKind::Compare { lhs, .. } = &quoted.root.kind else {
+            panic!("expected a comparison")
+        };
+        assert!(matches!(&lhs.kind, ExprKind::Column(path) if path == &["inf"]));
+    }
+
+    #[test]
     fn rejects_integer_literal_too_large() {
         let err = AssertExpr::parse("qty > 9223372036854775808").unwrap_err();
         assert!(err.message.contains("too large for a 64-bit integer"));
@@ -2186,6 +2213,23 @@ pub(crate) mod tests {
         assert!(
             f.iter()
                 .any(|f| f.code == "S20" && f.message.contains("nope"))
+        );
+    }
+
+    #[test]
+    fn the_non_finite_predicates_take_a_number_and_give_a_boolean() {
+        for expr in ["IS_FINITE(n / qty)", "IS_INFINITE(n)", "IS_NAN(NAN)"] {
+            assert!(check_str(expr).is_empty(), "{expr} should be clean");
+        }
+        // A boolean already, so it can't be compared with a number.
+        let f = check_str("IS_NAN(n) > 0");
+        assert!(f.iter().any(|f| f.code == "S21"));
+        let f = check_str("IS_FINITE(s)");
+        assert!(f.iter().any(|f| f.code == "S21"));
+        let f = check_str("IS_NAN(n, 1)");
+        assert!(
+            f.iter()
+                .any(|f| f.code == "S21" && f.message.contains("takes 1 argument"))
         );
     }
 
@@ -2336,8 +2380,15 @@ pub(crate) mod tests {
     fn dot_needs_a_field_name() {
         let err = AssertExpr::parse("addr. > 0").unwrap_err();
         assert!(err.message.contains("field name"));
-        let err = AssertExpr::parse("addr.end IS NULL").unwrap_err();
-        assert!(err.message.contains("keyword"));
+    }
+
+    #[test]
+    fn a_field_may_be_named_after_a_reserved_word() {
+        let e = parse("addr.end IS NULL");
+        let ExprKind::IsNull { operand, .. } = &e.root.kind else {
+            panic!("parses as a null test");
+        };
+        assert!(matches!(&operand.kind, ExprKind::Column(path) if path == &["addr", "end"]));
     }
 
     #[test]

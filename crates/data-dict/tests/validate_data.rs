@@ -1902,7 +1902,7 @@ fn deep_alternating_nesting_checks_values() {
     ));
 }
 
-// --- assertions (D07–D10) -------------------------------------------------
+// --- assertions (D07–D09) -------------------------------------------------
 //
 // An `assert` expression is checked for form at the spec level and evaluated
 // here; see `site/expression-execution.md` for what evaluation means.
@@ -1956,6 +1956,43 @@ fn build_asserted(a: &[i64], b: &[Option<i64>], constraints: &str) -> PathBuf {
     )
 }
 
+/// A one-column table of floats named `x`, so an assertion can meet the values
+/// only a float can hold: an infinity, a NaN, a negative zero.
+fn build_asserted_floats(x: &[f64], constraints: &str) -> PathBuf {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(parse_message_type("message schema { REQUIRED DOUBLE x; }").unwrap());
+    let file = File::create(&parquet).unwrap();
+    let mut writer =
+        SerializedFileWriter::new(file, schema, Arc::new(WriterProperties::builder().build()))
+            .unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut column = row_group.next_column().unwrap().unwrap();
+    column
+        .typed::<DoubleType>()
+        .write_batch(x, None, None)
+        .unwrap();
+    column.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                constraints:
+            {constraints}
+                columns:
+                  - name: x
+                    type: number
+                    examples: [1.5, 2.5, 3.5]
+        "},
+    )
+}
+
 fn assertion(text: &str) -> String {
     format!("      - assert: {text}")
 }
@@ -1994,10 +2031,19 @@ fn a_null_operand_passes() {
 }
 
 #[test]
-fn dividing_by_zero_withdraws_the_verdict() {
+fn dividing_by_zero_yields_an_infinity() {
+    // `5 / 0` is `INF`, which is greater than 1, so the row holds.
     let yaml = build_asserted(&[1, 0], &[Some(5), Some(5)], &assertion("b / a > 1"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_nan_violates_every_comparison_it_reaches() {
+    // `0 / 0` is a NaN, and every comparison against one is false, so the row is
+    // reported rather than quietly passing on a null.
+    let yaml = build_asserted(&[1, 0], &[Some(5), Some(0)], &assertion("b / a > 1"));
     let diagnostic = asserted(&yaml);
-    diagnostic.assert_contains(&["D10", "divides by zero", "row 2"]);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "(b=0, a=0)"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2024,12 +2070,93 @@ fn a_remainder_never_follows_the_dividend() {
 }
 
 #[test]
-fn a_zero_modulus_withdraws_the_verdict() {
+fn a_zero_modulus_yields_a_nan() {
+    // `MOD(5, 0)` is a NaN, so `= 0` is false and the row is reported.
     let yaml = build_asserted(&[1, 0], &[Some(5), Some(5)], &assertion("MOD(b, a) = 0"));
     let diagnostic = asserted(&yaml);
-    diagnostic.assert_contains(&["D10", "divides by zero", "row 2"]);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "(b=5, a=0)"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
+    // Tolerating it is `IS_NAN`'s job, not a null's.
+    let yaml = build_asserted(
+        &[1, 0],
+        &[Some(5), Some(5)],
+        &assertion("IS_NAN(MOD(b, a)) OR MOD(b, a) = 0"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_non_finite_value_in_the_data_is_a_value() {
+    // Read from the data rather than computed, and neither is null: `IS NULL` is
+    // false for both, and the predicates say which is which.
+    let data = &[1.5, f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+    let yaml = build_asserted_floats(data, &assertion("x IS NOT NULL"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    let yaml = build_asserted_floats(
+        data,
+        &assertion("IS_FINITE(x) OR IS_INFINITE(x) OR IS_NAN(x)"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    let diagnostic = asserted(&build_asserted_floats(data, &assertion("IS_FINITE(x)")));
+    diagnostic.assert_contains(&["D07", "is false for 3 rows: 2, 3, 4", "(x=NaN)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn a_kind_test_propagates_a_null() {
+    // `IS NULL` asks whether a value is missing; these ask which kind of number
+    // it is, and a null is no kind at all — so the answer is null, and passes.
+    let yaml = build_asserted(&[1, 2], &[None, None], &assertion("IS_NAN(b)"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    let yaml = build_asserted(&[1, 2], &[None, None], &assertion("IS_FINITE(b)"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_nan_is_unordered_but_unequal() {
+    let nan = &[f64::NAN];
+    // Every comparison against a NaN is false — including `NOT (x < 1)`, which
+    // is true where `x >= 1` is false.
+    for false_assertion in ["x = NAN", "x > 1", "x < 1", "x >= 1", "x BETWEEN 0 AND 1"] {
+        let diagnostic = asserted(&build_asserted_floats(nan, &assertion(false_assertion)));
+        diagnostic.assert_contains(&["D07", "is false for 1 row"]);
+    }
+    for true_assertion in [
+        "x <> NAN",
+        "NOT (x < 1)",
+        "x NOT BETWEEN 0 AND 1",
+        "IS_NAN(x)",
+    ] {
+        let yaml = build_asserted_floats(nan, &assertion(true_assertion));
+        assert_eq!(
+            validate_data(&yaml, None).status(),
+            Status::Ok,
+            "{true_assertion}"
+        );
+    }
+}
+
+#[test]
+fn an_aggregate_folds_a_non_finite_value_in() {
+    // `MIN`/`MAX`/`COUNT_DISTINCT` fold on the identity order: a NaN is the
+    // largest value, both zeros are one value, and all NaNs are one value.
+    let data = &[-0.0, 0.0, 1.5, f64::NAN, f64::NAN, f64::INFINITY];
+    for holds in [
+        "MAX(x) <> MAX(x)",
+        "MIN(x) = 0",
+        "COUNT_DISTINCT(x) = 4",
+        "COUNT(x) = 6",
+        "IS_NAN(SUM(x))",
+        "IS_NAN(AVG(x))",
+    ] {
+        let yaml = build_asserted_floats(data, &assertion(holds));
+        assert_eq!(validate_data(&yaml, None).status(), Status::Ok, "{holds}");
+    }
+    // An infinity alone sums to an infinity, so `SUM` is not simply a NaN.
+    let yaml = build_asserted_floats(&[1.0, f64::INFINITY], &assertion("IS_INFINITE(SUM(x))"));
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
 }
 
 #[test]

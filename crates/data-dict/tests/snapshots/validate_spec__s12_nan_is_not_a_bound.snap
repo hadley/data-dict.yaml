@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: table
+    columns:
+      - name: mass
+        type: number(quantity)
+        units: kg
+        range: [.nan, 10]
+────────────────────────────────────────
+error[S12]: Each `range` value must have a place on the number line.
+  --> dict.yaml:9:17
+   |
+LL |   - name: table
+LL |     columns:
+LL |       - name: mass
+LL |         type: number(quantity)
+LL |         units: kg
+LL |         range: [.nan, 10]
+   |                 ^^^^ is `.nan`
+   |
+   = help: Use `-.inf` or `.inf` to leave that end of the range open.

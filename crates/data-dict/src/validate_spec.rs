@@ -1277,6 +1277,30 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
     let mut ok = true;
     for (key, effective_type, rep) in typed_representations(col) {
         for v in &rep.items {
+            let spans = [
+                table.name.span.clone(),
+                col.name.span.clone(),
+                col_type.span.clone(),
+                rep.key_span.clone(),
+                v.span.clone(),
+            ];
+            // A NaN reads as a number but describes nothing: it can neither bound
+            // a range nor stand for an observed value.
+            if is_nan(&v.value) {
+                ok = false;
+                out.push_spec_error(
+                    "S12",
+                    format!("Each `{key}` value must have a place on the number line."),
+                    "is `.nan`".to_string(),
+                    spans,
+                );
+                if key == "range" {
+                    out.hint_last(
+                        "Use `-.inf` or `.inf` to leave that end of the range open.".to_string(),
+                    );
+                }
+                continue;
+            }
             if value_matches_type(effective_type, &v.value, tz_present) {
                 continue;
             }
@@ -1290,13 +1314,7 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
                     expected_noun(effective_type, tz_present),
                 ),
                 format!("is {}", v.value.noun()),
-                [
-                    table.name.span.clone(),
-                    col.name.span.clone(),
-                    col_type.span.clone(),
-                    rep.key_span.clone(),
-                    v.span.clone(),
-                ],
+                spans,
             );
             if effective_type == "string"
                 && let Some(hint) = quoting_hint(&v.value)
@@ -1310,6 +1328,10 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
 
 fn is_infinite(value: &Scalar) -> bool {
     matches!(value, Scalar::Float(f) if f.is_infinite())
+}
+
+fn is_nan(value: &Scalar) -> bool {
+    matches!(value, Scalar::Float(f) if f.is_nan())
 }
 
 fn value_matches_type(type_name: &str, value: &Scalar, tz_present: bool) -> bool {

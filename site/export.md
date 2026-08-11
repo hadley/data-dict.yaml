@@ -186,4 +186,4 @@ Nested columns profile as far as the data allows:
 
 ### Scalar
 
-A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open. A NaN never appears: it is not a legal bound (S12), and the profile counts non-finite values separately rather than reporting them as extremes.
+A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open. A NaN never appears: it is legal neither as a bound nor as an example (S12), and the profile counts non-finite values separately rather than reporting them as extremes.
