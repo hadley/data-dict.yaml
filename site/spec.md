@@ -313,7 +313,7 @@ columns:
       - assert: LENGTH(postcode) <= 10
 ```
 
-Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
+Bare names in the expression refer to columns and definitions in the same table. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
 
 Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
 
@@ -335,7 +335,7 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns of the table.
+An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns or definitions in the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
@@ -376,7 +376,7 @@ tables:
     definitions:
       - name: net_revenue
         description: Realized revenue excluding returned orders.
-        expr: SUM(order_total) FILTER (WHERE status_cd = 90)
+        expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)
       - name: is_enterprise
         description: For historical reasons, the Enterprise segment also includes Mid-Market-3.
         expr: tile_size IN ('Mid-Market-3', 'Enterprise-1', 'Enterprise-2', 'Enterprise-3')

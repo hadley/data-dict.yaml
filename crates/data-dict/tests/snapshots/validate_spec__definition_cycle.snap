@@ -1,0 +1,31 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: a
+        expr: b + 1
+      - name: b
+        expr: a + 1
+────────────────────────────────────────
+error[S33]: Definitions must not reference each other in a cycle.
+  --> dict.yaml:10:15
+   |
+LL |   - name: orders
+...
+LL |       - name: a
+   |               ^ expression forms a cycle (a → b → a)
+error[S33]: Definitions must not reference each other in a cycle.
+  --> dict.yaml:12:15
+   |
+LL |   - name: orders
+...
+LL |       - name: b
+   |               ^ expression forms a cycle (b → a → b)

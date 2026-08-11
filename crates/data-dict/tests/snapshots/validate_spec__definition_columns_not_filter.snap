@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: survey
+    columns:
+      - name: q1
+        type: number(ordinal)
+        range: [1, 5]
+      - name: q2
+        type: number(ordinal)
+        range: [1, 5]
+    definitions:
+      - name: total
+        expr: SUM(COLUMNS('q[1-2]'))
+────────────────────────────────────────
+error[S21]: A definition must be a well-typed expression.
+  --> dict.yaml:14:15
+   |
+LL |   - name: survey
+...
+LL |       - name: total
+LL |         expr: SUM(COLUMNS('q[1-2]'))
+   |               ^^^^^^^^^^^^^^^^^^^^^^ an expression using `COLUMNS(...)` must be a boolean filter, not a number

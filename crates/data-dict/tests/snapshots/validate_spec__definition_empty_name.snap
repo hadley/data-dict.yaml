@@ -1,0 +1,22 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name:
+        expr: SUM(order_total)
+────────────────────────────────────────
+error[S11]: Every definition must have a non-empty `name`.
+  --> dict.yaml:11:9
+   |
+LL |   - name: orders
+...
+LL |         expr: SUM(order_total)
+   |         ^ the `name` is empty
