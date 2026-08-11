@@ -126,9 +126,9 @@ A column may also be listed with only its `name` and no `type`. This acknowledge
 
 #### Name, label, description & details
 
-`name`, `label`, `description`, and `details` document a dataset, table, or column, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
+`name`, `label`, `description`, and `details` document a dataset, table, column, or definition, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
 
-* `name` identifies the thing. For a table or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
+* `name` identifies the thing. For a table, definition, or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
 * `label` is a short, human-readable title, useful when the `name` is terse or technical (e.g. `FoodData Central ID` for `fdc_id`). Plain text (no markdown), typically a few words, it stands in for the `name` in user interfaces.
 * `description` contains the most important information about the item, like known limitations or a surprising derivation compared to its `name`.
 * `details` contains anything else that might be useful to know, e.g. assumptions about potential unknowns, or background on how the data was collected or constructed.
@@ -362,12 +362,12 @@ Each entry is a map with:
 
 * `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
 * `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
-* `description`: human-readable description of what the expression computes and when to use it.
+* `label`, `description`, `details`: human-readable documentation for the definition; see [Name, label, description & details](#name-label-description--details).
 
 The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
 
 * A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
-* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows.
+* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows. 
 * Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
 
 ```yaml
