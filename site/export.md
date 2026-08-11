@@ -12,6 +12,8 @@ Export has two levels, mirroring [validation](validation.md):
 
 Both levels emit the same JSON document shape; `export-spec` just never populates the `profile` fields.
 
+For a ready-made example of the `export-spec` output, each dictionary on the [examples](examples/index.qmd) page offers its JSON export alongside the raw YAML.
+
 ## Output shape
 
 A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value wasn't declared (or, for a profile statistic, couldn't be established). Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably — `jq`, JavaScript property access, and optional-aware decoders already do.
@@ -171,6 +173,8 @@ Numeric and temporal columns (`number`, `number(...)`, `date`, `datetime`) summa
 }
 ```
 
+The three non-finite counts are values, not missing data. They are kept out of the bins and the observed extremes because neither has a place on the number line, but they are what [`IS_NAN` and `IS_INFINITE`](floating-point.md#non-finite) test for in an assertion, and an assertion folds them into an aggregate rather than skipping them.
+
 String, boolean, and enum columns summarize by value:
 
 ```jsonc
@@ -199,4 +203,4 @@ Nested columns profile as far as the data allows:
 
 ### Scalar
 
-A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open.
+A `Scalar` is a literal JSON value: a number, string, boolean, or `null`, following the same rendering `range`/`examples`/`values` already use elsewhere. An infinite range bound (`.inf`), which JSON can't spell, renders as `null` — that end of the range is open. A NaN never appears: it is legal neither as a bound nor as an example (S12), and the profile counts non-finite values separately rather than reporting them as extremes.

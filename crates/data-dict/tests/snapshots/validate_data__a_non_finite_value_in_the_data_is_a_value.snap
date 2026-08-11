@@ -8,19 +8,16 @@ tables:
     source:
       parquet: data.parquet
     constraints:
-      - assert: MOD(b, a) = 0
+      - assert: IS_FINITE(x)
     columns:
-      - name: a
-        type: number(quantity)
-        range: [-1000000, 1000000]
-      - name: b
-        type: number(quantity)
-        range: [-1000000, 1000000]
+      - name: x
+        type: number
+        examples: [1.5, 2.5, 3.5]
 ────────────────────────────────────────
-error[D10]: An assertion must be computable for every row.
+error[D07]: An assertion must hold for every row.
   --> dict.yaml:8:17
    |
 LL |   - name: t
 ...
-LL |       - assert: MOD(b, a) = 0
-   |                 ^^^^^^^^^^^^^ divides by zero at row 2
+LL |       - assert: IS_FINITE(x)
+   |                 ^^^^^^^^^^^^ is false for 3 rows: 2, 3, 4 (x=NaN)

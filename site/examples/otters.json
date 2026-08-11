@@ -1,0 +1,815 @@
+{
+  "$version": "0.1.0",
+  "name": "alaska-otters",
+  "description": "<p>Morphometric measurements and reproductive and dependency status for sea otters captured or collected in Alaska by the U.S. Geological Survey (USGS) and U.S. Fish and Wildlife Service (USFWS), 1947-2019.</p>",
+  "details": "<p>Source: <a href=\"https://doi.org/10.5066/P9Q5PD3Y\">https://doi.org/10.5066/P9Q5PD3Y</a></p>",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "tables": [
+    {
+      "name": "otters",
+      "description": "<p>One row per otter. Of the 4,507 otters, 113 have measurements from more than one capture or collection event.</p>",
+      "source": {
+        "parquet": "otters.parquet"
+      },
+      "columns": [
+        {
+          "name": "otter_no",
+          "description": "<p>Identifier assigned by researchers. Naming conventions vary by location and period, but identifiers are not reused. Two unnamed measured pups were assigned <code>synthetic-1</code> and <code>synthetic-2</code> during cleaning.</p>",
+          "type": "string",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "measurements",
+              "column": "otter_no"
+            },
+            {
+              "table": "measurements",
+              "column": "pup_number"
+            }
+          ],
+          "examples": [
+            "67001",
+            "70066",
+            "90-044",
+            "KOD-04-135",
+            "SW-155"
+          ]
+        },
+        {
+          "name": "sex",
+          "description": "<p>Sex recorded for the otter.</p>",
+          "type": "enum",
+          "values": [
+            "M",
+            "F",
+            "U"
+          ],
+          "value_labels": {
+            "F": "Female",
+            "M": "Male",
+            "U": "Unknown"
+          }
+        },
+        {
+          "name": "recap",
+          "description": "<p>Whether the otter was recorded as recaptured. This agrees with the number of <code>measurements</code> rows except for SW-155, which is marked as recaptured but has one row, and SO-04-05a, which is marked as captured once but has two. The latter's 2008-05-18 row may belong to pup SO-04-05b.</p>",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "measurements",
+      "description": "<p>One row per capture or collection event. An otter caught more than once has multiple rows. This includes 173 dependent-pup measurements separated from fields on the accompanying female's record during cleaning.</p>",
+      "source": {
+        "parquet": "measurements.parquet"
+      },
+      "columns": [
+        {
+          "name": "measurement_id",
+          "description": "<p>Identifier assigned during cleaning to each capture or collection event. Values run from 1 to 4,643 and have no source-data meaning.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "replicates",
+              "column": "measurement_id"
+            },
+            {
+              "table": "fetuses",
+              "column": "measurement_id"
+            }
+          ],
+          "examples": [
+            1,
+            1200,
+            2500,
+            4000,
+            4643
+          ]
+        },
+        {
+          "name": "otter_no",
+          "description": "<p>Identifier of the otter captured or collected.</p>",
+          "type": "string",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "otters",
+            "column": "otter_no"
+          },
+          "examples": [
+            "67001",
+            "70066",
+            "90-044",
+            "KOD-04-135",
+            "SW-155"
+          ]
+        },
+        {
+          "name": "date",
+          "description": "<p>Date of capture or collection. Together with <code>otter_no</code>, this identifies an event except for KWK-59-162: a post-captivity weighing appears to retain the original capture date rather than the weighing date of 1959-05-13.</p>",
+          "type": "date",
+          "range": {
+            "min": "1947-05-02",
+            "max": "2019-05-30"
+          }
+        },
+        {
+          "name": "location",
+          "description": "<p>Local place name for the capture or collection site. See <code>locations</code> for its region and area.</p>",
+          "type": "string",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "locations",
+            "column": "location"
+          },
+          "examples": [
+            "adak",
+            "chiniak bay",
+            "kiska",
+            "SE - whale bay",
+            "yukon island"
+          ]
+        },
+        {
+          "name": "lat",
+          "description": "<p>Latitude of capture or collection location in decimal degrees (WGS84).</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 51.3721,
+            "max": 60.7025
+          }
+        },
+        {
+          "name": "long",
+          "description": "<p>Longitude of capture or collection location in decimal degrees (WGS84).</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": -178.964,
+            "max": 179.3966
+          }
+        },
+        {
+          "name": "weight",
+          "description": "<p>Otter weight in kilograms.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0.8,
+            "max": 45.4
+          }
+        },
+        {
+          "name": "tail_lgth",
+          "description": "<p>Mean tail length in centimeters. Individual measurements are in <code>replicates</code>.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 15.5,
+            "max": 37.0
+          }
+        },
+        {
+          "name": "curvilinear",
+          "description": "<p>Whether length was measured along the curve of the back rather than in a straight line. The source recorded this as the 0.974 conversion factor, which is already applied in <code>true_standard_lgth</code>. It is unknown for the 173 dependent-pup events separated from their mother's record during cleaning.</p>",
+          "type": "boolean"
+        },
+        {
+          "name": "lgth",
+          "description": "<p>Mean standard length including the tail, in centimeters. Individual measurements are in <code>replicates</code>; four events have a value only here.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 40.2,
+            "max": 148.2
+          }
+        },
+        {
+          "name": "true_standard_lgth",
+          "description": "<p>Length including the tail, standardized across measurement protocols, in centimeters. It equals <code>lgth</code> for standard measurements and <code>curve_lgth</code> multiplied by 0.974 for curvilinear measurements.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 40.2,
+            "max": 155.9
+          }
+        },
+        {
+          "name": "body_lgth",
+          "description": "<p>Body length excluding the tail, in centimeters, calculated as <code>true_standard_lgth - tail_lgth</code>. Available for the 401 events where both values are known.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 56.5,
+            "max": 115.2
+          }
+        },
+        {
+          "name": "curve_lgth",
+          "description": "<p>Curvilinear length including the tail, in centimeters. It was measured once per event and therefore has no rows in <code>replicates</code>.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 47.0,
+            "max": 160.0
+          }
+        },
+        {
+          "name": "curve_lgth_alt",
+          "description": "<p>Unidentified length in centimeters, named <code>CURVE_LGTH2</code> in the source but not a replicate of <code>curve_lgth</code>. Its 21 values are from 2006-03-29 to 2006-04-08 at nknight and montague and exceed <code>curve_lgth</code> by 12-23 cm. What was measured is unknown.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 111.5,
+            "max": 166.0
+          }
+        },
+        {
+          "name": "girth",
+          "description": "<p>Mean chest circumference at the xiphoid, in centimeters. Individual measurements are in <code>replicates</code>.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 29.5,
+            "max": 96.5
+          }
+        },
+        {
+          "name": "paw",
+          "description": "<p>Maximum front-paw width in millimeters.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 34.0,
+            "max": 63.0
+          }
+        },
+        {
+          "name": "w_pup",
+          "description": "<p>Dependency status at capture or collection. <code>Y</code> without a <code>pup_number</code> means a pup was seen but not identified; 251 events have this combination, and those pups have no rows of their own.</p>",
+          "type": "enum",
+          "values": [
+            "N",
+            "U",
+            "D",
+            "Y"
+          ],
+          "value_labels": {
+            "D": "The individual is the dependent pup",
+            "N": "Not with dependent pup",
+            "U": "Unknown",
+            "Y": "With dependent pup"
+          }
+        },
+        {
+          "name": "pup_number",
+          "description": "<p>Identifier of the dependent pup accompanying the female. Measurements stored on the female's source record were separated into an event for the pup during cleaning.</p>",
+          "type": "string",
+          "constraints": [
+            "foreign_key"
+          ],
+          "references": {
+            "table": "otters",
+            "column": "otter_no"
+          },
+          "examples": [
+            "67002",
+            "92-198",
+            "KOD_04_121",
+            "SO-08-20",
+            "SO-98-50a"
+          ]
+        },
+        {
+          "name": "fetus_pres",
+          "description": "<p>Fetal presence at collection. The code matches the number of related <code>fetuses</code> rows: none for <code>N</code>, one for <code>Y</code>, and two or three for <code>M</code>.</p>",
+          "type": "enum",
+          "values": [
+            "N",
+            "Y",
+            "M"
+          ],
+          "value_labels": {
+            "M": "Multiple fetuses present",
+            "N": "No fetus present",
+            "Y": "Fetus present"
+          }
+        },
+        {
+          "name": "fe_rep_con",
+          "description": "<p>Reproductive condition recorded for a female.</p>",
+          "type": "enum",
+          "values": [
+            "IMP",
+            "UNI",
+            "ANE",
+            "EST",
+            "POS",
+            "PRO",
+            "FAI"
+          ],
+          "value_labels": {
+            "ANE": "Anestrous",
+            "EST": "In estrous",
+            "FAI": "Pregnancy failure (resorption or possible abortion)",
+            "IMP": "Implanted pregnant",
+            "POS": "Postpartum",
+            "PRO": "In proestrus",
+            "UNI": "Unimplanted pregnant"
+          }
+        },
+        {
+          "name": "fe_rep_sta",
+          "description": "<p>Parity recorded for a collected female.</p>",
+          "type": "enum",
+          "values": [
+            "N",
+            "M",
+            "P"
+          ],
+          "value_labels": {
+            "M": "Multiparous",
+            "N": "Nulliparous",
+            "P": "Primiparous"
+          }
+        },
+        {
+          "name": "pregnancy_status",
+          "description": "<p>Pregnancy status at capture or collection.</p>",
+          "type": "enum",
+          "values": [
+            "NP",
+            "U",
+            "NPP",
+            "P",
+            "PP"
+          ],
+          "value_labels": {
+            "NP": "Not pregnant at collection or capture",
+            "NPP": "Not palpably pregnant at capture",
+            "P": "Fetus present at collection or palpably pregnant at capture",
+            "PP": "Not documented in the source metadata",
+            "U": "Unknown"
+          }
+        },
+        {
+          "name": "can_dia",
+          "description": "<p>Maximum canine-tooth diameter at the gum line, in millimeters.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 2.9,
+            "max": 11.1
+          }
+        },
+        {
+          "name": "final_age",
+          "description": "<p>Age at capture or collection, in years, based on known age, tooth cementum, or a field estimate.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 0,
+            "max": 23
+          }
+        },
+        {
+          "name": "age_category",
+          "description": "<p>Broad age class at capture or collection.</p>",
+          "type": "enum",
+          "values": [
+            "<1",
+            "1-2",
+            "3-10",
+            ">10"
+          ],
+          "value_labels": {
+            "1-2": "1-2 years",
+            "3-10": "3-10 years",
+            "<1": "Less than 1 year",
+            ">10": "Greater than 10 years"
+          }
+        },
+        {
+          "name": "bacula_lgth",
+          "description": "<p>Baculum length in centimeters, recorded for males.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 2.2,
+            "max": 21.6
+          }
+        },
+        {
+          "name": "comments",
+          "description": "<p>Free-text notes about the otter or event.</p>",
+          "type": "string",
+          "examples": [
+            "given 92-114",
+            "died summer 1997",
+            "originally 84-001",
+            "pup < 8 wks later but preg missed at capture"
+          ]
+        },
+        {
+          "name": "cause_of_death_capture_method",
+          "description": "<p>Capture or collection method.</p>",
+          "type": "enum",
+          "values": [
+            "live capture",
+            "harvest",
+            "captivity",
+            "beach"
+          ],
+          "value_labels": {
+            "beach": "Captured off a beach",
+            "captivity": "Measured after some time in captivity",
+            "harvest": "Collected via harvest",
+            "live capture": "Typical live capture"
+          }
+        }
+      ]
+    },
+    {
+      "name": "replicates",
+      "description": "<p>One row per individual tail-length, standard-length, or girth measurement. Tail length has multiple measurements for 287 of 403 events, standard length for 160 of 2,269, and girth for 4 of 1,052. Replicated tail lengths differ by a median of 0.5 cm.</p>",
+      "source": {
+        "parquet": "replicates.parquet"
+      },
+      "columns": [
+        {
+          "name": "measurement_id",
+          "description": "<p>Identifier of the capture or collection event.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "foreign_key",
+            "unique",
+            "required"
+          ],
+          "references": {
+            "table": "measurements",
+            "column": "measurement_id"
+          },
+          "examples": [
+            2071,
+            2476,
+            3031,
+            3686,
+            4397
+          ]
+        },
+        {
+          "name": "quantity",
+          "description": "<p>Measurement type. The corresponding <code>measurements</code> column contains the mean for the event.</p>",
+          "type": "enum",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "values": [
+            "tail_lgth",
+            "lgth",
+            "girth"
+          ],
+          "value_labels": {
+            "girth": "Circumference of chest at xiphoid, 29.5 to 96.5 cm",
+            "lgth": "Length of otter including tail, 40.2 to 148.2 cm",
+            "tail_lgth": "Length of tail, 15.5 to 37.2 cm"
+          }
+        },
+        {
+          "name": "replicate",
+          "description": "<p>Sequence number in source order, starting at 1. Girth has at most two measurements per event.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 3
+          }
+        },
+        {
+          "name": "value",
+          "description": "<p>Measurement in centimeters, recorded to one decimal place. See <code>quantity</code> for type-specific ranges.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 15.5,
+            "max": 148.2
+          }
+        }
+      ]
+    },
+    {
+      "name": "locations",
+      "description": "<p>One row per named capture or collection place, with its region and area.</p>",
+      "source": {
+        "parquet": "locations.parquet"
+      },
+      "columns": [
+        {
+          "name": "location",
+          "description": "<p>Place name recorded for capture or collection events.</p>",
+          "type": "string",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "measurements",
+              "column": "location"
+            }
+          ],
+          "examples": [
+            "adak",
+            "chiniak bay",
+            "kiska",
+            "SE - whale bay",
+            "yukon island"
+          ]
+        },
+        {
+          "name": "region",
+          "description": "<p>Alaska region containing the place; a region may contain multiple areas.</p>",
+          "type": "enum",
+          "values": [
+            "west aleutians",
+            "east aleutians",
+            "AK peninsula",
+            "kodiak",
+            "lower cook inlet",
+            "PWS",
+            "SE"
+          ],
+          "value_labels": {
+            "AK peninsula": "Alaska Peninsula",
+            "PWS": "Prince William Sound",
+            "SE": "Southeast Alaska",
+            "east aleutians": "Eastern Aleutian Islands",
+            "kodiak": "Kodiak Island",
+            "lower cook inlet": "Lower Cook Inlet",
+            "west aleutians": "Western Aleutian Islands"
+          }
+        },
+        {
+          "name": "area",
+          "description": "<p>Alaska area containing the place.</p>",
+          "type": "enum",
+          "values": [
+            "near islands",
+            "rats",
+            "delarofs",
+            "andreanofs",
+            "fox islands",
+            "WAP",
+            "EAP",
+            "shuyak",
+            "afognak",
+            "kodiak",
+            "kachemak",
+            "WPWS",
+            "EPWS",
+            "NSE",
+            "CSE",
+            "SSE"
+          ],
+          "value_labels": {
+            "CSE": "Central Southeast Alaska",
+            "EAP": "Eastern Alaska Peninsula",
+            "EPWS": "Eastern Prince William Sound",
+            "NSE": "Northern Southeast Alaska",
+            "SSE": "Southern Southeast Alaska",
+            "WAP": "Western Alaska Peninsula",
+            "WPWS": "Western Prince William Sound",
+            "afognak": "Afognak Island",
+            "andreanofs": "Andreanof Island group",
+            "delarofs": "Delarof Island group",
+            "fox islands": "Fox Island group",
+            "kachemak": "Kachemak Bay",
+            "kodiak": "Kodiak Island",
+            "near islands": "Near Island group",
+            "rats": "Rat Island group",
+            "shuyak": "Shuyak Island"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fetuses",
+      "description": "<p>One row per fetus found in a collected female. A collection with multiple fetuses has multiple rows.</p>",
+      "source": {
+        "parquet": "fetuses.parquet"
+      },
+      "columns": [
+        {
+          "name": "measurement_id",
+          "description": "<p>Identifier of the collection event at which the fetus was found.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "foreign_key",
+            "unique",
+            "required"
+          ],
+          "references": {
+            "table": "measurements",
+            "column": "measurement_id"
+          },
+          "examples": [
+            15,
+            759,
+            1329,
+            1830,
+            3696
+          ]
+        },
+        {
+          "name": "fetus_num",
+          "description": "<p>Index distinguishing fetuses within a collection, numbered from 1 in no meaningful order; it is not a fetus count.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 3
+          }
+        },
+        {
+          "name": "fetus_sex",
+          "description": "<p>Sex recorded for the fetus.</p>",
+          "type": "enum",
+          "values": [
+            "M",
+            "F",
+            "U"
+          ],
+          "value_labels": {
+            "F": "Female",
+            "M": "Male",
+            "U": "Unknown"
+          }
+        },
+        {
+          "name": "fetus_wt",
+          "description": "<p>Fetal weight in grams.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0.1,
+            "max": 2112.0
+          }
+        },
+        {
+          "name": "fetus_lth",
+          "description": "<p>Fetal length in centimeters.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0.3,
+            "max": 65.0
+          }
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "description": "<p>Links each otter to its capture or collection events.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "measurements",
+            "column": "otter_no"
+          },
+          "right": {
+            "table": "otters",
+            "column": "otter_no"
+          }
+        }
+      ],
+      "join": "otters.otter_no = measurements.otter_no"
+    },
+    {
+      "description": "<p>Links an event to its individual tail-length, standard-length, and girth measurements. The 2,370 events with none of these measurements have no related rows.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "replicates",
+            "column": "measurement_id"
+          },
+          "right": {
+            "table": "measurements",
+            "column": "measurement_id"
+          }
+        }
+      ],
+      "join": "measurements.measurement_id = replicates.measurement_id"
+    },
+    {
+      "description": "<p>Links a collection event to fetuses found in the female.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "fetuses",
+            "column": "measurement_id"
+          },
+          "right": {
+            "table": "measurements",
+            "column": "measurement_id"
+          }
+        }
+      ],
+      "join": "measurements.measurement_id = fetuses.measurement_id"
+    },
+    {
+      "description": "<p>Links an event to the region and area containing its location.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "measurements",
+            "column": "location"
+          },
+          "right": {
+            "table": "locations",
+            "column": "location"
+          }
+        }
+      ],
+      "join": "measurements.location = locations.location"
+    },
+    {
+      "description": "<p>Links an event involving a female with a named dependent pup to that pup. Each of the 388 named pups has an <code>otters</code> row; when pup measurements are available, they appear in the pup's own same-day <code>measurements</code> row.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "measurements",
+            "column": "pup_number"
+          },
+          "right": {
+            "table": "otters",
+            "column": "otter_no"
+          }
+        }
+      ],
+      "join": "measurements.pup_number = otters.otter_no"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "curvilinear length",
+      "definition": "<p>Length measured along the curve of the back while the otter lies on its stomach, used primarily during experimental harvests from 1967 to 1971.</p>"
+    },
+    {
+      "term": "standard length",
+      "definition": "<p>Straight-line length measured while the otter lies on its back, used from 1947 to 1963 and from 1986 to 2019.</p>"
+    },
+    {
+      "term": "true standard length",
+      "definition": "<p>Length standardized across protocols: standard length is unchanged, while curvilinear length is multiplied by 0.974.</p>"
+    },
+    {
+      "term": "experimental harvest",
+      "definition": "<p>Controlled collection of sea otters for research, primarily during the 1960s and 1970s.</p>"
+    },
+    {
+      "term": "nulliparous",
+      "definition": "<p>A female that has never given birth.</p>"
+    },
+    {
+      "term": "primiparous",
+      "definition": "<p>A female that has given birth once.</p>"
+    },
+    {
+      "term": "multiparous",
+      "definition": "<p>A female that has given birth multiple times.</p>"
+    },
+    {
+      "term": "baculum",
+      "definition": "<p>Penile bone, whose length can be used to estimate age class.</p>"
+    },
+    {
+      "term": "xiphoid",
+      "definition": "<p>Lower portion of the sternum, used as the landmark for girth measurements.</p>"
+    }
+  ]
+}
