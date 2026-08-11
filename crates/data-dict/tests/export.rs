@@ -142,13 +142,13 @@ fn assertions_export_their_translations() {
     assert_eq!(translations[0]["code"], r#""qty" / 2 > 1"#);
     assert_eq!(translations[1]["target"], "R(tidyverse)");
     assert_eq!(translations[1]["code"], "qty / 2L > 1L");
-    // Division by zero diverges from the language's semantics, and says so.
+    // Comparing over numbers diverges on a NaN, and says so.
     assert!(
         translations[0]["notes"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|n| n.as_str().unwrap().contains("infinity"))
+            .any(|n| n.as_str().unwrap().contains("NaN"))
     );
 
     // R has no computed LIKE pattern, so it refuses with a reason.
