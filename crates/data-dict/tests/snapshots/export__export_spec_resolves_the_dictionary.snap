@@ -126,11 +126,17 @@ expression: export_json(RICH_DICT)
               "translations": [
                 {
                   "target": "SQL(duckdb)",
-                  "code": "\"weight\" > 0"
+                  "code": "\"weight\" > 0",
+                  "notes": [
+                    "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
                 },
                 {
                   "target": "R(tidyverse)",
-                  "code": "weight > 0L"
+                  "code": "weight > 0L",
+                  "notes": [
+                    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
                 }
               ]
             }
