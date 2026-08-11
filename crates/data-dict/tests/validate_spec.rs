@@ -2327,6 +2327,81 @@ fn constraints_aggregates_are_valid() {
     "});
 }
 
+// FILTER (WHERE ...) narrows an aggregate to the rows its condition keeps.
+#[test]
+fn constraints_filtered_aggregates_are_valid() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+              - name: status_cd
+                type: number
+                examples: [90, 10]
+            constraints:
+              - assert: SUM(qty) FILTER (WHERE status_cd = 90) > 0
+              - assert: ROW_COUNT() FILTER (WHERE qty IS NOT NULL) <= ROW_COUNT()
+    "});
+}
+
+// A FILTER clause on anything but an aggregate is ill-typed.
+#[test]
+fn constraints_s21_filter_on_non_aggregate() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: name
+                type: string
+                examples: [a, b]
+              - name: flag
+                type: boolean
+            constraints:
+              - assert: LENGTH(name) FILTER (WHERE flag) > 0
+    "});
+    diagnostic.assert_contains(&["S21", "FILTER", "isn't one"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A FILTER condition is evaluated per row, so it can't contain an aggregate.
+#[test]
+fn constraints_s30_aggregate_in_filter() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: SUM(qty) FILTER (WHERE qty > AVG(qty)) > 0
+    "});
+    diagnostic.assert_contains(&["S30", "FILTER", "per row"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A FILTER condition must be boolean.
+#[test]
+fn constraints_s21_non_boolean_filter() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: t
+            columns:
+              - name: qty
+                type: number
+                examples: [1, 2]
+            constraints:
+              - assert: SUM(qty) FILTER (WHERE qty) > 0
+    "});
+    diagnostic.assert_contains(&["S21", "FILTER", "expects a boolean"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // A column constraint bareword must be one of the four structural names.
 #[test]
 fn constraints_column_unknown_bareword() {

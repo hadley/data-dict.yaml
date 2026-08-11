@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: qty
+        type: number
+        examples: [1, 2]
+    constraints:
+      - assert: SUM(qty) FILTER (WHERE qty) > 0
+────────────────────────────────────────
+error[S21]: An assertion must be a well-typed boolean expression.
+  --> dict.yaml:10:40
+   |
+LL |   - name: t
+...
+LL |       - assert: SUM(qty) FILTER (WHERE qty) > 0
+   |                                        ^^^ a `FILTER` condition expects a boolean, found a number

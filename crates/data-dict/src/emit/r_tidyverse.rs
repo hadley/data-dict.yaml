@@ -232,7 +232,15 @@ impl Target for RTidyverse {
                 }
                 cx.push(")");
             }
-            NodeKind::Func { op, args } => write_func(cx, *op, args)?,
+            NodeKind::Func { op, args, filter } => {
+                if filter.is_some() {
+                    return Err(Unsupported {
+                        what: "FILTER (WHERE ...)",
+                        why: "filtered aggregates are not yet translated",
+                    });
+                }
+                write_func(cx, *op, args)?;
+            }
         }
         Ok(())
     }

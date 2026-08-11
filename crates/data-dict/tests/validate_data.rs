@@ -2216,6 +2216,54 @@ fn counting_aggregates_see_every_row() {
 }
 
 #[test]
+fn a_filtered_aggregate_folds_only_matching_rows() {
+    // Only rows 1 and 3 have `b > 0`, so the sum is 1 + 3.
+    let holds = build_asserted(
+        &[1, 2, 3],
+        &[Some(1), Some(-1), Some(1)],
+        &assertion("SUM(a) FILTER (WHERE b > 0) = 4"),
+    );
+    assert_eq!(validate_data(&holds, None).status(), Status::Ok);
+
+    let fails = build_asserted(
+        &[1, 2, 3],
+        &[Some(1), Some(-1), Some(1)],
+        &assertion("SUM(a) FILTER (WHERE b > 0) = 6"),
+    );
+    let diagnostic = asserted(&fails);
+    diagnostic.assert_contains(&["D07", "is false for this table"]);
+}
+
+#[test]
+fn a_null_filter_condition_excludes_the_row() {
+    // Row 2's condition is null, which excludes it exactly as `false` does,
+    // so only row 1 is counted.
+    let yaml = build_asserted(
+        &[1, 2, 3],
+        &[Some(1), None, Some(-1)],
+        &assertion("COUNT(a) FILTER (WHERE b > 0) = 1"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_filter_that_admits_no_rows_leaves_empty_input() {
+    // SUM of nothing is null, which passes; COUNT of nothing is 0.
+    let yaml = build_asserted(
+        &[1, 2],
+        &[Some(1), Some(1)],
+        &assertion("SUM(a) FILTER (WHERE b > 5) > 100"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+    let yaml = build_asserted(
+        &[1, 2],
+        &[Some(1), Some(1)],
+        &assertion("COUNT(a) FILTER (WHERE b > 5) = 0"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
 fn an_aggregate_assertion_passes_vacuously_on_an_empty_table() {
     // Folding nothing yields null, and null passes.
     let yaml = build_asserted(&[], &[], &assertion("SUM(a) > 100"));

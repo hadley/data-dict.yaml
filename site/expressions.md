@@ -371,7 +371,7 @@ Any aggregate may be narrowed to a subset of rows with a `FILTER (WHERE ...)` cl
   expr: SUM(order_total) FILTER (WHERE status_cd = 90)
 ```
 
-The condition is a `row`-shape boolean expression over the same table, and only rows where it is true are folded; following [CHECK semantics](#truth-and-null), a row whose condition is null is excluded, exactly as `false` is. A filter that admits no rows leaves the aggregate with [empty input](#empty-input), so `SUM(x) FILTER (WHERE false)` is null and `COUNT(x) FILTER (WHERE false)` is 0.
+The condition is a boolean expression over the same table, evaluated once per row, so it can't contain an aggregate — an aggregate's value isn't known until the whole table has been read. Only rows where it is true are folded; following [CHECK semantics](#truth-and-null), a row whose condition is null is excluded, exactly as `false` is. A filter that admits no rows leaves the aggregate with [empty input](#empty-input), so `SUM(x) FILTER (WHERE false)` is null and `COUNT(x) FILTER (WHERE false)` is 0.
 
 #### `MIN(x)`, `MAX(x)`
 
@@ -507,7 +507,7 @@ Its type is the common type of its branches; branches of differing types make th
 
 ### A `FILTER` clause belongs on an aggregate
 
-[`FILTER (WHERE ...)`](#filter) narrows the rows an aggregate folds, so it's only meaningful on an aggregate call; on any other function it's an error. The condition must be a `row`-shape boolean expression — it is evaluated once per row to decide whether that row counts.
+[`FILTER (WHERE ...)`](#filter) narrows the rows an aggregate folds, so it's only meaningful on an aggregate call; on any other function it's an error. The condition must be a boolean expression with no aggregate in it — it is evaluated once per row to decide whether that row counts.
 
 ### An aggregate can't contain another aggregate
 
