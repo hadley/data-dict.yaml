@@ -1,0 +1,150 @@
+---
+source: crates/data-dict/tests/export.rs
+expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tables:\n          - name: orders\n            columns:\n              - name: status_cd\n                type: number(id)\n                examples: [90]\n              - name: order_total\n                type: number(quantity)\n                units: usd\n                range: [0, .inf]\n              - name: tile_size\n                type: string\n                examples: [\"Enterprise-1\"]\n            constraints:\n              - assert: is_enterprise\n            definitions:\n              - name: net_revenue\n                description: Realized revenue excluding returned orders.\n                expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)\n              - name: is_enterprise\n                label: Enterprise segment\n                expr: tile_size IN ('Mid-Market-3', 'Enterprise-1')\n              - name: enterprise_revenue\n                expr: SUM(CASE WHEN is_enterprise THEN order_total ELSE 0 END)\n              - name: list_price\n                expr: order_total * 1.2\n    \"#})"
+---
+{
+  "$version": "0.1.0",
+  "tables": [
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "status_cd",
+          "type": "number(id)",
+          "examples": [
+            90
+          ]
+        },
+        {
+          "name": "order_total",
+          "type": "number(quantity)",
+          "units": "usd",
+          "range": {
+            "min": 0,
+            "max": null
+          }
+        },
+        {
+          "name": "tile_size",
+          "type": "string",
+          "examples": [
+            "Enterprise-1"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "expression": "is_enterprise",
+          "columns": [],
+          "definitions": [
+            "is_enterprise"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+            },
+            {
+              "target": "R(tidyverse)",
+              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+            }
+          ]
+        }
+      ],
+      "definitions": [
+        {
+          "name": "net_revenue",
+          "description": "<p>Realized revenue excluding returned orders.</p>",
+          "expression": "SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)",
+          "kind": "metric",
+          "type": "number",
+          "columns": [
+            "status_cd",
+            "order_total"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "sum(CASE WHEN \"status_cd\" = 90 THEN 0 ELSE \"order_total\" END)",
+              "notes": [
+                "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there.",
+                "DuckDB sums integers at 128 bits, so a total data-dict reports as an overflow (D09) may succeed."
+              ]
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "sum(case_when(status_cd == 90L ~ 0L, .default = order_total), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "is_enterprise",
+          "label": "Enterprise segment",
+          "expression": "tile_size IN ('Mid-Market-3', 'Enterprise-1')",
+          "kind": "filter",
+          "type": "boolean",
+          "columns": [
+            "tile_size"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "\"tile_size\" IN ('Mid-Market-3', 'Enterprise-1')"
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "is.na(tile_size) | (tile_size %in% c(\"Mid-Market-3\", \"Enterprise-1\"))"
+            }
+          ]
+        },
+        {
+          "name": "enterprise_revenue",
+          "expression": "SUM(CASE WHEN is_enterprise THEN order_total ELSE 0 END)",
+          "kind": "metric",
+          "type": "number",
+          "columns": [
+            "order_total"
+          ],
+          "definitions": [
+            "is_enterprise"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+            },
+            {
+              "target": "R(tidyverse)",
+              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+            }
+          ]
+        },
+        {
+          "name": "list_price",
+          "expression": "order_total * 1.2",
+          "kind": "derived",
+          "type": "number",
+          "columns": [
+            "order_total"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "\"order_total\" * 1.2"
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "order_total * 1.2"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

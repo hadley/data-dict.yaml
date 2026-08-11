@@ -476,6 +476,15 @@ struct DefEnv<'a> {
     defs: &'a HashMap<String, DefType>,
 }
 
+impl<'a> DefEnv<'a> {
+    fn new(table: &'a Table, defs: &'a HashMap<String, DefType>) -> DefEnv<'a> {
+        DefEnv {
+            inner: TableEnv::new(table),
+            defs,
+        }
+    }
+}
+
 impl CheckEnv for DefEnv<'_> {
     fn column(&self, name: &str) -> Option<ColumnKind> {
         self.inner.column(name)
@@ -657,6 +666,66 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
                 // Unreachable (a finite graph with no resolvable node contains
                 // a cycle), but don't loop forever if the reasoning is off.
                 break;
+            }
+        }
+    }
+    resolved
+}
+
+/// Resolve every referable definition's type and shape in dependency order,
+/// discarding findings. For export, which runs only after spec validation
+/// has passed, so there is nothing to report; a definition that can't be
+/// resolved (a reference cycle, already reported as S33) maps to the
+/// permissive `Ty::Any`, as it does during validation.
+pub(crate) fn resolve_definitions(table: &Table) -> HashMap<String, DefType> {
+    use crate::assert_expr::FindingSeverity;
+
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty()
+            && table.column(&def.name.value).is_none()
+            && def.expr.is_some()
+        {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    let mut resolved: HashMap<String, DefType> = HashMap::new();
+    let mut pending: Vec<&Definition> = referable.values().copied().collect();
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let env = DefEnv::new(table, &resolved);
+                let expr = def.expr.as_ref().unwrap();
+                let (ty, shape, findings) = assert_expr::analyze(expr, &env, Root::Definition);
+                let failed = findings
+                    .iter()
+                    .any(|f| f.severity == FindingSeverity::Error);
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: if failed { assert_expr::Ty::Any } else { ty },
+                        shape,
+                    },
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            for def in pending.drain(..) {
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: assert_expr::Ty::Any,
+                        shape: assert_expr::Shape::Row,
+                    },
+                );
             }
         }
     }

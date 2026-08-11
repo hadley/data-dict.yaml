@@ -1,6 +1,6 @@
 # Export
 
-`data-dict` can render a `data-dict.yaml` file to JSON, resolving everything the validator already computes internally — parsed types, constraint flags, joins, assertions — so downstream tools don't need to re-implement any of the spec's parsing or inference rules.
+`data-dict` can render a `data-dict.yaml` file to JSON, resolving everything the validator already computes internally — parsed types, constraint flags, joins, assertions, definitions — so downstream tools don't need to re-implement any of the spec's parsing or inference rules.
 
 ## Two levels
 
@@ -55,7 +55,8 @@ Prose fields — every `description`, `details`, and `todo`, and each glossary `
   "rows?": 123,                  // the source data's row count; export-data only,
                                  // absent when the table's source wasn't profiled
   "columns": [ Column ],
-  "constraints?": [ Assertion ]  // table-level `assert` entries
+  "constraints?": [ Assertion ], // table-level `assert` entries
+  "definitions?": [ Definition ] // the table's `definitions`, resolved
 }
 ```
 
@@ -104,6 +105,7 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
   "expression": "string",         // original `assert` text
   "description?": "string",
   "columns": ["string", ...],     // every column (and struct field, dotted) the expression references
+  "definitions?": ["string", ...], // every definition of the same table it references
   "translations?": [ Translation ]
 }
 ```
@@ -112,7 +114,7 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 
 ### Translation
 
-A `Translation` is the assertion's expression rendered as a bare predicate in one target language — the same translation `translate` produces, so a consumer can embed the check directly in that language's pipeline rather than re-parsing `expression`. One entry per target the exporter can produce; a target that can't express the assertion still appears, carrying the reason instead of code:
+A `Translation` is the expression rendered as a bare expression in one target language — the same translation `translate` produces, so a consumer can embed it directly in that language's pipeline rather than re-parsing `expression`. For an assertion the rendering is a predicate; for a definition it computes the definition's value, so a metric's translation is an aggregate expression, embeddable only where the target aggregates (a `SELECT` list, a `summarise()`). An expression that builds on another definition is not translated: composing it is the consumer's job, from the referenced definition's own translations (named by `definitions`), so every target carries the reason in `error`. One entry per target the exporter can produce; a target that can't express the expression still appears, carrying the reason instead of code:
 
 ```jsonc
 {
@@ -123,6 +125,31 @@ A `Translation` is the assertion's expression rendered as a bare predicate in on
                                   // expression's own semantics; absent when it agrees exactly
 }
 ```
+
+### Definition
+
+A `Definition` is one of a table's [`definitions`](spec.md#definitions) — a named metric, filter, or derived value — with its expression's kind, value type, and references resolved:
+
+```jsonc
+{
+  "name": "string",
+  "label?": "string",
+  "description?": "string",
+  "details?": "string",
+  "expression": "string",          // original `expr` text
+  "kind": "filter" | "metric" | "derived",
+  // read off the expression's type and shape, as the spec defines: a boolean
+  // row-level expression is a filter, an aggregate or constant a metric,
+  // anything else a derived value
+  "type?": "string",               // the expression's value type:
+                                   // "number" | "string" | "boolean" | "date" | "datetime" | "interval"
+  "columns": ["string", ...],      // every column (and struct field, dotted) the expression reads
+  "definitions?": ["string", ...], // other definitions of the same table it builds on
+  "translations?": [ Translation ]
+}
+```
+
+`columns` and `definitions` list direct references only, in first-appearance order — a definition that builds on another definition names it under `definitions`, and the columns that definition reads appear on its own entry.
 
 ### Relationship
 

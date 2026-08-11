@@ -19,14 +19,14 @@ use data_dict_parquet::{
     profile, profile_paths, render_scalar,
 };
 
-use crate::assert_expr::{self, ColumnsSelector, Expr, ExprKind};
+use crate::assert_expr::{self, ColumnsSelector, DefType, Expr, ExprKind, Ty};
 use crate::emit;
 use crate::model::{
-    Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
-    Spanned, Table, Version,
+    Assertion, Cardinality, Column, Constraint, DataDict, Definition, Relationship, Representation,
+    Scalar, Spanned, Table, Version,
 };
 use crate::problem::{ProblemKind, ProblemSet, Severity};
-use crate::validate_spec::TableEnv;
+use crate::validate_spec::{TableEnv, resolve_definitions};
 use crate::{load, validate_and_lower};
 
 /// The version of the export document format itself, carried as the
@@ -118,6 +118,8 @@ struct ExportTable {
     columns: Vec<ExportColumn>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     constraints: Vec<ExportAssertion>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    definitions: Vec<ExportDefinition>,
 }
 
 #[derive(Debug, Serialize)]
@@ -187,6 +189,37 @@ struct ExportAssertion {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     columns: Vec<String>,
+    /// Other definitions of the same table the expression builds on.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    definitions: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    translations: Vec<ExportTranslation>,
+}
+
+/// A table-level definition: a named expression with its kind, value type,
+/// and references resolved. `kind` reads off the expression's type and shape,
+/// as the spec defines: a boolean row-level expression is a filter, an
+/// aggregate or constant a metric, anything else a derived value.
+#[derive(Debug, Serialize)]
+struct ExportDefinition {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<String>,
+    expression: String,
+    kind: &'static str,
+    /// The expression's value type; absent when it couldn't be resolved (a
+    /// definition whose expression failed to check, or one on a reference
+    /// cycle — both already spec errors).
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    value_type: Option<&'static str>,
+    columns: Vec<String>,
+    /// Other definitions of the same table the expression builds on.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    definitions: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     translations: Vec<ExportTranslation>,
 }
@@ -565,6 +598,8 @@ fn build_table(
     rows: Option<usize>,
     profiles: &mut TableProfiles,
 ) -> ExportTable {
+    let defs = resolve_definitions(table);
+    let referable = referable_definitions(table);
     ExportTable {
         name: table.name.value.clone(),
         label: table.label.as_ref().map(|s| s.value.clone()),
@@ -576,13 +611,35 @@ fn build_table(
             parquet: s.parquet.value.clone(),
         }),
         rows,
-        columns: build_columns(dict, table, &table.columns, &[], profiles),
+        columns: build_columns(dict, table, &table.columns, &[], &referable, profiles),
         constraints: table
             .constraints
             .iter()
-            .map(|a| build_assertion(a, table))
+            .map(|a| build_assertion(a, table, &referable))
+            .collect(),
+        definitions: table
+            .definitions
+            .iter()
+            .map(|d| build_definition(d, table, &defs, &referable))
             .collect(),
     }
+}
+
+/// The definitions a reference in one of `table`'s expressions may resolve
+/// to: the first of each non-empty name not claimed by a column (the
+/// collision is S32), with a parsed expression. Mirrors the referable set
+/// spec validation uses.
+fn referable_definitions(table: &Table) -> HashMap<&str, &Definition> {
+    let mut referable = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty()
+            && table.column(&def.name.value).is_none()
+            && def.expr.is_some()
+        {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+    referable
 }
 
 /// Build one level of the column tree. A column (or field) with no declared
@@ -592,12 +649,13 @@ fn build_columns(
     table: &Table,
     columns: &[Column],
     prefix: &[&str],
+    referable: &HashMap<&str, &Definition>,
     profiles: &mut TableProfiles,
 ) -> Vec<ExportColumn> {
     columns
         .iter()
         .filter(|col| col.col_type.is_some())
-        .map(|col| build_column(dict, table, col, prefix, profiles))
+        .map(|col| build_column(dict, table, col, prefix, referable, profiles))
         .collect()
 }
 
@@ -606,6 +664,7 @@ fn build_column(
     table: &Table,
     col: &Column,
     prefix: &[&str],
+    referable: &HashMap<&str, &Definition>,
     profiles: &mut TableProfiles,
 ) -> ExportColumn {
     let path: Vec<&str> = prefix
@@ -697,14 +756,62 @@ fn build_column(
         fields: col
             .fields
             .as_ref()
-            .map(|fields| build_columns(dict, table, fields, &path, profiles))
+            .map(|fields| build_columns(dict, table, fields, &path, referable, profiles))
             .unwrap_or_default(),
         assertions: col
             .assertions
             .iter()
-            .map(|a| build_assertion(a, table))
+            .map(|a| build_assertion(a, table, referable))
             .collect(),
         profile,
+    }
+}
+
+fn build_definition(
+    def: &Definition,
+    table: &Table,
+    defs: &HashMap<String, DefType>,
+    referable: &HashMap<&str, &Definition>,
+) -> ExportDefinition {
+    let mut columns = Vec::new();
+    let mut definitions = Vec::new();
+    let mut translations = Vec::new();
+    if let Some(expr) = &def.expr {
+        collect_columns(&expr.root, table, referable, &mut columns, &mut definitions);
+        translations = translate_expression(&expr.root, table, referable);
+    }
+    let resolved = defs.get(&def.name.value);
+    let kind = match resolved {
+        Some(DefType {
+            shape: assert_expr::Shape::Agg | assert_expr::Shape::Const,
+            ..
+        }) => "metric",
+        Some(DefType {
+            ty: Ty::Bool,
+            shape: assert_expr::Shape::Row,
+        }) => "filter",
+        _ => "derived",
+    };
+    let value_type = resolved.and_then(|d| match d.ty {
+        Ty::Number => Some("number"),
+        Ty::String => Some("string"),
+        Ty::Bool => Some("boolean"),
+        Ty::Date => Some("date"),
+        Ty::Datetime => Some("datetime"),
+        Ty::Interval => Some("interval"),
+        Ty::Struct | Ty::List | Ty::Any | Ty::Unknown => None,
+    });
+    ExportDefinition {
+        name: def.name.value.clone(),
+        label: def.label.clone(),
+        description: prose(&def.description),
+        details: prose(&def.details),
+        expression: def.text.value.clone(),
+        kind,
+        value_type,
+        columns,
+        definitions,
+        translations,
     }
 }
 
@@ -749,92 +856,151 @@ fn representation_labels(rep: &Representation) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
+fn build_assertion(
+    assertion: &Assertion,
+    table: &Table,
+    referable: &HashMap<&str, &Definition>,
+) -> ExportAssertion {
     let mut columns = Vec::new();
+    let mut definitions = Vec::new();
     let mut translations = Vec::new();
     if let Some(expr) = &assertion.expr {
-        collect_columns(&expr.root, table, &mut columns);
-        // The spec pass has already checked every assertion, so lowering only
-        // fails when export runs without it.
-        if let Some(ir) = assert_expr::lower(expr, &TableEnv::new(table)) {
-            for target in crate::translate::registry() {
-                translations.push(match emit::emit(target.as_ref(), &ir) {
-                    Ok(emitted) => ExportTranslation {
-                        target: target.name(),
-                        code: Some(emitted.code),
-                        error: None,
-                        notes: emitted.notes,
-                    },
-                    Err(unsupported) => ExportTranslation {
-                        target: target.name(),
-                        code: None,
-                        error: Some(format!(
-                            "{} is not supported: {}",
-                            unsupported.what, unsupported.why
-                        )),
-                        notes: Vec::new(),
-                    },
-                });
-            }
-        }
+        collect_columns(&expr.root, table, referable, &mut columns, &mut definitions);
+        translations = translate_expression(&expr.root, table, referable);
     }
     ExportAssertion {
         expression: assertion.text.value.clone(),
         description: prose(&assertion.description),
         columns,
+        definitions,
         translations,
     }
 }
 
-/// Collect every column (and struct field, dotted) `e` references into `out`,
-/// first-appearance order, deduplicated. A `COLUMNS(...)` selection expands to
-/// the table columns it matches, mirroring the S21/S22 checker — restricted to
-/// typed columns, since untyped ones are omitted from the export.
-fn collect_columns(e: &Expr, table: &Table, out: &mut Vec<String>) {
+/// One entry per target: the expression rendered in that target's language,
+/// or the reason the target refused. An expression that builds on another
+/// definition isn't translated — the client has the referenced definition's
+/// own translations (named by the `definitions` key) and composes them — so
+/// every target carries the reason instead. The spec pass has already
+/// checked every expression, so lowering only fails when export runs without
+/// it.
+fn translate_expression(
+    root: &Expr,
+    table: &Table,
+    referable: &HashMap<&str, &Definition>,
+) -> Vec<ExportTranslation> {
+    let expr = assert_expr::AssertExpr { root: root.clone() };
+    let refs: Vec<String> = assert_expr::referenced_names(&expr)
+        .into_iter()
+        .filter(|name| referable.contains_key(name.as_str()))
+        .collect();
+    if !refs.is_empty() {
+        return crate::translate::registry()
+            .iter()
+            .map(|target| ExportTranslation {
+                target: target.name(),
+                code: None,
+                error: Some(format!(
+                    "references the definition `{}`; compose it from that definition's own translation",
+                    refs.join("`, `")
+                )),
+                notes: Vec::new(),
+            })
+            .collect();
+    }
+    let mut translations = Vec::new();
+    if let Some(ir) = assert_expr::lower(&expr, &TableEnv::new(table)) {
+        for target in crate::translate::registry() {
+            translations.push(match emit::emit(target.as_ref(), &ir) {
+                Ok(emitted) => ExportTranslation {
+                    target: target.name(),
+                    code: Some(emitted.code),
+                    error: None,
+                    notes: emitted.notes,
+                },
+                Err(unsupported) => ExportTranslation {
+                    target: target.name(),
+                    code: None,
+                    error: Some(format!(
+                        "{} is not supported: {}",
+                        unsupported.what, unsupported.why
+                    )),
+                    notes: Vec::new(),
+                },
+            });
+        }
+    }
+    translations
+}
+
+/// Collect every column (and struct field, dotted) `e` references into
+/// `columns`, and every definition it references into `definitions`, each in
+/// first-appearance order, deduplicated. A bare name that resolves to a
+/// definition is not a column; a field path always starts from a column. A
+/// `COLUMNS(...)` selection expands to the table columns it matches,
+/// mirroring the S21/S22 checker — restricted to typed columns, since
+/// untyped ones are omitted from the export.
+fn collect_columns(
+    e: &Expr,
+    table: &Table,
+    referable: &HashMap<&str, &Definition>,
+    columns: &mut Vec<String>,
+    definitions: &mut Vec<String>,
+) {
     let typed_columns = || table.columns.iter().filter(|col| col.col_type.is_some());
     match &e.kind {
-        ExprKind::Column(path) => push_unique(out, path.join(".")),
+        ExprKind::Column(path) => {
+            if path.len() == 1 && referable.contains_key(path[0].as_str()) {
+                push_unique(definitions, path[0].clone());
+            } else {
+                push_unique(columns, path.join("."));
+            }
+        }
         ExprKind::Columns(selector) => match selector {
             ColumnsSelector::All => {
                 for col in typed_columns() {
-                    push_unique(out, col.name.value.clone());
+                    push_unique(columns, col.name.value.clone());
                 }
             }
             ColumnsSelector::Regex { pattern, .. } => {
                 if let Ok(re) = regex::Regex::new(pattern) {
                     for col in typed_columns() {
                         if re.is_match(&col.name.value) {
-                            push_unique(out, col.name.value.clone());
+                            push_unique(columns, col.name.value.clone());
                         }
                     }
                 }
             }
             ColumnsSelector::List(names) => {
                 for named in names {
-                    push_unique(out, named.name.clone());
+                    push_unique(columns, named.name.clone());
                 }
             }
         },
-        ExprKind::Neg(inner) | ExprKind::Not(inner) => collect_columns(inner, table, out),
+        ExprKind::Neg(inner) | ExprKind::Not(inner) => {
+            collect_columns(inner, table, referable, columns, definitions)
+        }
         ExprKind::Arith { lhs, rhs, .. }
         | ExprKind::Compare { lhs, rhs, .. }
         | ExprKind::And(lhs, rhs)
         | ExprKind::Or(lhs, rhs) => {
-            collect_columns(lhs, table, out);
-            collect_columns(rhs, table, out);
+            collect_columns(lhs, table, referable, columns, definitions);
+            collect_columns(rhs, table, referable, columns, definitions);
         }
-        ExprKind::IsNull { operand, .. } => collect_columns(operand, table, out),
+        ExprKind::IsNull { operand, .. } => {
+            collect_columns(operand, table, referable, columns, definitions)
+        }
         ExprKind::Between {
             operand, lo, hi, ..
         } => {
-            collect_columns(operand, table, out);
-            collect_columns(lo, table, out);
-            collect_columns(hi, table, out);
+            collect_columns(operand, table, referable, columns, definitions);
+            collect_columns(lo, table, referable, columns, definitions);
+            collect_columns(hi, table, referable, columns, definitions);
         }
         ExprKind::In { operand, list, .. } => {
-            collect_columns(operand, table, out);
+            collect_columns(operand, table, referable, columns, definitions);
             for item in list {
-                collect_columns(item, table, out);
+                collect_columns(item, table, referable, columns, definitions);
             }
         }
         ExprKind::Like {
@@ -843,22 +1009,22 @@ fn collect_columns(e: &Expr, table: &Table, out: &mut Vec<String>) {
         | ExprKind::SimilarTo {
             operand, pattern, ..
         } => {
-            collect_columns(operand, table, out);
-            collect_columns(pattern, table, out);
+            collect_columns(operand, table, referable, columns, definitions);
+            collect_columns(pattern, table, referable, columns, definitions);
         }
         ExprKind::Call { args, .. } => {
             for arg in args {
-                collect_columns(arg, table, out);
+                collect_columns(arg, table, referable, columns, definitions);
             }
         }
-        ExprKind::Interval { n, .. } => collect_columns(n, table, out),
+        ExprKind::Interval { n, .. } => collect_columns(n, table, referable, columns, definitions),
         ExprKind::Case { whens, els } => {
             for (when, then) in whens {
-                collect_columns(when, table, out);
-                collect_columns(then, table, out);
+                collect_columns(when, table, referable, columns, definitions);
+                collect_columns(then, table, referable, columns, definitions);
             }
             if let Some(els) = els {
-                collect_columns(els, table, out);
+                collect_columns(els, table, referable, columns, definitions);
             }
         }
         ExprKind::Number(_)
