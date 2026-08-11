@@ -122,8 +122,6 @@ A `Translation` is the assertion's expression rendered as a bare predicate in on
 }
 ```
 
-`notes` flags constructs whose translation agrees with the expression except on a documented edge (e.g. integer division overflow, division by zero) — each note names the edge, so a consumer can surface the caveat alongside the code.
-
 ### Relationship
 
 A `Relationship` is normalized so cardinality is always read left-to-right as "many-to-one" (a declared `one-to-many` has each pair's `left`/`right` swapped so `left` is always the "many" side and `right` the "one" side; `one-to-one` is unaffected):
