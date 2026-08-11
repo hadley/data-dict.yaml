@@ -103,7 +103,24 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 {
   "expression": "string",         // original `assert` text
   "description?": "string",
-  "columns": ["string", ...]      // every column (and struct field, dotted) the expression references
+  "columns": ["string", ...],     // every column (and struct field, dotted) the expression references
+  "translations?": [ Translation ]
+}
+```
+
+`columns` lists the columns the expression reads, in first-appearance order, with a `COLUMNS(...)` selection expanded to the columns it matches.
+
+### Translation
+
+A `Translation` is the assertion's expression rendered as a bare predicate in one target language — the same translation `translate` produces, so a consumer can embed the check directly in that language's pipeline rather than re-parsing `expression`. One entry per target the exporter can produce; a target that can't express the assertion still appears, carrying the reason instead of code:
+
+```jsonc
+{
+  "target": "SQL(duckdb)" | "R(tidyverse)",
+  "code?": "string",              // the predicate, absent when the target refused
+  "error?": "string",             // why the target refused, absent when it produced code
+  "notes?": ["string", ...]       // edge cases where the translation diverges from the
+                                  // expression's own semantics; absent when it agrees exactly
 }
 ```
 
