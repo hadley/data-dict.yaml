@@ -384,6 +384,8 @@ tables:
 
 A definition's expression may reference the table's columns and other definitions in the same table. References between definitions must not be circular: following the references from any definition must eventually reach only columns.
 
+A [`COLUMNS(...)`](expressions.md#selecting-multiple-columns) selection may appear only in a filter where each selected column is tested in turn and the results combined with `AND`, exactly as in a constraint.
+
 Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns and definitions — but the metadata and data levels never evaluate them.
 
 ## Relationships
