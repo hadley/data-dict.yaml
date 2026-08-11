@@ -1,0 +1,1973 @@
+{
+  "$version": "0.1.0",
+  "name": "Contoso",
+  "description": "<p>A synthetic retail sales dataset for the fictional Contoso company, arranged as a star schema: one denormalised fact table (<code>sales</code>), its normalised equivalents (<code>orders</code> + <code>orderrows</code>), and five dimension/reference tables (<code>product</code>, <code>customer</code>, <code>store</code>, <code>calendar</code>, <code>fx</code>). Contoso sells consumer electronics and appliances through 73 physical stores across eight countries plus a single online channel, in five currencies.</p>",
+  "details": "<p>This dataset is <strong>synthetic</strong>, generated rather than observed. Customer\nnames, addresses, birthdays, occupations, employers, vehicles, and\ncoordinates are filler describing no real person, and nothing here is\nderived from real trading activity — so distributions, seasonality, product\nco-occurrence, and margins are all artefacts of how it was generated, and\nshould not be read as realistic retail behaviour.</p>\n<p>See <a href=\"README.md\">README.md</a> for where the data came from, which snapshot this\nis, how to rebuild the Parquet files, and which apparently meaningful\npatterns are artefacts of how it was manufactured.</p>\n<h2>Currency: every money column is in USD</h2>\n<p><strong>All money columns are denominated in USD</strong>, regardless of the order's\n<code>currency_code</code>, and are therefore directly summable across orders. To\nexpress an amount in the currency the order was actually placed in,\nmultiply by <code>sales.exchange_rate</code>.</p>\n<p>This is worth stating explicitly because the schema invites the opposite\nreading — orders carry a <code>currency_code</code>, so it is natural to assume the\namounts are already local. They are not. The evidence:</p>\n<ul>\n<li><code>sales.unit_price</code> equals <code>product.price</code> scaled by a factor that is a\npure function of (product category, order date) — verified across all\n3,816 category-day combinations — with no dependence on <code>currency_code</code>\nwhatsoever. That factor is a category price index (see the glossary), not\na conversion.</li>\n<li><code>sales.exchange_rate</code> is supplied <em>separately</em>, and exactly matches the\n<code>fx</code> rate from USD to the order's <code>currency_code</code> (1.0 for USD orders).\nIt would be redundant if the amounts were already converted.</li>\n</ul>\n<p>So <code>net_revenue</code> sums directly; <code>net_revenue * exchange_rate</code> gives local\ncurrency. <code>units: USD</code> is declared on the money columns accordingly.</p>",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "version": {
+    "number": "2.1.0"
+  },
+  "tables": [
+    {
+      "name": "sales",
+      "description": "<p>Each row is one line item on one customer order — the same grain as <code>orderrows</code>. This is the fully denormalised fact table: it repeats every column of <code>orders</code> and <code>orderrows</code>, adds the day's <code>exchange_rate</code>, and pre-computes seven revenue, cost, and margin measures. Covers orders placed 2021-05-18 to 2024-04-20.</p>",
+      "details": "<p><strong>This table is redundant with <code>orders</code> + <code>orderrows</code>.</strong> Joining\n<code>orders</code> to <code>orderrows</code> on <code>order_key</code> reproduces <code>sales</code> exactly: all\noverlapping columns are value-identical, verified row by row. Use\n<code>sales</code> for analysis and ignore the other two, or use the normalised\npair and ignore <code>sales</code> — but don't join <code>sales</code> to either, or you will\ndouble-count.</p>\n<p><strong>All seven derived measures are exact.</strong> Each was verified to hold to\nfloating-point precision on every row, so they are safe to trust and\nredundant to recompute:</p>\n<ul>\n<li><code>gross_revenue = unit_price * quantity</code></li>\n<li><code>net_revenue   = net_price * quantity</code></li>\n<li><code>unit_discount = unit_price - net_price</code></li>\n<li><code>discounts     = unit_discount * quantity</code></li>\n<li><code>cogs          = unit_cost * quantity</code></li>\n<li><code>gross_margin  = net_revenue - cogs</code></li>\n<li><code>unit_margin   = gross_margin / quantity</code></li>\n</ul>\n<p>Note the asymmetry: <code>gross_margin</code> is computed from <em>net</em> revenue, so\nit is already net of discounts despite the name.</p>\n<p>All money columns are in USD regardless of <code>currency_code</code>, so they sum\ndirectly; multiply by <code>exchange_rate</code> for the order's billing currency.\nSee the dataset-level <code>details</code>.</p>",
+      "source": {
+        "parquet": "parquet/sales.parquet"
+      },
+      "columns": [
+        {
+          "name": "order_key",
+          "description": "<p>Identifies the order this line belongs to. Sparse and non-sequential — values jump in steps of ~100 with occasional <code>+1</code> siblings (233400, 233401), so gaps carry no meaning and the key must not be treated as a row counter.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            233000,
+            268803,
+            287802,
+            311300,
+            339801
+          ]
+        },
+        {
+          "name": "line_number",
+          "description": "<p>Position of this line within its order, starting at 0. Not always contiguous: 44 of 3,242 orders skip a value, so never infer an order's line count from <code>max(line_number)</code>.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 6
+          }
+        },
+        {
+          "name": "order_date",
+          "description": "<p>Denormalised from <code>orders</code>; constant within an order.</p>",
+          "type": "date",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "calendar",
+            "column": "date"
+          },
+          "range": {
+            "min": "2021-05-18",
+            "max": "2024-04-20"
+          }
+        },
+        {
+          "name": "delivery_date",
+          "description": "<p>Denormalised from <code>orders</code>; constant within an order. Always on or after <code>order_date</code>. In-store orders are always same-day; online orders always take 1–8 days.</p>",
+          "type": "date",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "calendar",
+            "column": "date"
+          },
+          "range": {
+            "min": "2021-05-18",
+            "max": "2024-04-23"
+          }
+        },
+        {
+          "name": "customer_key",
+          "description": "<p>Denormalised from <code>orders</code>; constant within an order.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "customer",
+            "column": "customer_key"
+          },
+          "examples": [
+            1401,
+            533076,
+            1233391,
+            1692034,
+            2099336
+          ]
+        },
+        {
+          "name": "store_key",
+          "description": "<p>Denormalised from <code>orders</code>; constant within an order. <code>999999</code> is the online channel, not a physical store, and accounts for 54% of orders — filter it out to analyse bricks-and-mortar performance.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "store",
+            "column": "store_key"
+          },
+          "examples": [
+            10,
+            170,
+            340,
+            510,
+            999999
+          ]
+        },
+        {
+          "name": "product_key",
+          "description": "<p>The product sold on this line. Only 1,916 of the 2,517 products in <code>product</code> ever appear here.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "product",
+            "column": "product_key"
+          },
+          "examples": [
+            1,
+            551,
+            1183,
+            1724,
+            2517
+          ]
+        },
+        {
+          "name": "quantity",
+          "description": "<p>Units of <code>product_key</code> sold on this line, always a whole number.</p>",
+          "type": "number(quantity)",
+          "units": "units",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 10
+          }
+        },
+        {
+          "name": "unit_price",
+          "description": "<p>List price per unit at the time of the order, before discount. Equals <code>product.price</code> times that product category's price index for <code>order_date</code> — so it is the <em>historical</em> price, while <code>product.price</code> is the mid-2022-onward level. See \"category price index\" in the glossary.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.95,
+            "max": 3748.5
+          }
+        },
+        {
+          "name": "net_price",
+          "description": "<p>Price actually charged per unit, after discount. Exactly <code>unit_price</code> times (1 - d/100) for an integer d from 0 to 14; equal to <code>unit_price</code> on 39% of lines.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.855,
+            "max": 3748.5
+          }
+        },
+        {
+          "name": "unit_cost",
+          "description": "<p>Cost to Contoso per unit. Equals <code>product.cost</code> times the <em>same</em> category price index applied to <code>unit_price</code>, so the cost/price ratio is a property of the product alone and gross margin percentage is unaffected by when the order was placed.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.48,
+            "max": 1241.955
+          }
+        },
+        {
+          "name": "currency_code",
+          "description": "<p>Currency the order was placed in, denormalised from <code>orders</code>. USD on 51% of lines. Note this does <strong>not</strong> describe the money columns in this table, which are all USD — it is the billing currency, and <code>exchange_rate</code> converts into it.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "AUD",
+            "CAD",
+            "EUR",
+            "GBP",
+            "USD"
+          ]
+        },
+        {
+          "name": "exchange_rate",
+          "description": "<p>The <code>fx</code> rate from USD to <code>currency_code</code> on <code>order_date</code>, joined in from the <code>fx</code> table (verified to match exactly). Always 1.0 for USD orders. Multiply any money column in this table by it to get the order's billing currency. It is <em>not</em> the category price index relating <code>unit_price</code> to <code>product.price</code>.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.70564,
+            "max": 1.60802
+          }
+        },
+        {
+          "name": "gross_revenue",
+          "description": "<p>Revenue before discount — <code>unit_price * quantity</code>.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1.9,
+            "max": 29988
+          }
+        },
+        {
+          "name": "net_revenue",
+          "description": "<p>Revenue actually booked — <code>net_price * quantity</code>. This, not <code>gross_revenue</code>, is the top line you usually want. In USD, so it sums directly across orders in different currencies.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1.71,
+            "max": 25789.68
+          }
+        },
+        {
+          "name": "unit_discount",
+          "description": "<p>Per-unit discount — <code>unit_price - net_price</code>. Zero on 39% of lines. Always an exact whole percentage of <code>unit_price</code>, 0–14%, so <code>unit_discount / unit_price</code> recovers the discount rate cleanly. The rate itself is not stored as a column.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 524.79
+          }
+        },
+        {
+          "name": "discounts",
+          "description": "<p>Total discount on the line — <code>unit_discount * quantity</code>.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 4198.32
+          }
+        },
+        {
+          "name": "cogs",
+          "description": "<p>Cost of goods sold on this line — <code>unit_cost * quantity</code>. Product cost only; carries no allocation of freight, overhead, or labour.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.96,
+            "max": 9935.64
+          }
+        },
+        {
+          "name": "gross_margin",
+          "description": "<p><code>net_revenue - cogs</code>. Computed from net rather than gross revenue, so discounts are already deducted. Always positive — no line in this snapshot sells below cost.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.7213,
+            "max": 16218.12
+          }
+        },
+        {
+          "name": "unit_margin",
+          "description": "<p>Margin per unit — <code>gross_margin / quantity</code>. Averaging this across lines weights every line equally regardless of quantity; sum <code>gross_margin</code> and divide by summed <code>quantity</code> instead.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.375,
+            "max": 2506.545
+          }
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "description": "<p>Each row is one customer order header — the who, where, and when. One row per <code>order_key</code>, 3,242 orders placed between 2021-05-18 and 2024-04-20. Line-level detail lives in <code>orderrows</code>.</p>",
+      "details": "<p>Redundant with <code>sales</code>, which contains every column of this table denormalised to line grain. Nearly one order per customer: 3,242 orders across 3,165 customers, and no customer placed more than 3.</p>",
+      "source": {
+        "parquet": "parquet/orders.parquet"
+      },
+      "columns": [
+        {
+          "name": "order_key",
+          "description": "<p>Sparse and non-sequential — steps of ~100 with occasional <code>+1</code> siblings. Gaps are meaningless.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "orderrows",
+              "column": "order_key"
+            }
+          ],
+          "examples": [
+            233000,
+            268803,
+            287802,
+            311300,
+            339801
+          ]
+        },
+        {
+          "name": "customer_key",
+          "description": "<p>Customer who placed the order.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "customer",
+            "column": "customer_key"
+          },
+          "examples": [
+            1401,
+            533076,
+            1233391,
+            1692034,
+            2099336
+          ]
+        },
+        {
+          "name": "store_key",
+          "description": "<p>Store the order was placed at, or <code>999999</code> for the online channel (54% of orders). Only 58 of the 74 rows in <code>store</code> are ever used. No order falls outside its store's open/close window.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "store",
+            "column": "store_key"
+          },
+          "examples": [
+            10,
+            170,
+            340,
+            510,
+            999999
+          ]
+        },
+        {
+          "name": "order_date",
+          "description": "<p>Date the order was placed. Starts 2021-05-18, four and a half months after <code>calendar</code> begins, and stops 2024-04-20, eight months before it ends — so <code>calendar</code> deliberately over-covers the sales period.</p>",
+          "type": "date",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "calendar",
+            "column": "date"
+          },
+          "range": {
+            "min": "2021-05-18",
+            "max": "2024-04-20"
+          }
+        },
+        {
+          "name": "delivery_date",
+          "description": "<p>Date of delivery. Always on or after <code>order_date</code>. Perfectly determined by channel: in-store orders are same-day without exception, online orders take 1–8 days (median 3) and never 0. The R docs disagree with themselves about whether this is the expected or the actual delivery date; the data cannot distinguish the two, since every order has one and none is null.</p>",
+          "type": "date",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "calendar",
+            "column": "date"
+          },
+          "range": {
+            "min": "2021-05-18",
+            "max": "2024-04-23"
+          }
+        },
+        {
+          "name": "currency_code",
+          "description": "<p>Currency the order was placed in. Not implied by the store's country — online orders are billed in a mix of currencies.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "AUD",
+            "CAD",
+            "EUR",
+            "GBP",
+            "USD"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "orderrows",
+      "description": "<p>Each row is one line item on one order: which product, how many, and at what price and cost. 7,794 lines across 3,242 orders. The normalised counterpart to <code>sales</code>, without the denormalised header columns, exchange rate, or derived measures.</p>",
+      "details": "<p>Redundant with <code>sales</code>: joining this table to <code>orders</code> on <code>order_key</code> reproduces <code>sales</code> exactly. Money columns are in USD, not the order's billing currency — the rate needed to convert them lives in <code>sales.exchange_rate</code>, which this table does not carry.</p>",
+      "source": {
+        "parquet": "parquet/orderrows.parquet"
+      },
+      "columns": [
+        {
+          "name": "order_key",
+          "description": "<p>Order this line belongs to. Every <code>order_key</code> in <code>orders</code> appears here at least once.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "foreign_key",
+            "unique",
+            "required"
+          ],
+          "references": {
+            "table": "orders",
+            "column": "order_key"
+          },
+          "examples": [
+            233000,
+            268803,
+            287802,
+            311300,
+            339801
+          ]
+        },
+        {
+          "name": "line_number",
+          "description": "<p>Position within the order, from 0. Has gaps in 44 orders, so it is not a reliable line counter.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "range": {
+            "min": 0,
+            "max": 6
+          }
+        },
+        {
+          "name": "product_key",
+          "description": "<p>Product sold on this line.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "product",
+            "column": "product_key"
+          },
+          "examples": [
+            1,
+            551,
+            1183,
+            1724,
+            2517
+          ]
+        },
+        {
+          "name": "quantity",
+          "description": "<p>Units sold, always a whole number.</p>",
+          "type": "number(quantity)",
+          "units": "units",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 10
+          }
+        },
+        {
+          "name": "unit_price",
+          "description": "<p>List price per unit before discount — <code>product.price</code> times that product category's price index for the order's date. See \"category price index\" in the glossary.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.95,
+            "max": 3748.5
+          }
+        },
+        {
+          "name": "net_price",
+          "description": "<p>Price charged per unit after discount — per-unit, not a line total. The line total is <code>net_price * quantity</code>, which <code>sales.net_revenue</code> supplies. The discount is always an exact whole percentage, 0–14%.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.855,
+            "max": 3748.5
+          }
+        },
+        {
+          "name": "unit_cost",
+          "description": "<p>Cost per unit — <code>product.cost</code> times the same category price index applied to <code>unit_price</code>.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.48,
+            "max": 1241.955
+          }
+        }
+      ]
+    },
+    {
+      "name": "product",
+      "description": "<p>Each row is one sellable product (SKU), 2,517 in total, spanning consumer electronics and home appliances under 11 house brands. The full catalogue, not just what sold: 601 products never appear in <code>sales</code>, so joining from <code>sales</code> will not reach them.</p>",
+      "details": "<p><code>price</code> and <code>cost</code> are USD catalogue values at the <em>mid-2022-onward</em> price level, not at the time of any given sale — the prices actually transacted are in <code>sales</code>/<code>orderrows</code> and differ before 2022-07-03 by that category's price index. <code>color</code> is dirty (see that column), and weight is missing for 284 products.</p>",
+      "source": {
+        "parquet": "parquet/product.parquet"
+      },
+      "columns": [
+        {
+          "name": "product_key",
+          "description": "<p>Dense surrogate key running 1–2,517 with no gaps, unlike the other key columns in this dataset.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "sales",
+              "column": "product_key"
+            },
+            {
+              "table": "orderrows",
+              "column": "product_key"
+            }
+          ],
+          "examples": [
+            1,
+            630,
+            1259,
+            1888,
+            2517
+          ]
+        },
+        {
+          "name": "product_code",
+          "description": "<p>Zero-padded 7-digit business code that encodes the hierarchy: first 2 digits are <code>category_key</code>, next 2 the subcategory sequence, last 3 a within-subcategory counter. So <code>0101001</code> is category 1, subcategory 101, item 1. Keep it as a string — leading zeros are significant.</p>",
+          "type": "string",
+          "constraints": [
+            "unique",
+            "required"
+          ],
+          "examples": [
+            "0101001",
+            "0305092",
+            "0406013",
+            "0801032",
+            "0808078"
+          ]
+        },
+        {
+          "name": "product_name",
+          "description": "<p>Marketing name, conventionally <code>&lt;brand&gt; &lt;description&gt; &lt;model&gt; &lt;color&gt;</code>. Both brand and colour are repeated here from their own columns, so parsing this string is never necessary.</p>",
+          "type": "string",
+          "constraints": [
+            "unique",
+            "required"
+          ],
+          "examples": [
+            "Contoso 512MB MP3 Player E51 Silver",
+            "Contoso Home Theater System 2.1 Channel M1230 Silver",
+            "Fabrikam SLR Camera X149 Pink",
+            "Proseware Laser Fax Printer M250 White",
+            "A. Datum Advanced Digital Camera M300 Azure"
+          ]
+        },
+        {
+          "name": "manufacturer",
+          "description": "<p>Legal manufacturer name. Strictly one-to-one with <code>brand</code> — it is the same 11 entities with legal suffixes attached, so the two columns are interchangeable for grouping.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "A. Datum Corporation",
+            "Adventure Works",
+            "Contoso, Ltd",
+            "Fabrikam, Inc.",
+            "Litware, Inc.",
+            "Northwind Traders",
+            "Proseware, Inc.",
+            "Southridge Video",
+            "Tailspin Toys",
+            "The Phone Company",
+            "Wide World Importers"
+          ]
+        },
+        {
+          "name": "brand",
+          "description": "<p>Trading name. All 11 brands are Contoso's own — these are the standard Microsoft sample-data fictional companies, not third-party suppliers.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "A. Datum",
+            "Adventure Works",
+            "Contoso",
+            "Fabrikam",
+            "Litware",
+            "Northwind Traders",
+            "Proseware",
+            "Southridge Video",
+            "Tailspin Toys",
+            "The Phone Company",
+            "Wide World Importers"
+          ]
+        },
+        {
+          "name": "color",
+          "description": "<p>Product colour, and it is dirty: <code>blue</code> and <code>Blue</code> are separate values differing only in case, and <code>Grey</code>/<code>Silver</code>/<code>Silver Grey</code> overlap in meaning. Normalise case before grouping or you will split blue across two buckets.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Azure",
+            "Black",
+            "blue",
+            "Blue",
+            "Brown",
+            "Gold",
+            "Green",
+            "Grey",
+            "Orange",
+            "Pink",
+            "Purple",
+            "Red",
+            "Silver",
+            "Silver Grey",
+            "Transparent",
+            "White",
+            "Yellow"
+          ]
+        },
+        {
+          "name": "weight_unit",
+          "description": "<p>Unit that <code>weight</code> is expressed in — it varies by row, so <code>weight</code> is not comparable across products without conversion. Imperial dominates: 1,867 pounds, 418 ounces, only 10 grams. Null for the 222 products with no weight data at all.</p>",
+          "type": "enum",
+          "values": [
+            "grams",
+            "ounces",
+            "pounds"
+          ]
+        },
+        {
+          "name": "weight",
+          "description": "<p>Product weight <strong>in the unit given by <code>weight_unit</code></strong>, which differs from row to row — so this column must never be summed or compared directly. Null for 284 products; note the mismatch with <code>weight_unit</code>, which is null for only 222, leaving 62 products with a declared unit but no value.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0.17,
+            "max": 239
+          }
+        },
+        {
+          "name": "cost",
+          "description": "<p>Catalogue unit cost in USD. A reference value only, and one pinned to the price level from 2022-07-03 onward — the cost recorded against a sale is <code>sales.unit_cost</code>, which rescales this by the category price index in force on the order date.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.48,
+            "max": 1060.22
+          }
+        },
+        {
+          "name": "price",
+          "description": "<p>Catalogue list price in USD. Always above <code>cost</code>, giving catalogue margins of roughly 45–55%. A reference value pinned to the 2022-07-03-onward price level, as with <code>cost</code>.</p>",
+          "type": "number(quantity)",
+          "units": "USD",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.95,
+            "max": 3199.99
+          }
+        },
+        {
+          "name": "category_key",
+          "description": "<p>Top level of the two-level product hierarchy, stored numerically: 1 Audio, 2 TV and Video, 3 Computers, 4 Cameras and camcorders, 5 Cell phones, 6 Music, Movies and Audio Books, 7 Games and Toys, 8 Home Appliances. The dataset ships no category dimension table; <code>category_name</code> carries the same labels as strings.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            1,
+            3,
+            5,
+            7,
+            8
+          ]
+        },
+        {
+          "name": "sub_category_key",
+          "description": "<p>Second level of the hierarchy, 32 subcategories. Encodes its parent: <code>sub_category_key %/% 100 == category_key</code> on every row, verified. Numbering is not contiguous within a category (Audio has 101, 104, 106), so gaps are expected. Category 6 (Music, Movies and Audio Books) is a stub with the single subcategory 602, Movie DVD.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            101,
+            303,
+            405,
+            702,
+            808
+          ]
+        },
+        {
+          "name": "category_name",
+          "description": "<p>Label for <code>category_key</code>; strictly one-to-one with it.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Audio",
+            "Cameras and camcorders",
+            "Cell phones",
+            "Computers",
+            "Games and Toys",
+            "Home Appliances",
+            "Music, Movies and Audio Books",
+            "TV and Video"
+          ]
+        },
+        {
+          "name": "sub_category_name",
+          "description": "<p>Label for <code>sub_category_key</code>; strictly one-to-one with it.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Air Conditioners",
+            "Bluetooth Headphones",
+            "Boxed Games",
+            "Camcorders",
+            "Cameras & Camcorders Accessories",
+            "Car Video",
+            "Cell phones Accessories",
+            "Coffee Machines",
+            "Computers Accessories",
+            "Desktops",
+            "Digital Cameras",
+            "Digital SLR Cameras",
+            "Download Games",
+            "Fans",
+            "Home & Office Phones",
+            "Home Theater System",
+            "Lamps",
+            "Laptops",
+            "Microwaves",
+            "Monitors",
+            "Movie DVD",
+            "Printers, Scanners & Fax",
+            "Projectors & Screens",
+            "MP4&MP3",
+            "Recording Pen",
+            "Refrigerators",
+            "Smart phones & PDAs",
+            "Televisions",
+            "Touch Screen Phones",
+            "VCD & DVD",
+            "Washers & Dryers",
+            "Water Heaters"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "customer",
+      "description": "<p>Each row is one customer, 3,165 in total, across eight countries on three continents. <strong>Only customers who ordered are present</strong> — every <code>customer_key</code> here appears in <code>sales</code>, so this is not a full customer master and cannot be used to study non-purchasers or compute conversion rates.</p>",
+      "details": "<p>Deduplicated during conversion: the source R data frame had 7,794 rows,\none per sales line, with byte-identical duplicates per customer. See\n<a href=\"README.md\">README.md</a>.</p>\n<p>Every attribute is synthetic filler — names, addresses, occupations,\nemployers, vehicles, coordinates. In a real system most of these columns\nwould be restricted personal data; they are left unrestricted here only\nbecause no real person is described. Two columns are of unknown meaning\n(<code>start_date</code>, <code>end_date</code>) and one is internally inconsistent (<code>age</code>);\nall three are documented below.</p>\n<p>There is no geographic dimension table, so <code>geo_area_key</code> cannot be\nresolved to anything beyond the address columns already present here.</p>",
+      "source": {
+        "parquet": "parquet/customer.parquet"
+      },
+      "columns": [
+        {
+          "name": "customer_key",
+          "description": "<p>Very sparse — 3,165 customers spread over the range 1,401 to 2,099,336, so the key says nothing about how many customers exist.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "sales",
+              "column": "customer_key"
+            },
+            {
+              "table": "orders",
+              "column": "customer_key"
+            }
+          ],
+          "examples": [
+            1401,
+            533076,
+            1233391,
+            1692034,
+            2099336
+          ]
+        },
+        {
+          "name": "geo_area_key",
+          "description": "<p>Identifier for the customer's geographic area, one per <code>state_full</code> value. <strong>A dangling reference</strong>: no geo-area table ships with the dataset and the key implies no hierarchy, so it resolves to nothing the address columns here don't already give you. It is a leaf-level region, one per <code>state_full</code>. Usable only to group customers, or to match against <code>store.geo_area_key</code> — 51 of the 311 customer areas also contain a store.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            1,
+            109,
+            308,
+            525,
+            616
+          ]
+        },
+        {
+          "name": "start_date",
+          "description": "<p><strong>Meaning undetermined, and almost certainly filler.</strong> The name suggests the start of the customer relationship, but the values run 1980–2010, ending more than a decade before the first order in <code>sales</code>, which is inconsistent with that reading — and no other column corroborates any alternative. Its shape suggests a synthetic identity attribute, such as a document validity date, rather than a modelled business date. Do not compute tenure or customer lifetime from it.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1980-01-02",
+            "max": "2010-12-22"
+          }
+        },
+        {
+          "name": "end_date",
+          "description": "<p><strong>Meaning undetermined</strong>, like <code>start_date</code>. Values run 2021-07-17 to 2045-12-28, overwhelmingly in the future, so it is not a churn date; nor is it a far-future sentinel, since the values are nearly all distinct. Do not use it to identify lapsed customers.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "2021-07-17",
+            "max": "2045-12-28"
+          }
+        },
+        {
+          "name": "continent",
+          "description": "<p>Customer's continent. Heavily skewed to North America (4,833 of the source rows) and it treats Australia as a continent.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Australia",
+            "Europe",
+            "North America"
+          ]
+        },
+        {
+          "name": "gender",
+          "description": "<p>Lowercase, and strictly binary. The absence of other categories is a limitation of how the data was synthesised, not a finding about any population.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "female",
+            "male"
+          ]
+        },
+        {
+          "name": "title",
+          "description": "<p>Honorific, with the trailing period included. Correlated with <code>gender</code> for the three gendered titles; <code>Dr.</code> appears for both.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Dr.",
+            "Mr.",
+            "Mrs.",
+            "Ms."
+          ]
+        },
+        {
+          "name": "given_name",
+          "description": "<p>First name. 1,411 distinct values, so heavily reused across customers.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Aaron",
+            "Douglas",
+            "Jovianne",
+            "Oren",
+            "Zuzana"
+          ]
+        },
+        {
+          "name": "middle_initial",
+          "description": "<p>Single letter, A–Z plus one accented <code>É</code> — so it is not safe to assume plain ASCII.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "A",
+            "G",
+            "M",
+            "S",
+            "Z"
+          ]
+        },
+        {
+          "name": "surname",
+          "description": "<p>Last name, 2,183 distinct values.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Aaron",
+            "Dresdner",
+            "Kralj",
+            "Quintana",
+            "Zuidgeest"
+          ]
+        },
+        {
+          "name": "street_address",
+          "description": "<p>Street line only, no city or postcode. Localised to the customer's country, so formats vary (<code>4741 Philadelphia Avenue</code>, <code>Zwartbroekstraat 180</code>).</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "1 Armstrong Street",
+            "2547 Jarvis Street",
+            "81 Bette McNee Street",
+            "Zwartbroekstraat 180",
+            "29 Bullwood Rd"
+          ]
+        },
+        {
+          "name": "city",
+          "description": "<p>City name. Some German values are doubled (<code>Aalen Aalen</code>), so exact matching against external city lists will miss rows.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Aalen Aalen",
+            "Dilton Marsh",
+            "Le Havre",
+            "Rockford",
+            "Zwolle"
+          ]
+        },
+        {
+          "name": "state",
+          "description": "<p>State, province, or region in whatever short form the country uses — US and Canadian abbreviations (<code>UT</code>, <code>AB</code>), Dutch codes (<code>ZH</code>), but spelled-out names elsewhere (<code>Rutland</code>, <code>Perth and Kinross</code>). Not a uniform code system, and note it means something different from <code>store.state</code>, which is always spelled out.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "AB",
+            "DR",
+            "MN",
+            "Rutland",
+            "ZH"
+          ]
+        },
+        {
+          "name": "state_full",
+          "description": "<p>Spelled-out region name, and the level <code>geo_area_key</code> corresponds to. 311 distinct values against 286 for <code>state</code>, because some short forms collide across countries — prefer this column when grouping geographically.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Aberdeenshire",
+            "Dumfriesshire",
+            "Michigan",
+            "Roma",
+            "Zuid-Holland"
+          ]
+        },
+        {
+          "name": "zip_code",
+          "description": "<p>Postal code in national format — US 5-digit with significant leading zeros (<code>00040</code>), UK alphanumeric (<code>ZE2 4LT</code>), Dutch with a space (<code>3232 SE</code>). Must stay a string.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "00040",
+            "3232 SE",
+            "60640",
+            "94542",
+            "ZE2 4LT"
+          ]
+        },
+        {
+          "name": "country",
+          "description": "<p>ISO 3166-1 alpha-2 country code. Eight countries, one fewer than <code>store.country_code</code>, which adds a <code>--</code> placeholder for the online channel.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "AU",
+            "CA",
+            "DE",
+            "FR",
+            "GB",
+            "IT",
+            "NL",
+            "US"
+          ]
+        },
+        {
+          "name": "country_full",
+          "description": "<p>Label for <code>country</code>; strictly one-to-one with it.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Australia",
+            "Canada",
+            "France",
+            "Germany",
+            "Italy",
+            "Netherlands",
+            "United Kingdom",
+            "United States"
+          ]
+        },
+        {
+          "name": "birthday",
+          "description": "<p>Date of birth, 1935–2002, implying an adults-only customer base by construction. Prefer deriving age from this over using <code>age</code>.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "1935-02-18",
+            "max": "2002-02-20"
+          }
+        },
+        {
+          "name": "age",
+          "description": "<p>Age in whole years, frozen at roughly the start of the data (about 2021-01-01) rather than computed as of the order date — so it goes stale and should not be used for point-in-time analysis. It is also <strong>not exactly reproducible from <code>birthday</code></strong>: it matches the age implied at 2021-01-01 on only 90% of rows and is off by one on the rest. Recompute from <code>birthday</code> if precision matters.</p>",
+          "type": "number(quantity)",
+          "units": "years",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 19,
+            "max": 85
+          }
+        },
+        {
+          "name": "occupation",
+          "description": "<p>Free-text job title, 1,849 distinct values over 3,165 customers — effectively high-cardinality noise with no controlled vocabulary or industry coding. Not usable for segmentation without heavy grouping.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "A & P mechanic",
+            "Deck officer",
+            "Junior high school teacher",
+            "Probation officer",
+            "Zoologist"
+          ]
+        },
+        {
+          "name": "company",
+          "description": "<p>Customer's employer. Null exactly once, which looks like an accident of generation rather than a meaningful \"unemployed\" marker.</p>",
+          "type": "string",
+          "examples": [
+            "10\\",
+            "000 Auto Parts",
+            "Endicott Shoes",
+            "Licorice Pizza",
+            "Reliable Investments",
+            "Zephyr Investments"
+          ]
+        },
+        {
+          "name": "vehicle",
+          "description": "<p>Model year, make, and model of a vehicle attributed to the customer as a single string (<code>2003 TVR Tuscan</code>). Nearly unique — 2,775 distinct values across 3,165 customers — and unrelated to anything Contoso sells.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "1992 Alfa Romeo 33",
+            "1999 Chrysler 300",
+            "2004 Lotus Elise",
+            "2009 BMW 318",
+            "2015 Volvo XC70"
+          ]
+        },
+        {
+          "name": "latitude",
+          "description": "<p>Latitude of the customer's address, positive north. Distinct for every customer, so it pinpoints the individual address rather than a city or region centroid.</p>",
+          "type": "number(quantity)",
+          "units": "degrees",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": -43.22282,
+            "max": 68.35464
+          }
+        },
+        {
+          "name": "longitude",
+          "description": "<p>Longitude of the customer's address, positive east. The range spans nearly the whole globe because the eight countries straddle the antimeridian side of the Pacific; do not average it.</p>",
+          "type": "number(quantity)",
+          "units": "degrees",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": -165.1375,
+            "max": 153.5661
+          }
+        }
+      ]
+    },
+    {
+      "name": "store",
+      "description": "<p>Each row is one Contoso sales location: 73 physical stores across nine countries plus a single synthetic row for the online channel. Includes stores that have since closed, and 16 of the 74 rows never appear in <code>sales</code> at all.</p>",
+      "details": "<p>Two things to watch. First, <code>store_key</code> 999999 is not a real store — see that column. Second, <code>store_code</code> is <em>not</em> unique: seven codes are shared by two or three <code>store_key</code> values in the same state, apparently successive premises at one site (typically an earlier <code>Restructured</code> or <code>Closed</code> row alongside a still-open successor). Group by <code>store_key</code> for individual locations and by <code>store_code</code> for sites.</p>",
+      "source": {
+        "parquet": "parquet/store.parquet"
+      },
+      "columns": [
+        {
+          "name": "store_key",
+          "description": "<p>Mostly multiples of 10, with <code>+5</code>/<code>+2</code>/<code>+4</code> siblings where a site has more than one store. <code>999999</code> is the online channel sentinel.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "sales",
+              "column": "store_key"
+            },
+            {
+              "table": "orders",
+              "column": "store_key"
+            }
+          ],
+          "examples": [
+            10,
+            160,
+            340,
+            510,
+            999999
+          ]
+        },
+        {
+          "name": "store_code",
+          "description": "<p>Short business code for the physical site, 1–67. <strong>Not unique</strong> — seven codes cover two or three stores each, so it is not a usable join key. <code>-1</code> on the online row.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            -1,
+            17,
+            33,
+            49,
+            67
+          ]
+        },
+        {
+          "name": "geo_area_key",
+          "description": "<p>Geographic area of the store, on the same numbering as <code>customer.geo_area_key</code>, though no geo-area table ships with the dataset. Not unique — sites with more than one store share an area. <code>-1</code> on the online row.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            -1,
+            29,
+            193,
+            578,
+            616
+          ]
+        },
+        {
+          "name": "country_code",
+          "description": "<p>ISO 3166-1 alpha-2 code, plus the non-standard <code>--</code> placeholder on the online row. Filter out <code>--</code> before joining to any real country reference.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "--",
+            "AU",
+            "CA",
+            "DE",
+            "FR",
+            "GB",
+            "IT",
+            "NL",
+            "US"
+          ]
+        },
+        {
+          "name": "country_name",
+          "description": "<p>Label for <code>country_code</code>, with the pseudo-country <code>Online</code> for the online channel. Excluding that, the same eight countries as <code>customer.country_full</code>.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Australia",
+            "Canada",
+            "France",
+            "Germany",
+            "Italy",
+            "Netherlands",
+            "Online",
+            "United Kingdom",
+            "United States"
+          ]
+        },
+        {
+          "name": "state",
+          "description": "<p>Region the store sits in, always spelled out in full (<code>South Australia</code>, <code>Delaware</code>) — unlike <code>customer.state</code>, which is often an abbreviation. Literally <code>Online</code> on the online row. Not unique: 67 values over 74 rows, matching the shared <code>store_code</code>s.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Alaska",
+            "Fermanagh",
+            "Martinique",
+            "Online",
+            "Zeeland"
+          ]
+        },
+        {
+          "name": "open_date",
+          "description": "<p>Date the store opened, all well before the first order in <code>sales</code>. The online row carries a nominal 2010-01-01.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "2005-03-04",
+            "max": "2019-03-05"
+          }
+        },
+        {
+          "name": "close_date",
+          "description": "<p>Date the store closed, null for the 58 stores still open (including the online channel). Every closure predates 2019-11-03, and no order in <code>sales</code> falls outside its store's open/close window — so closed stores contribute only historical sales.</p>",
+          "type": "date",
+          "range": {
+            "min": "2013-12-05",
+            "max": "2019-11-03"
+          }
+        },
+        {
+          "name": "description",
+          "description": "<p>Always the literal <code>Contoso Store &lt;state&gt;</code>, or <code>Online store</code> for the online row. Carries no information beyond <code>state</code>, despite the name suggesting a free-text description or a store format.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Contoso Store Alaska",
+            "Contoso Store Fermanagh",
+            "Contoso Store Martinique",
+            "Contoso Store Oregon",
+            "Online store"
+          ]
+        },
+        {
+          "name": "square_meters",
+          "description": "<p>Selling floor area. Null only for the online row, which has no floor. Clustered on round numbers (2000, 3500), so it is a banded estimate rather than a measurement.</p>",
+          "type": "number(quantity)",
+          "units": "m2",
+          "range": {
+            "min": 245,
+            "max": 3500
+          }
+        },
+        {
+          "name": "status",
+          "description": "<p>Exceptional status flag, and <strong>null means the store is open and operating normally</strong> — which covers 59 of 74 rows, including the online channel. Only 8 <code>Closed</code> and 7 <code>Restructured</code> rows carry a value. Beware: <code>status</code> and <code>close_date</code> disagree — some rows with a <code>close_date</code> are marked <code>Restructured</code> rather than <code>Closed</code> — so treat <code>close_date IS NOT NULL</code> as the reliable test for whether a store has shut.</p>",
+          "type": "enum",
+          "values": [
+            "Closed",
+            "Restructured"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "calendar",
+      "description": "<p>Each row is one calendar day, covering 2021-01-01 to 2024-12-31 with no gaps (1,461 days, including the 2024 leap day). A conventional date dimension: every column is a derived attribute of <code>date</code>, provided so that time-based grouping needs no date arithmetic.</p>",
+      "details": "<p>Deliberately wider than the sales period, which runs 2021-05-18 to 2024-04-20 — so 240 days at the start and 255 at the end have no orders. Use an inner join to <code>sales</code> if you want only trading days.\nThe <code>working_day</code> flag is pure weekday logic — Saturday and Sunday are 0, every Monday to Friday is 1 — so <strong>no public holidays are modelled</strong>, not even 2021-01-01.\nSeveral of the numeric columns don't hold what their names suggest; each says what it actually contains.</p>",
+      "source": {
+        "parquet": "parquet/calendar.parquet"
+      },
+      "columns": [
+        {
+          "name": "date",
+          "description": "<p>The calendar day. Contiguous and complete over the four-year span.</p>",
+          "type": "date",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "sales",
+              "column": "order_date"
+            },
+            {
+              "table": "sales",
+              "column": "delivery_date"
+            },
+            {
+              "table": "orders",
+              "column": "order_date"
+            },
+            {
+              "table": "orders",
+              "column": "delivery_date"
+            }
+          ],
+          "range": {
+            "min": "2021-01-01",
+            "max": "2024-12-31"
+          }
+        },
+        {
+          "name": "date_key",
+          "description": "<p>The same day as an integer in <code>YYYYMMDD</code> form — the conventional date surrogate key. Nothing else in this dataset references it; the fact tables join on real dates instead.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "unique",
+            "required"
+          ],
+          "examples": [
+            20210101,
+            20220101,
+            20230101,
+            20240101,
+            20241231
+          ]
+        },
+        {
+          "name": "year",
+          "description": "<p>Calendar year.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 2021,
+            "max": 2024
+          }
+        },
+        {
+          "name": "year_quarter",
+          "description": "<p>Quarter label formatted <code>Q&lt;n&gt;-&lt;year&gt;</code>, e.g. <code>Q1-2021</code>. Note it sorts alphabetically by quarter before year, so order by <code>year_quarter_number</code> instead.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Q1-2021",
+            "Q3-2021",
+            "Q2-2022",
+            "Q4-2023",
+            "Q4-2024"
+          ]
+        },
+        {
+          "name": "year_quarter_number",
+          "description": "<p>A continuous quarter counter equal to <code>year * 4 + quarter</code>, so Q1 2021 is 8,085 and consecutive quarters differ by exactly 1. Use it to sort or to compute quarter differences. Not a 1–4 quarter number — that is <code>quarter</code>.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 8085,
+            "max": 8100
+          }
+        },
+        {
+          "name": "quarter",
+          "description": "<p>Quarter within the year, ignoring which year.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4"
+          ]
+        },
+        {
+          "name": "year_month",
+          "description": "<p>Month label formatted <code>&lt;Month name&gt; &lt;year&gt;</code>, e.g. <code>January 2021</code>. Sorts alphabetically, not chronologically.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "January 2021",
+            "April 2021",
+            "February 2022",
+            "May 2024",
+            "September 2024"
+          ]
+        },
+        {
+          "name": "year_month_short",
+          "description": "<p>Abbreviated form of <code>year_month</code>, e.g. <code>Jan 2021</code>. Also sorts alphabetically.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Jan 2021",
+            "Apr 2021",
+            "Feb 2022",
+            "May 2024",
+            "Sep 2024"
+          ]
+        },
+        {
+          "name": "year_month_number",
+          "description": "<p>A continuous month counter equal to <code>year * 12 + month_number</code>, so January 2021 is 24,253 and consecutive months differ by 1. <strong>Not</strong> <code>YYYYMM</code>, despite the name — 202101 does not appear anywhere in this column.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 24253,
+            "max": 24300
+          }
+        },
+        {
+          "name": "month",
+          "description": "<p>Full English month name, without the year.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December"
+          ]
+        },
+        {
+          "name": "month_short",
+          "description": "<p>Three-letter English month abbreviation.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec"
+          ]
+        },
+        {
+          "name": "month_number",
+          "description": "<p>Month of the year, 1 = January.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 1,
+            "max": 12
+          }
+        },
+        {
+          "name": "day_of_week",
+          "description": "<p>Full English weekday name.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday"
+          ]
+        },
+        {
+          "name": "day_of_week_short",
+          "description": "<p>Three-letter English weekday abbreviation.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat",
+            "Sun"
+          ]
+        },
+        {
+          "name": "day_of_week_number",
+          "description": "<p>Day of the week with the week starting on <strong>Sunday</strong>: 1 = Sunday, 2 = Monday, … 7 = Saturday — not the ISO convention of 1 = Monday. Verify against 2021-01-03, a Sunday, which is 1.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 1,
+            "max": 7
+          }
+        },
+        {
+          "name": "working_day",
+          "description": "<p>Weekday flag, stored numerically: 1 is a working day (Monday to Friday), 0 a non-working day (Saturday or Sunday). Determined purely by <code>day_of_week</code> — public holidays are not modelled, so 2021-01-01 and 2024-12-25 both count as working days.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            0,
+            1
+          ]
+        },
+        {
+          "name": "working_day_number",
+          "description": "<p><strong>Cumulative</strong> count of working days elapsed since 2021-01-01 — not a 0/1 flag, which is <code>working_day</code>. It increments on each working day and repeats the previous value across weekends, reaching 1,003 by 2024-12-31. Differencing it between two dates gives the number of working days between them.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 0,
+            "max": 1003
+          }
+        }
+      ]
+    },
+    {
+      "name": "fx",
+      "description": "<p>Each row is a daily exchange rate for one ordered currency pair: the complete 5x5 matrix of AUD, CAD, EUR, GBP, and USD for all 1,461 days from 2021-01-01 to 2024-12-31 (25 pairs x 1,461 days = 36,525 rows, with no gaps).</p>",
+      "details": "<p>Internally consistent: self-pairs are exactly 1.0, and reciprocal pairs multiply to 1.0 to within rounding. Because the matrix is complete, no chaining through USD is ever needed — look the pair up directly.\n<code>sales.exchange_rate</code> is drawn from this table, specifically the <code>USD</code> → order-currency rate on <code>order_date</code>, verified to match exactly.</p>",
+      "source": {
+        "parquet": "parquet/fx.parquet"
+      },
+      "columns": [
+        {
+          "name": "date",
+          "description": "<p>Day the rate applies to. Rates are quoted on every calendar day including weekends and holidays, unlike real FX markets.</p>",
+          "type": "date",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "range": {
+            "min": "2021-01-01",
+            "max": "2024-12-31"
+          }
+        },
+        {
+          "name": "from_currency",
+          "description": "<p>Currency being converted from — the base of the quote.</p>",
+          "type": "enum",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "values": [
+            "AUD",
+            "CAD",
+            "EUR",
+            "GBP",
+            "USD"
+          ]
+        },
+        {
+          "name": "to_currency",
+          "description": "<p>Currency being converted to. All 25 ordered pairs are present each day, including the five self-pairs.</p>",
+          "type": "enum",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "values": [
+            "AUD",
+            "CAD",
+            "EUR",
+            "GBP",
+            "USD"
+          ]
+        },
+        {
+          "name": "exchange",
+          "description": "<p>Units of <code>to_currency</code> per one unit of <code>from_currency</code> — multiply a <code>from_currency</code> amount by this to get <code>to_currency</code>. Exactly 1.0 whenever the two currencies match.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.50293,
+            "max": 1.98835
+          }
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "description": "<p>The normalised header-to-line join. Performing it and adding the derived measures reproduces <code>sales</code> exactly.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orderrows",
+            "column": "order_key"
+          },
+          "right": {
+            "table": "orders",
+            "column": "order_key"
+          }
+        }
+      ],
+      "join": "orderrows.order_key = orders.order_key"
+    },
+    {
+      "description": "<p>Each sales line was bought by one customer. Every customer in <code>customer</code> has at least one sales line, so an inner join loses no customers.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "customer_key"
+          },
+          "right": {
+            "table": "customer",
+            "column": "customer_key"
+          }
+        }
+      ],
+      "join": "sales.customer_key = customer.customer_key"
+    },
+    {
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orders",
+            "column": "customer_key"
+          },
+          "right": {
+            "table": "customer",
+            "column": "customer_key"
+          }
+        }
+      ],
+      "join": "orders.customer_key = customer.customer_key"
+    },
+    {
+      "description": "<p>Each sales line is one product. 601 of the 2,517 products never sold, so join from <code>product</code> if you need the full catalogue including non-sellers.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "product_key"
+          },
+          "right": {
+            "table": "product",
+            "column": "product_key"
+          }
+        }
+      ],
+      "join": "sales.product_key = product.product_key"
+    },
+    {
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orderrows",
+            "column": "product_key"
+          },
+          "right": {
+            "table": "product",
+            "column": "product_key"
+          }
+        }
+      ],
+      "join": "orderrows.product_key = product.product_key"
+    },
+    {
+      "description": "<p>Each sales line was placed at one store, where <code>store_key</code> 999999 is the online channel rather than a physical location. 16 of the 74 store rows have no sales.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "store_key"
+          },
+          "right": {
+            "table": "store",
+            "column": "store_key"
+          }
+        }
+      ],
+      "join": "sales.store_key = store.store_key"
+    },
+    {
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orders",
+            "column": "store_key"
+          },
+          "right": {
+            "table": "store",
+            "column": "store_key"
+          }
+        }
+      ],
+      "join": "orders.store_key = store.store_key"
+    },
+    {
+      "description": "<p>Standard date-dimension join for grouping sales by period. <code>calendar</code> covers 495 days with no orders, so join from <code>calendar</code> if you need a dense time series with explicit zeros.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "order_date"
+          },
+          "right": {
+            "table": "calendar",
+            "column": "date"
+          }
+        }
+      ],
+      "join": "sales.order_date = calendar.date"
+    },
+    {
+      "description": "<p>The second date role. <code>calendar</code> can only play one role per join, so alias it (a \"role-playing dimension\") if you need to group by order date and delivery date at once.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "delivery_date"
+          },
+          "right": {
+            "table": "calendar",
+            "column": "date"
+          }
+        }
+      ],
+      "join": "sales.delivery_date = calendar.date"
+    },
+    {
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orders",
+            "column": "order_date"
+          },
+          "right": {
+            "table": "calendar",
+            "column": "date"
+          }
+        }
+      ],
+      "join": "orders.order_date = calendar.date"
+    },
+    {
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "orders",
+            "column": "delivery_date"
+          },
+          "right": {
+            "table": "calendar",
+            "column": "date"
+          }
+        }
+      ],
+      "join": "orders.delivery_date = calendar.date"
+    },
+    {
+      "description": "<p>Recovers the rate already stored in <code>sales.exchange_rate</code>. Filter to <code>fx.from_currency = 'USD'</code> or the join fans out five-to-one across base currencies.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "sales",
+            "column": "order_date"
+          },
+          "right": {
+            "table": "fx",
+            "column": "date"
+          }
+        },
+        {
+          "left": {
+            "table": "sales",
+            "column": "currency_code"
+          },
+          "right": {
+            "table": "fx",
+            "column": "to_currency"
+          }
+        }
+      ],
+      "join": "sales.order_date = fx.date AND sales.currency_code = fx.to_currency"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "Contoso",
+      "definition": "<p>A fictional consumer-electronics and appliance retailer used in Microsoft's sample datasets. Also the name of the house brand (<code>product.brand = 'Contoso'</code>), so \"Contoso\" can mean either the whole company or one of its 11 brands depending on context.</p>"
+    },
+    {
+      "term": "category price index",
+      "definition": "<p>The multiplier relating transacted prices to catalogue prices, <code>sales.unit_price = product.price x index(category, order_date)</code>. It applies identically to cost, so it shifts a category's price level over time without changing margin percentage.\nIt is a pure function of product category and order date — verified across every category-day combination in the data — and takes the form of a single step per category on 2022-07-03, from a category-specific level to 1.00, where it stays: Computers 1.50, Cell phones 1.40, Music/Movies 1.30, Cameras 1.10, TV and Video 0.95, and Audio, Games and Toys, and Home Appliances all 0.90. So <code>product.price</code> is the price level from July 2022 onward, and electronics prices fell into that date while the cheaper categories rose.\nTwo things it is <em>not</em>: a currency conversion (it has no dependence on <code>currency_code</code>) and a discount (that is separate, and shows up as the gap between <code>unit_price</code> and <code>net_price</code>). The index is not stored as a column — it is only recoverable by dividing transacted price by catalogue price.</p>"
+    },
+    {
+      "term": "gross revenue",
+      "definition": "<p>Revenue at list price, before discount: <code>unit_price x quantity</code>.</p>"
+    },
+    {
+      "term": "net revenue",
+      "definition": "<p>Revenue actually booked, after discount: <code>net_price x quantity</code>. The normal choice for \"sales\" or \"turnover\".</p>"
+    },
+    {
+      "term": "COGS",
+      "definition": "<p>Cost of goods sold — the product cost of what was sold, <code>unit_cost x quantity</code>. In this dataset it is purely product cost, with no freight, overhead, or labour allocated in.</p>"
+    },
+    {
+      "term": "gross margin",
+      "definition": "<p><code>net_revenue - cogs</code>. Despite \"gross\", it is calculated from <em>net</em> revenue, so discounts are already deducted.</p>"
+    },
+    {
+      "term": "discount",
+      "definition": "<p>The reduction from list to transacted price, <code>unit_price - net_price</code> per unit. Always an exact whole percentage of <code>unit_price</code> between 0 and 14%: 0% on 39% of lines, with the rest concentrated around 11–12%. The percentage itself is not stored — recover it as <code>unit_discount / unit_price</code>. Distinct from the category price index, which moves the list price rather than discounting it.</p>"
+    },
+    {
+      "term": "geo area",
+      "definition": "<p>A geographic region roughly equivalent to a state, province, or county, identified by <code>geo_area_key</code> and named by <code>customer.state_full</code>. No dimension table for it ships with the dataset, so the key resolves to nothing on its own.</p>"
+    },
+    {
+      "term": "online channel",
+      "definition": "<p>Contoso's non-physical sales channel, encoded as the sentinel <code>store_key = 999999</code> with a synthetic row in <code>store</code> (<code>country_name = 'Online'</code>, <code>store_code = -1</code>, <code>geo_area_key = -1</code>, null <code>square_meters</code>). It carries 54% of orders, so leaving it in or filtering it out changes almost every store-level result.</p>"
+    },
+    {
+      "term": "restructured",
+      "definition": "<p>A <code>store.status</code> value marking a store that was rebuilt or replaced rather than simply shut. Restructured stores generally share a <code>store_code</code> with a successor store at the same site, which is why <code>store_code</code> is not unique.</p>"
+    },
+    {
+      "term": "role-playing dimension",
+      "definition": "<p>A dimension table joined more than once to the same fact table under different meanings — here <code>calendar</code>, joined on both <code>order_date</code> and <code>delivery_date</code>. Each role needs its own aliased copy in a query.</p>"
+    },
+    {
+      "term": "grain",
+      "definition": "<p>The level of detail one row represents. <code>sales</code> and <code>orderrows</code> are at order-line grain (<code>order_key</code> + <code>line_number</code>); <code>orders</code> is at order grain. Mixing grains in a join is the most common way to double-count in this dataset.</p>"
+    }
+  ]
+}

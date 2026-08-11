@@ -1,0 +1,713 @@
+{
+  "$version": "0.1.0",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "tables": [
+    {
+      "name": "food",
+      "description": "<p>Any substance consumed by humans for nutrition, taste and/or aroma. Contains only foundation foods from the USDA FoodData Central (December 2025).\n<a href=\"https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_csv_2025-12-18.zip\">https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_csv_2025-12-18.zip</a></p>",
+      "source": {
+        "parquet": "inst/parquet/food.parquet"
+      },
+      "columns": [
+        {
+          "name": "fdc_id",
+          "description": "<p>Unique permanent identifier of the food.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "food_nutrient",
+              "column": "fdc_id"
+            },
+            {
+              "table": "food_portion",
+              "column": "fdc_id"
+            }
+          ],
+          "examples": [
+            321358,
+            746775,
+            2003599,
+            2646173,
+            2747676
+          ]
+        },
+        {
+          "name": "description",
+          "description": "<p>Description of the food.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Almond butter, creamy",
+            "Cheese, mozzarella, low moisture, part-skim",
+            "Grapefruit juice, red, not fortified, not from concentrate, refrigerated",
+            "Peppers, banana or Hungarian wax, seeded, raw",
+            "Yogurt, plain, whole milk"
+          ]
+        },
+        {
+          "name": "food_category_id",
+          "description": "<p>ID of the food's category.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "food_category",
+            "column": "id"
+          },
+          "examples": [
+            1,
+            7,
+            12,
+            16,
+            25
+          ]
+        },
+        {
+          "name": "publication_date",
+          "description": "<p>Date when the food was published to FoodData Central.</p>",
+          "type": "date",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": "2019-04-01",
+            "max": "2025-12-18"
+          }
+        }
+      ]
+    },
+    {
+      "name": "food_nutrient",
+      "description": "<p>A nutrient value for a food. Amounts are per 100g of food, in the unit defined in the nutrient table.</p>",
+      "source": {
+        "parquet": "inst/parquet/food_nutrient.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "description": "<p>Unique permanent identifier.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            2219707,
+            2263067,
+            8524084,
+            27797175,
+            34969298
+          ]
+        },
+        {
+          "name": "fdc_id",
+          "description": "<p>ID of the food.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "food",
+            "column": "fdc_id"
+          },
+          "examples": [
+            321358,
+            746775,
+            2003599,
+            2646173,
+            2747676
+          ]
+        },
+        {
+          "name": "nutrient_id",
+          "description": "<p>ID of the nutrient.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "nutrient",
+            "column": "id"
+          },
+          "examples": [
+            1002,
+            1119,
+            1227,
+            1331,
+            2069
+          ]
+        },
+        {
+          "name": "amount",
+          "description": "<p>Amount of the nutrient per 100g of food.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": -0.705,
+            "max": 38700
+          }
+        },
+        {
+          "name": "data_points",
+          "description": "<p>Number of observations on which the value is based.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 1,
+            "max": 252
+          }
+        },
+        {
+          "name": "derivation",
+          "description": "<p>The technique used to derive the nutrient value.</p>",
+          "type": "enum",
+          "values": [
+            "Analytical",
+            "Summed",
+            "Calculated"
+          ],
+          "value_labels": {
+            "Analytical": "Measured by chemical analysis",
+            "Calculated": "Derived from other data",
+            "Summed": "Sum of component nutrients"
+          }
+        },
+        {
+          "name": "min",
+          "description": "<p>The minimum amount.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 37200
+          }
+        },
+        {
+          "name": "max",
+          "description": "<p>The maximum amount.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 40700
+          }
+        },
+        {
+          "name": "median",
+          "description": "<p>The median amount.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 38500
+          }
+        },
+        {
+          "name": "footnote",
+          "description": "<p>Comments on any unusual aspects of the food nutrient.</p>",
+          "type": "string",
+          "examples": [
+            "Results for individual samples should be interpreted taking into account measurement uncertainty. The percent relative standard deviation ranged from 0.8-32.7, mean 10.4, median 5.9 (n=10).",
+            "1,3:1,6 beta-glucans were determined with the Megazyme Mushroom and Yeast Test Kit (K-YBGL), using sulfuric acid for hydrolysis."
+          ]
+        },
+        {
+          "name": "min_year_acquired",
+          "description": "<p>Minimum purchase year of all acquisitions used to derive the nutrient value.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 1999,
+            "max": 2025
+          }
+        }
+      ]
+    },
+    {
+      "name": "nutrient",
+      "description": "<p>The chemical constituents of a food officially recognized as essential to human health.</p>",
+      "source": {
+        "parquet": "inst/parquet/nutrient.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "description": "<p>Unique permanent identifier.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "food_nutrient",
+              "column": "nutrient_id"
+            }
+          ],
+          "examples": [
+            1001,
+            1120,
+            1239,
+            1359,
+            2069
+          ]
+        },
+        {
+          "name": "name",
+          "description": "<p>Name of the nutrient.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "(+) -Gallo catechin",
+            "Fatty acids, total trans-dienoic",
+            "Nitrogen",
+            "SFA 8:0",
+            "Zinc, Zn"
+          ]
+        },
+        {
+          "name": "unit_name",
+          "description": "<p>The standard unit of measure for the nutrient.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "G",
+            "IU",
+            "KCAL",
+            "kJ",
+            "MCG_RE",
+            "MG",
+            "MG_ATE",
+            "MG_GAE",
+            "PH",
+            "SP_GR",
+            "UG",
+            "UMOL_TE"
+          ],
+          "value_labels": {
+            "G": "Grams",
+            "IU": "International units",
+            "KCAL": "Kilocalories",
+            "MCG_RE": "Micrograms retinol equivalents",
+            "MG": "Milligrams",
+            "MG_ATE": "Milligrams alpha-tocopherol equivalents",
+            "MG_GAE": "Milligrams gallic acid equivalents",
+            "PH": "pH",
+            "SP_GR": "Specific gravity",
+            "UG": "Micrograms",
+            "UMOL_TE": "Micromoles Trolox equivalents",
+            "kJ": "Kilojoules"
+          }
+        },
+        {
+          "name": "nutrient_nbr",
+          "description": "<p>A unique code identifying a nutrient or food constituent (used for historical matching; missing for some newer nutrients).</p>",
+          "type": "number(id)",
+          "examples": [
+            200,
+            321.2,
+            511,
+            693,
+            961
+          ]
+        },
+        {
+          "name": "rank",
+          "description": "<p>Display order used by USDA to sort nutrients in reports; more important nutrients appear first.</p>",
+          "type": "number(ordinal)",
+          "range": {
+            "min": 50,
+            "max": 999999
+          }
+        }
+      ]
+    },
+    {
+      "name": "food_portion",
+      "description": "<p>Discrete amounts of food, used to convert from per-100g nutrient values to common serving sizes. To convert: <code>food_nutrient.amount * food_portion.gram_weight / 100</code>.</p>",
+      "source": {
+        "parquet": "inst/parquet/food_portion.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "description": "<p>Unique permanent identifier.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            118804,
+            119351,
+            121438,
+            187505,
+            267795
+          ]
+        },
+        {
+          "name": "fdc_id",
+          "description": "<p>ID of the food.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "food",
+            "column": "fdc_id"
+          },
+          "examples": [
+            321358,
+            326135,
+            333374,
+            746773,
+            1105314
+          ]
+        },
+        {
+          "name": "seq_num",
+          "description": "<p>The order the measure will be displayed on the released food.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 9
+          }
+        },
+        {
+          "name": "amount",
+          "description": "<p>The number of measure units that comprise the measure (e.g. if measure is 3 tsp, the amount is 3).</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 0.2,
+            "max": 100
+          }
+        },
+        {
+          "name": "measure_unit_id",
+          "description": "<p>ID of the measure unit.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "foreign_key",
+            "required"
+          ],
+          "references": {
+            "table": "measure_unit",
+            "column": "id"
+          },
+          "examples": [
+            1000,
+            1023,
+            1043,
+            1067,
+            1120
+          ]
+        },
+        {
+          "name": "portion_description",
+          "description": "<p>Comments that provide more specificity on the measure. Mostly missing.</p>",
+          "type": "string",
+          "examples": [
+            "shredded"
+          ]
+        },
+        {
+          "name": "modifier",
+          "description": "<p>Qualifier of the measure.</p>",
+          "type": "string",
+          "examples": [
+            " 2-1/2\" dia",
+            "drained",
+            "medium",
+            "slices",
+            "whole"
+          ]
+        },
+        {
+          "name": "gram_weight",
+          "description": "<p>The weight of the measure in grams.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 3.2,
+            "max": 980
+          }
+        },
+        {
+          "name": "data_points",
+          "description": "<p>The number of observations on which the measure is based.</p>",
+          "type": "number(quantity)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 1,
+            "max": 826
+          }
+        },
+        {
+          "name": "min_year_acquired",
+          "description": "<p>Minimum purchase year of all acquisitions used to derive the measure value.</p>",
+          "type": "number(ordinal)",
+          "constraints": [
+            "required"
+          ],
+          "range": {
+            "min": 2000,
+            "max": 2019
+          }
+        }
+      ]
+    },
+    {
+      "name": "measure_unit",
+      "description": "<p>Units for measuring quantities of foods.</p>",
+      "source": {
+        "parquet": "inst/parquet/measure_unit.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "description": "<p>Unique permanent identifier.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "food_portion",
+              "column": "measure_unit_id"
+            }
+          ],
+          "examples": [
+            1000,
+            1031,
+            1061,
+            1091,
+            9999
+          ]
+        },
+        {
+          "name": "name",
+          "description": "<p>Name of the unit.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "back",
+            "cup",
+            "milliliter",
+            "sandwich",
+            "whole"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "food_category",
+      "description": "<p>Foods of defined similarity.</p>",
+      "source": {
+        "parquet": "inst/parquet/food_category.parquet"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "description": "<p>Unique permanent identifier.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "referenced_by": [
+            {
+              "table": "food",
+              "column": "food_category_id"
+            }
+          ],
+          "examples": [
+            1,
+            8,
+            14,
+            21,
+            28
+          ]
+        },
+        {
+          "name": "code",
+          "description": "<p>Food group code.</p>",
+          "type": "number(id)",
+          "constraints": [
+            "unique",
+            "required"
+          ],
+          "examples": [
+            100,
+            800,
+            1400,
+            2000,
+            4500
+          ]
+        },
+        {
+          "name": "description",
+          "description": "<p>Description of the food group.</p>",
+          "type": "string",
+          "constraints": [
+            "required"
+          ],
+          "examples": [
+            "Alcoholic Beverages",
+            "Breakfast Cereals",
+            "Fruits and Fruit Juices",
+            "Quality Control Materials",
+            "Vegetables and Vegetable Products"
+          ]
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "description": "<p>Each food has many nutrient values.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "food_nutrient",
+            "column": "fdc_id"
+          },
+          "right": {
+            "table": "food",
+            "column": "fdc_id"
+          }
+        }
+      ],
+      "join": "food.fdc_id = food_nutrient.fdc_id"
+    },
+    {
+      "description": "<p>Each food has zero or more portion measures.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "one-to-many",
+      "pairs": [
+        {
+          "left": {
+            "table": "food_portion",
+            "column": "fdc_id"
+          },
+          "right": {
+            "table": "food",
+            "column": "fdc_id"
+          }
+        }
+      ],
+      "join": "food.fdc_id = food_portion.fdc_id"
+    },
+    {
+      "description": "<p>Each food nutrient value refers to one nutrient.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "food_nutrient",
+            "column": "nutrient_id"
+          },
+          "right": {
+            "table": "nutrient",
+            "column": "id"
+          }
+        }
+      ],
+      "join": "food_nutrient.nutrient_id = nutrient.id"
+    },
+    {
+      "description": "<p>Each food portion uses one measure unit.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "food_portion",
+            "column": "measure_unit_id"
+          },
+          "right": {
+            "table": "measure_unit",
+            "column": "id"
+          }
+        }
+      ],
+      "join": "food_portion.measure_unit_id = measure_unit.id"
+    },
+    {
+      "description": "<p>Each food belongs to one food category.</p>",
+      "cardinality": "many-to-one",
+      "declared_cardinality": "many-to-one",
+      "pairs": [
+        {
+          "left": {
+            "table": "food",
+            "column": "food_category_id"
+          },
+          "right": {
+            "table": "food_category",
+            "column": "id"
+          }
+        }
+      ],
+      "join": "food.food_category_id = food_category.id",
+      "conflicts": [
+        "description"
+      ]
+    }
+  ],
+  "glossary": [
+    {
+      "term": "foundation food",
+      "definition": "<p>A food whose nutrient and food component values are derived primarily by chemical analysis. Foundation data include extensive underlying metadata such as the number of samples, the location and dates on which samples were obtained, analytical approaches used, and if appropriate, cultivar, genotype, and production practices.</p>"
+    },
+    {
+      "term": "FDC ID",
+      "definition": "<p>FoodData Central identifier. A unique permanent integer assigned to each food in the USDA FoodData Central database.</p>"
+    },
+    {
+      "term": "nutrient number",
+      "definition": "<p>A unique code from the USDA Standard Reference (SR) system identifying a specific nutrient or food constituent.</p>"
+    },
+    {
+      "term": "derivation",
+      "definition": "<p>The technique used to derive a nutrient value, such as analytical measurement, calculation, or imputation.</p>"
+    },
+    {
+      "term": "measure unit",
+      "definition": "<p>A standard unit used to express a food portion size, such as cup, tablespoon, or piece.</p>"
+    }
+  ]
+}
