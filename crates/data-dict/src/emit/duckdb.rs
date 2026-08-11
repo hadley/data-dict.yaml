@@ -1,10 +1,11 @@
 //! `SQL(duckdb)`.
 //!
 //! The closest target to the language, and the first one built: DuckDB shares
-//! the language's three-valued logic, its RE2 regexes, its float division, and
-//! its half-away-from-zero rounding. Two things differ, both about arithmetic
-//! that [the language reports rather than answering](https://data-dict.tidyverse.org/expression-execution.html#no-result),
-//! and neither can be guarded in an expression.
+//! the language's three-valued logic, its RE2 regexes, its float division, its
+//! half-away-from-zero rounding, and the infinities and NaNs a zero divisor
+//! yields. What differs is what a NaN *means*: DuckDB makes one equal to itself
+//! and sorts it above every number, where [the language leaves it unordered](https://data-dict.tidyverse.org/floating-point.html#comparison).
+//! None of the differences can be guarded in an expression.
 
 use super::{Ctx, Fidelity, Side, Target, Unsupported, prec};
 use crate::assert_expr::{
@@ -78,11 +79,6 @@ impl Target for DuckDb {
             NodeKind::And(l, r) => cx.infix(prec::AND, "AND", l, r)?,
             NodeKind::Or(l, r) => cx.infix(prec::OR, "OR", l, r)?,
             NodeKind::Arith { op, lhs, rhs } => {
-                // A zero divisor is `inf` here where the language reports it,
-                // and no expression can raise, so this is declared not guarded.
-                if *op == ArithOp::Div {
-                    cx.fidelity(DIVISION);
-                }
                 let (symbol, level) = match op {
                     ArithOp::Add => ("+", prec::ADD),
                     ArithOp::Sub => ("-", prec::ADD),
@@ -92,6 +88,9 @@ impl Target for DuckDb {
                 cx.infix(level, symbol, lhs, rhs)?;
             }
             NodeKind::Compare { op, lhs, rhs } => {
+                if super::over_numbers(&[lhs, rhs]) {
+                    cx.fidelity(NAN_COMPARISON);
+                }
                 let symbol = match op {
                     CmpOp::Eq => "=",
                     CmpOp::Ne => "<>",
@@ -112,6 +111,9 @@ impl Target for DuckDb {
                 hi,
                 negated,
             } => {
+                if super::over_numbers(&[operand, lo, hi]) {
+                    cx.fidelity(NAN_COMPARISON);
+                }
                 cx.child(prec::CMP, Side::Left, operand)?;
                 cx.push(if *negated {
                     " NOT BETWEEN "
@@ -127,6 +129,9 @@ impl Target for DuckDb {
                 haystack,
                 negated,
             } => {
+                if super::over_numbers(&[needle]) {
+                    cx.fidelity(NAN_COMPARISON);
+                }
                 cx.child(prec::CMP, Side::Left, needle)?;
                 cx.push(if *negated { " NOT IN (" } else { " IN (" });
                 cx.comma_separated(haystack, |cx, item| cx.free(item))?;
@@ -169,16 +174,18 @@ impl Target for DuckDb {
     }
 }
 
-/// `/` yields infinity here where the language reports a zero divisor. There is
-/// no portable expression that raises, so this is declared rather than guarded.
-const DIVISION: Fidelity = Fidelity::Divergent(
-    "DuckDB yields infinity when dividing by zero, where data-dict reports it (D10).",
+/// DuckDB makes a NaN equal to itself and sorts it above every number, where the
+/// language leaves it unordered. The usual `x <> x` test for a NaN is exactly
+/// what that breaks, so there is nothing to guard with.
+const NAN_COMPARISON: Fidelity = Fidelity::Divergent(
+    "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there.",
 );
 
-/// `MOD` by zero is null here, and reported by data-dict, for the same reason.
+/// `MOD` by zero is null for an integer modulus here, and a NaN in the language.
 /// The sign of a remainder is guarded; only the zero divisor diverges.
-const MODULO: Fidelity =
-    Fidelity::Divergent("DuckDB yields null for a zero modulus, where data-dict reports it (D10).");
+const MODULO: Fidelity = Fidelity::Divergent(
+    "DuckDB yields null for an integer modulus by zero, where data-dict yields a NaN.",
+);
 
 /// `SUM` widens to 128 bits here, so a total data-dict reports as an overflow
 /// can succeed.
@@ -288,6 +295,11 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             cx.free(y)?;
             cx.push(")");
         }
+        Op::IsFinite => simple(cx, "isfinite")?,
+        Op::IsInfinite => simple(cx, "isinf")?,
+        Op::IsNan => simple(cx, "isnan")?,
+        // DuckDB sorts a NaN above every number and counts all NaNs as one
+        // value, which is the identity order these fold on.
         Op::Min => simple(cx, "min")?,
         Op::Max => simple(cx, "max")?,
         Op::Sum => {
@@ -313,10 +325,18 @@ fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
-/// A float that always reads as one, so `2.0` doesn't become an integer.
+/// A float that always reads as one, so `2.0` doesn't become an integer. A
+/// non-finite value has no numeric spelling in SQL and is cast from its name.
 fn render_float(x: f64) -> String {
+    if x.is_nan() {
+        return "CAST('NaN' AS DOUBLE)".to_string();
+    }
+    if x.is_infinite() {
+        let sign = if x.is_sign_negative() { "-" } else { "" };
+        return format!("CAST('{sign}Infinity' AS DOUBLE)");
+    }
     let text = x.to_string();
-    if text.contains(['.', 'e', 'E', 'n', 'i']) {
+    if text.contains(['.', 'e', 'E']) {
         text
     } else {
         format!("{text}.0")

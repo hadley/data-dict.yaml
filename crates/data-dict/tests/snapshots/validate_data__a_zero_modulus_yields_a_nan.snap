@@ -8,7 +8,7 @@ tables:
     source:
       parquet: data.parquet
     constraints:
-      - assert: b / a > 1
+      - assert: MOD(b, a) = 0
     columns:
       - name: a
         type: number(quantity)
@@ -17,10 +17,10 @@ tables:
         type: number(quantity)
         range: [-1000000, 1000000]
 ────────────────────────────────────────
-error[D10]: An assertion must be computable for every row.
+error[D07]: An assertion must hold for every row.
   --> dict.yaml:8:17
    |
 LL |   - name: t
 ...
-LL |       - assert: b / a > 1
-   |                 ^^^^^^^^^ divides by zero at row 2
+LL |       - assert: MOD(b, a) = 0
+   |                 ^^^^^^^^^^^^^ is false for 1 row: 2 (b=5, a=0)

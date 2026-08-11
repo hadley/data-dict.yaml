@@ -63,7 +63,7 @@ The profile treats the same values differently, on purpose: it counts them [sepa
 
 ## In a dictionary {#in-a-dictionary}
 
-A `range` bound may be `-.inf` or `.inf` to [leave that end open](spec.md#representative-values). That is a statement about the bound, not about the data: it says the true extent is unknown or moving, rather than that the column was observed to hold an infinity. `.nan` is not a bound at all and is rejected (S12).
+A `range` bound may be `-.inf` or `.inf` to [leave that end open](spec.md#representative-values). That is a statement about the bound, not about the data: it says the true extent is unknown or moving, rather than that the column was observed to hold an infinity. `.nan` is not a bound at all, and is no more an `examples` value than a bound: both are rejected (S12).
 
 ## Across languages {#across-languages}
 

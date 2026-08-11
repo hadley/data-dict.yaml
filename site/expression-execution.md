@@ -33,7 +33,7 @@ Null is used for one thing only: a value that is missing or unknown. It is never
 
 One situation leaves an expression with no answer to give. It yields no value; it is reported, and the assertion's verdict for that table is withdrawn rather than guessed at — a `D09` replaces the `D07` that would otherwise be reported.
 
-**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` and `MOD` at the extreme negative integer, in an `interval` count, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to `INF`, which is [a value the language has](floating-point.md#non-finite), so the expression still reaches a verdict.
+**Integer overflow** ([D09](validation.md#data-validation-checks)), when integer arithmetic leaves the 64-bit range — in `+`, `-` and `*`, in `ABS` and unary minus at the extreme negative integer, in an `interval` count or a shift by one, and in `SUM` as it accumulates. Wrapping or saturating would mean the arithmetic no longer computes what the expression says. Floats are unaffected: they overflow to `INF`, which is [a value the language has](floating-point.md#non-finite), so the expression still reaches a verdict.
 
 This does mean evaluation is not total — some data can stop an assertion from reaching a verdict. That is a deliberate trade. A rule that cannot be computed has not been checked, and saying so is more useful than a pass nobody earned.
 

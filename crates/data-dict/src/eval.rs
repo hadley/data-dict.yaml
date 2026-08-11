@@ -6,10 +6,12 @@
 //! [`Shape`](crate::assert_expr::Shape): a `row` assertion reports the rows that
 //! broke it, an `agg` one only that it is false for the table.
 //!
-//! Three things stop an assertion reaching a verdict at all, and each withdraws
-//! it rather than guess: dividing by zero, integer arithmetic leaving the 64-bit
-//! range, and a pattern read from the data that isn't a valid regex. Everything
-//! else about the data yields a value.
+//! Two things stop an assertion reaching a verdict at all, and each withdraws it
+//! rather than guess: integer arithmetic leaving the 64-bit range, and a pattern
+//! read from the data that isn't a valid regex. Everything else about the data
+//! yields a value, a zero divisor included — `7 / 0` is an infinity and `0 / 0` a
+//! NaN, as [`site/floating-point.md`](https://data-dict.tidyverse.org/floating-point.html)
+//! describes.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -84,6 +86,16 @@ impl Value<'_> {
         }
     }
 
+    /// What `COUNT_DISTINCT` folds on: the rendering, with a float canonicalized
+    /// first so that the values the [identity order](identity_compare) counts as
+    /// one — both zeros, every NaN — share a key.
+    fn distinct_key(&self) -> String {
+        match self {
+            Value::Float(x) => Value::Float(canonical(*x)).render(),
+            v => v.render(),
+        }
+    }
+
     fn render(&self) -> String {
         match self {
             Value::Null => "null".to_string(),
@@ -105,7 +117,6 @@ impl Value<'_> {
 /// than standing in for one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Fault {
-    DividedByZero,
     Overflow,
     /// A `LIKE` or `SIMILAR TO` pattern computed from the data is not a valid
     /// regex. A literal pattern can't get here — S21 rejects it at the spec
@@ -549,8 +560,10 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
         }
         NodeKind::Arith { op, lhs, rhs } => arith(*op, eval(cx, lhs)?, eval(cx, rhs)?)?,
         NodeKind::Compare { op, lhs, rhs } => match compare(&eval(cx, lhs)?, &eval(cx, rhs)?) {
-            None => Value::Null,
-            Some(ordering) => Value::Bool(match op {
+            Cmp::Unknown => Value::Null,
+            // Nothing equals, precedes or follows a NaN, so only `<>` holds.
+            Cmp::Unordered => Value::Bool(*op == CmpOp::Ne),
+            Cmp::Ordered(ordering) => Value::Bool(match op {
                 CmpOp::Eq => ordering == 0,
                 CmpOp::Ne => ordering != 0,
                 CmpOp::Lt => ordering < 0,
@@ -572,8 +585,12 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
             let v = eval(cx, operand)?;
             let (lo, hi) = (eval(cx, lo)?, eval(cx, hi)?);
             match (compare(&v, &lo), compare(&v, &hi)) {
-                (Some(a), Some(b)) => Value::Bool(((a >= 0) && (b <= 0)) != *negated),
-                _ => Value::Null,
+                (Cmp::Unknown, _) | (_, Cmp::Unknown) => Value::Null,
+                // A NaN lies within nothing, as the comparisons it stands for say.
+                (Cmp::Unordered, _) | (_, Cmp::Unordered) => Value::Bool(*negated),
+                (Cmp::Ordered(a), Cmp::Ordered(b)) => {
+                    Value::Bool(((a >= 0) && (b <= 0)) != *negated)
+                }
             }
         }
         NodeKind::In {
@@ -589,9 +606,10 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
             let mut unknown = false;
             for item in haystack {
                 match compare(&v, &eval(cx, item)?) {
-                    Some(0) => found = true,
-                    Some(_) => {}
-                    None => unknown = true,
+                    Cmp::Ordered(0) => found = true,
+                    // A NaN matches nothing, which is an answer, not an unknown.
+                    Cmp::Ordered(_) | Cmp::Unordered => {}
+                    Cmp::Unknown => unknown = true,
                 }
             }
             // No match plus an unknown means the answer is unknown, as SQL's
@@ -697,13 +715,9 @@ fn arith<'a>(op: ArithOp, l: Value<'a>, r: Value<'a>) -> Eval<'a> {
                 ArithOp::Add => a + b,
                 ArithOp::Sub => a - b,
                 ArithOp::Mul => a * b,
-                // `/` always yields a float, and a zero divisor has no answer.
-                ArithOp::Div => {
-                    if b == 0.0 {
-                        return Err(Fault::DividedByZero);
-                    }
-                    a / b
-                }
+                // `/` always yields a float, and a zero divisor an infinity or a
+                // NaN, as IEEE 754 says.
+                ArithOp::Div => a / b,
             }))
         }
     }
@@ -725,11 +739,23 @@ fn shift<'a>(op: ArithOp, l: &Value<'a>, r: &Value<'a>) -> Result<Option<Value<'
     )))
 }
 
-/// Order two values, or `None` when they aren't comparable or either is null.
-/// A date and a datetime compare as instants, the date at midnight.
-fn compare(a: &Value, b: &Value) -> Option<i32> {
+/// How two values compare. A NaN is [`Cmp::Unordered`] rather than unknown: the
+/// answer is known to be `false` (and `true` for `<>`), where an unknown answers
+/// null.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cmp {
+    Ordered(i32),
+    /// A NaN on either side, which IEEE 754 orders against nothing.
+    Unordered,
+    /// Either value is null, or the two types can't be compared at all.
+    Unknown,
+}
+
+/// Order two values. A date and a datetime compare as instants, the date at
+/// midnight.
+fn compare(a: &Value, b: &Value) -> Cmp {
     let ordering = match (a, b) {
-        (Value::Null, _) | (_, Value::Null) => return None,
+        (Value::Null, _) | (_, Value::Null) => return Cmp::Unknown,
         (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
         (Value::Str(x), Value::Str(y)) => x.cmp(y),
         (Value::Int(x), Value::Int(y)) => x.cmp(y),
@@ -739,16 +765,50 @@ fn compare(a: &Value, b: &Value) -> Option<i32> {
             if let (Some(x), Some(y)) = (a.as_micros(), b.as_micros()) {
                 x.cmp(&y)
             } else {
-                let (x, y) = (a.as_f64()?, b.as_f64()?);
-                x.partial_cmp(&y)?
+                let (Some(x), Some(y)) = (a.as_f64(), b.as_f64()) else {
+                    return Cmp::Unknown;
+                };
+                match x.partial_cmp(&y) {
+                    Some(ordering) => ordering,
+                    None => return Cmp::Unordered,
+                }
             }
         }
     };
-    Some(match ordering {
+    Cmp::Ordered(match ordering {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
         std::cmp::Ordering::Greater => 1,
     })
+}
+
+/// The identity order: `-INF` < every finite number < `INF` < NaN, with all NaNs
+/// and both zeros counting as one value each. This is what asks whether two
+/// values are *the same value*, which `=` can't answer for a NaN, and it governs
+/// `MIN`, `MAX` and `COUNT_DISTINCT`.
+fn identity_compare(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (Value::Float(_), _) | (_, Value::Float(_)) => {
+            let (x, y) = (a.as_f64()?, b.as_f64()?);
+            Some(canonical(x).total_cmp(&canonical(y)))
+        }
+        _ => match compare(a, b) {
+            Cmp::Ordered(o) => Some(o.cmp(&0)),
+            Cmp::Unordered | Cmp::Unknown => None,
+        },
+    }
+}
+
+/// Collapse the values the identity order counts as one: both zeros, and every
+/// NaN bit pattern (to a positive NaN, which `total_cmp` then sorts above `INF`).
+fn canonical(x: f64) -> f64 {
+    if x == 0.0 {
+        0.0
+    } else if x.is_nan() {
+        f64::NAN
+    } else {
+        x
+    }
 }
 
 fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
@@ -780,22 +840,20 @@ fn func<'a>(cx: &Cx<'a>, op: Op, args: &'a [TypedExpr]) -> Eval<'a> {
             v.as_f64().unwrap_or_default(),
             d.as_f64().unwrap_or_default() as i32,
         )),
-        (Op::Mod, [Value::Int(a), Value::Int(b)]) => {
-            if *b == 0 {
-                return Err(Fault::DividedByZero);
-            }
-            Value::Int(floored_rem_int(*a, *b))
-        }
+        // A NaN is a float, so this is the one place `MOD` over two integers
+        // does not give an integer.
+        (Op::Mod, [Value::Int(_), Value::Int(0)]) => Value::Float(f64::NAN),
+        (Op::Mod, [Value::Int(a), Value::Int(b)]) => Value::Int(floored_rem_int(*a, *b)),
         (Op::Mod, [a, b]) => {
             let (a, b) = (
                 a.as_f64().unwrap_or_default(),
                 b.as_f64().unwrap_or_default(),
             );
-            if b == 0.0 {
-                return Err(Fault::DividedByZero);
-            }
             Value::Float(floored_rem_float(a, b))
         }
+        (Op::IsFinite, [v]) => Value::Bool(v.as_f64().is_some_and(f64::is_finite)),
+        (Op::IsInfinite, [v]) => Value::Bool(v.as_f64().is_some_and(f64::is_infinite)),
+        (Op::IsNan, [v]) => Value::Bool(v.as_f64().is_some_and(f64::is_nan)),
         _ => Value::Null,
     })
 }
@@ -915,7 +973,7 @@ impl Accumulator {
         match op {
             Op::Count => {}
             Op::CountDistinct => {
-                self.distinct.insert(value.render());
+                self.distinct.insert(value.distinct_key());
             }
             Op::Sum => match &value {
                 Value::Int(n) => {
@@ -939,8 +997,8 @@ impl Accumulator {
             Op::Min | Op::Max => {
                 let replace = match &self.extreme {
                     None => true,
-                    Some(current) => match compare(&value, current) {
-                        Some(o) => (*op == Op::Min && o < 0) || (*op == Op::Max && o > 0),
+                    Some(current) => match identity_compare(&value, current) {
+                        Some(o) => (*op == Op::Min && o.is_lt()) || (*op == Op::Max && o.is_gt()),
                         None => false,
                     },
                 };
