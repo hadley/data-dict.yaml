@@ -360,7 +360,7 @@ A table's `definitions` property is a list of named expressions — the metrics,
 
 Each entry is a map with:
 
-* `name` (required): the definition's name. Must be non-empty and unique within the table.
+* `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
 * `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
 * `description`: human-readable description of what the expression computes and when to use it.
 
@@ -382,7 +382,9 @@ tables:
         expr: tile_size IN ('Mid-Market-3', 'Enterprise-1', 'Enterprise-2', 'Enterprise-3')
 ```
 
-Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns — but the metadata and data levels never evaluate them.
+A definition's expression may reference the table's columns and other definitions in the same table. References between definitions must not be circular: following the references from any definition must eventually reach only columns.
+
+Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns and definitions — but the metadata and data levels never evaluate them.
 
 ## Relationships
 
