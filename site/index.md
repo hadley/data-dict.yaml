@@ -32,7 +32,7 @@ The CLI, `data-dict`, is the other half of the story. It enforces the standard a
 
 * It is open source and free, and does not require any hosted services.
 
-* It's self-contained, so that all you need to install is a single binary. This makes it straightforward to create, check, and maintain a data dictionary on both your local machine and in CI.
+* It's self-contained, so that all you need to [install](install.md) is a single binary. This makes it straightforward to create, check, and maintain a data dictionary on both your local machine and in CI.
 
 * It validates the data contract, ensuring the data and dictionary stay consistent. Validation is actively expanding, and currently covers variable names, types, ranges, and constraints such as uniqueness.
 

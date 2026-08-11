@@ -19,6 +19,8 @@ website:
     left:
       - href: index.md
         text: Overview
+      - href: install.md
+        text: Install
       - href: spec.md
         text: Specification
       - href: expressions.md
