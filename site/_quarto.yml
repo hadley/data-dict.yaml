@@ -29,6 +29,8 @@ website:
             text: Validation
           - href: expression-execution.md
             text: Executing expressions
+          - href: floating-point.md
+            text: Floating point
           - href: export.md
             text: Export
       - href: examples/index.qmd

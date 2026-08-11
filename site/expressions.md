@@ -65,16 +65,7 @@ The `number` measures (`number(id)`, `number(ordinal)`, `number(quantity)`) and 
 
 ### Integers and floats {#integers-and-floats}
 
-There is one `number` type, and no expression is ever ill-typed for mixing whole numbers with fractional ones. Underneath, though, a number is held one of two ways — as an **integer** or as a **float** — and which one it is decides how exact the arithmetic is:
-
-* A literal without a decimal point is an integer (`42`); one with a decimal point is a float (`42.0`, `3.14`). A whole-numbered column read from the data is an integer, a fractional one a float.
-* `+`, `-`, `*` and `MOD` over two integers give an integer. Every other combination gives a float.
-* `/` **always** gives a float, so `1 / 2` is `0.5`. This is the one place the two representations would otherwise disagree about the answer, and it follows R, Python and DuckDB rather than SQL's integer division.
-* Of the aggregates, `SUM` of integers is an integer and `AVG` is always a float, as their own entries say; `COUNT`, `COUNT_DISTINCT` and `ROW_COUNT` are integers.
-
-Integers are 64-bit and exact. Arithmetic that overflows that range is not silently wrapped or rounded — it is reported when the data is validated, as [D09](validation.md#data-validation-checks). Floats are 64-bit IEEE 754 and carry all the usual caveats, so an equality test on a computed float (`price * qty = total`) is rarely what you want; compare a rounded value, or bound the difference. Neither representation produces an infinity or a NaN: a zero divisor is [reported](expression-execution.md#no-result) rather than turned into one.
-
-The distinction matters mostly to [translation](expression-execution.md#translating-expressions), where a target language's `/` may or may not agree with this rule.
+There is one `number` type, and no expression is ever ill-typed for mixing whole numbers with fractional ones. Underneath, though, a number is held as an **integer** or as a **float**, and a float can also be an infinity or a NaN. Which it is decides how exact the arithmetic is, what `7 / 0` means, and how a comparison answers. [Floating point](floating-point.md) is the reference for all of it.
 
 ### Type classes {#type-classes}
 
@@ -144,6 +135,7 @@ The same rules apply to a qualified name in a relationship's [`join`](spec.md#re
 | Form | Type | Examples |
 |------|------|----------|
 | Integer or decimal | `number` | `42`, `3.14`. A leading `-` is unary minus, not part of the literal. |
+| `INF` / `NAN` | `number` | The [non-finite](floating-point.md#non-finite) floats. `-INF` is unary minus applied to `INF`. |
 | Single-quoted text | `string` | `'ABC'`, `'O''Brien'` — double a quote to include one. |
 | `TRUE` / `FALSE` | `boolean` | |
 | `NULL` | none | Compatible with every type. |
@@ -166,7 +158,7 @@ Below, `T` stands for any type, and a signature like `number → number` reads "
 |----------|-----------|-------|
 | `-x` | `number → number` | Unary minus. |
 | `x + y`, `x - y` | `number, number → number` | |
-| `x * y`, `x / y` | `number, number → number` | Dividing by zero is [an error](expression-execution.md#no-result). `/` always gives a [float](#integers-and-floats). |
+| `x * y`, `x / y` | `number, number → number` | `/` always gives a [float](#integers-and-floats). A zero divisor gives [an infinity or a NaN](floating-point.md#non-finite), not an error. |
 | `d + i`, `i + d`, `d - i` | `date, interval → datetime` | Shifts a date by a duration. |
 | `t + i`, `i + t`, `t - i` | `datetime, interval → datetime` | Shifts a datetime by a duration. |
 
@@ -186,7 +178,7 @@ Shifting a **date** gives a `datetime`, not a date. An interval can be shorter t
 
 : {tbl-colwidths="[28,25,47]"}
 
-Both sides must be [comparable](#comparability). String comparison is by code point, and so case-sensitive.
+Both sides must be [comparable](#comparability). String comparison is by code point, and so case-sensitive. A [NaN](floating-point.md#comparison) is unordered, so every comparison against one is `false` except `<>`, which is `true`.
 
 ### Null tests
 
@@ -212,7 +204,7 @@ Both sides must be [comparable](#comparability). String comparison is by code po
 
 | Operator | Signature | Notes |
 |----------|-----------|-------|
-| `x BETWEEN lo AND hi` | `T, T, T → boolean` | Inclusive on both ends; equivalent to `x >= lo AND x <= hi`. |
+| `x BETWEEN lo AND hi` | `T, T, T → boolean` | Inclusive on both ends, and null if any of the three operands is null. A [NaN](floating-point.md#comparison) subject is `false`. |
 | `x NOT BETWEEN lo AND hi` | `T, T, T → boolean` | |
 | `x IN (a, b, …)` | `T, T… → boolean` | Each list item must be comparable with `x`. |
 | `x NOT IN (a, b, …)` | `T, T… → boolean` | Null if `x` is null or `x` matches nothing but the list contains a null. |
@@ -319,11 +311,20 @@ Function names are case-insensitive. Every scalar function is null-propagating: 
 
 #### `MOD(x, y)` {#mod}
 
-`number, number → number`. The remainder of `x / y`, taking its sign from `y` (so `MOD(-7, 3)` is `2` and `MOD(7, -3)` is `-2`). This is the convention R and Python use; C and SQL take the sign from `x` instead. A zero `y` is [an error](expression-execution.md#no-result), as it is for `/`.
+`number, number → number`. The remainder of `x / y`, taking its sign from `y` (so `MOD(-7, 3)` is `2` and `MOD(7, -3)` is `-2`). This is the convention R and Python use; C and SQL take the sign from `x` instead. A zero `y` gives [a NaN](floating-point.md#non-finite), as `0 / 0` does — the one place `MOD` over two integers does not give an integer, since a NaN is a float.
 
 ```yaml
 - assert: MOD(minutes, 15) = 0
   description: Appointments start on a quarter hour.
+```
+
+#### `IS_FINITE(x)`, `IS_INFINITE(x)`, `IS_NAN(x)` {#non-finite-predicates}
+
+`number → boolean`. Which kind of number `x` is: an ordinary one, an infinity, or a NaN. See [infinity and NaN](floating-point.md#non-finite) for what each answers and why `IS NULL` is not among them.
+
+```yaml
+- assert: IS_FINITE(total / qty)
+  description: No order has a zero quantity.
 ```
 
 ### Date and time functions
@@ -421,7 +422,7 @@ These are not SQL's `ANY` and `ALL`. There those names are quantifiers over a su
 
 #### Empty and all-null input {#empty-input}
 
-Aggregates skip nulls, so a column holding nothing but nulls behaves exactly like a table with no rows — every aggregate gives the same answer either way:
+Aggregates skip nulls — and only nulls, so a [NaN or an infinity](floating-point.md#identity) is folded in like any other value. A column holding nothing but nulls behaves exactly like a table with no rows, and every aggregate gives the same answer either way:
 
 * `MIN`, `MAX`, `SUM`, `AVG`, `ANY` and `ALL` return null.
 * `COUNT` and `COUNT_DISTINCT` return 0.
@@ -519,7 +520,7 @@ multiplicative := unary (("*" | "/") unary)*
 unary          := "-" unary | primary
 primary        := literal | column | funcall | columns | case | "(" expr ")"
 cmp            := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
-literal        := number | string | "TRUE" | "FALSE" | "NULL"
+literal        := number | string | "TRUE" | "FALSE" | "NULL" | "INF" | "NAN"
 funcall        := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
 columns        := "COLUMNS" "(" ("*" | string | "[" name ("," name)* "]") ")"
 case           := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
@@ -533,4 +534,6 @@ A function name is always an `IDENT`; only columns can be quoted.
 
 The aggregates need no grammar of their own: each is an ordinary `funcall`, and `ROW_COUNT()` is the empty-argument case the rule already admits. None of their names is reserved either, so a column called `count` or `min` remains reachable without backticks — a name followed by `(` is a call, and anything else is a column.
 
-The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`. A column named after one of them is still reachable [in backticks](#column-references).
+The following words are reserved and can't be used as a bare column name: `AND`, `OR`, `NOT`, `IS`, `NULL`, `BETWEEN`, `IN`, `LIKE`, `SIMILAR`, `TO`, `WHEN`, `THEN`, `ELSE`, `END`, `TRUE`, `FALSE`, `INF`, `NAN`, `CASE`, `COLUMNS`, `NOW`, `INTERVAL`. A column named after one of them is still reachable [in backticks](#column-references), and the name stays available after a `.`, so a struct field called `inf` needs no quoting.
+
+`INF` and `NAN` are on that list because they are [literals](#literals), so a column named `inf` or `nan` — not far-fetched in scientific data — needs its backticks. An assertion that names one bare compares against the literal instead, which is a change of meaning rather than a parse error, so it is worth checking for.
