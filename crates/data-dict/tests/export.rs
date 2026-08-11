@@ -765,30 +765,25 @@ fn definitions_export_resolved() {
     );
     assert_eq!(assertion["columns"], serde_json::json!([]));
 
-    // Definitions carry translations — but one that builds on another
-    // definition is left for the client to compose, with every target
-    // carrying the reason.
+    // Definitions carry translations. A reference to another definition
+    // renders as a bare name, as if it were a column — the client
+    // substitutes the referenced definition's own translation.
     let filter_sql = &defs[1]["translations"][0];
     assert_eq!(filter_sql["target"], "SQL(duckdb)");
     assert!(filter_sql["code"].as_str().unwrap().contains("tile_size"));
 
-    let metric_translation = &defs[2]["translations"][0];
-    assert!(metric_translation.get("code").is_none());
+    let metric_sql = defs[2]["translations"][0]["code"].as_str().unwrap();
     assert!(
-        metric_translation["error"]
-            .as_str()
-            .unwrap()
-            .contains("is_enterprise")
+        metric_sql.contains("\"is_enterprise\""),
+        "reference rendered as a name: {metric_sql}"
     );
+    assert!(metric_sql.contains("order_total"));
 
-    // So is an assertion that references a definition.
-    let assertion_translation = &assertion["translations"][0];
-    assert!(assertion_translation.get("code").is_none());
+    // So does an assertion that references a definition.
+    let assertion_sql = assertion["translations"][0]["code"].as_str().unwrap();
     assert!(
-        assertion_translation["error"]
-            .as_str()
-            .unwrap()
-            .contains("is_enterprise")
+        assertion_sql.contains("\"is_enterprise\""),
+        "reference rendered as a name: {assertion_sql}"
     );
 }
 

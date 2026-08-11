@@ -432,11 +432,11 @@ impl Lowerer<'_> {
             ExprKind::Bool(b) => lit(NodeKind::Bool(*b), Type::Bool, span),
             ExprKind::Null => lit(NodeKind::Null, Type::Any, span),
             ExprKind::Column(path) => {
-                let column = self.column_ref(path)?;
+                let (column, shape) = self.column_ref(path)?;
                 TypedExpr {
                     ty: column.ty,
                     kind: NodeKind::Column(column),
-                    shape: Shape::Row,
+                    shape,
                     span,
                 }
             }
@@ -721,16 +721,39 @@ impl Lowerer<'_> {
         })
     }
 
-    fn column_ref(&self, path: &[String]) -> Option<ColumnRef> {
-        let kind = if path.len() == 1 {
-            self.env.column(&path[0])?
-        } else {
-            self.env.field(path)?
-        };
-        Some(ColumnRef {
-            path: path.to_vec(),
-            ty: to_type(kind_to_ty(kind)),
-        })
+    fn column_ref(&self, path: &[String]) -> Option<(ColumnRef, Shape)> {
+        if path.len() > 1 {
+            let kind = self.env.field(path)?;
+            return Some((
+                ColumnRef {
+                    path: path.to_vec(),
+                    ty: to_type(kind_to_ty(kind)),
+                },
+                Shape::Row,
+            ));
+        }
+        match self.env.column(&path[0]) {
+            Some(kind) => Some((
+                ColumnRef {
+                    path: path.to_vec(),
+                    ty: to_type(kind_to_ty(kind)),
+                },
+                Shape::Row,
+            )),
+            // Not a column: a bare name may be a definition, rendered as a
+            // name with the definition's own type and shape for the consumer
+            // to substitute.
+            None => {
+                let def = self.env.definition(&path[0])?;
+                Some((
+                    ColumnRef {
+                        path: path.to_vec(),
+                        ty: to_type(def.ty),
+                    },
+                    def.shape,
+                ))
+            }
+        }
     }
 
     /// Record the expression's one `COLUMNS(...)` and the columns it picked out.

@@ -14,7 +14,7 @@ use crate::assert_expr::{self, AssertExpr, ColumnRef, Root, TypedAssertion};
 use crate::emit::{self, DuckDb, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
 use crate::model::{DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet};
-use crate::validate_spec::TableEnv;
+use crate::validate_spec::{DefEnv, resolve_definitions};
 
 /// Every target that can be emitted today, in a stable order.
 pub(crate) fn registry() -> Vec<Box<dyn Target>> {
@@ -197,7 +197,8 @@ fn translate_one(
     table: &Table,
     targets: &[Box<dyn Target>],
 ) -> Result<Translation, String> {
-    let env = TableEnv::new(table);
+    let defs = resolve_definitions(table);
+    let env = DefEnv::new(table, &defs);
     let expr = AssertExpr::parse(source)
         .map_err(|e| format!("expression does not parse: {}", e.message))?;
     // An ad-hoc expression need not be a rule, so it need not be boolean.
@@ -224,7 +225,8 @@ fn translate_assertions(
         .iter()
         .filter(|t| only.is_none_or(|name| t.name.value == name))
     {
-        let env = TableEnv::new(table);
+        let defs = resolve_definitions(table);
+        let env = DefEnv::new(table, &defs);
         let assertions = table
             .constraints
             .iter()

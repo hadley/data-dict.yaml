@@ -471,13 +471,13 @@ fn report_findings(
 
 /// A [`TableEnv`] plus the definitions resolved so far, so a definition's
 /// expression can reference other definitions.
-struct DefEnv<'a> {
+pub(crate) struct DefEnv<'a> {
     inner: TableEnv<'a>,
     defs: &'a HashMap<String, DefType>,
 }
 
 impl<'a> DefEnv<'a> {
-    fn new(table: &'a Table, defs: &'a HashMap<String, DefType>) -> DefEnv<'a> {
+    pub(crate) fn new(table: &'a Table, defs: &'a HashMap<String, DefType>) -> DefEnv<'a> {
         DefEnv {
             inner: TableEnv::new(table),
             defs,

@@ -42,11 +42,11 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
           "translations": [
             {
               "target": "SQL(duckdb)",
-              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+              "code": "\"is_enterprise\""
             },
             {
               "target": "R(tidyverse)",
-              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+              "code": "is_enterprise"
             }
           ]
         }
@@ -117,11 +117,19 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
           "translations": [
             {
               "target": "SQL(duckdb)",
-              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+              "code": "sum(CASE WHEN \"is_enterprise\" THEN \"order_total\" ELSE 0 END)",
+              "notes": [
+                "DuckDB sums integers at 128 bits, so a total data-dict reports as an overflow (D09) may succeed."
+              ]
             },
             {
               "target": "R(tidyverse)",
-              "error": "references the definition `is_enterprise`; compose it from that definition's own translation"
+              "code": "sum(case_when(is_enterprise ~ order_total, .default = 0L), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
             }
           ]
         },

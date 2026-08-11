@@ -114,7 +114,7 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 
 ### Translation
 
-A `Translation` is the expression rendered as a bare expression in one target language — the same translation `translate` produces, so a consumer can embed it directly in that language's pipeline rather than re-parsing `expression`. For an assertion the rendering is a predicate; for a definition it computes the definition's value, so a metric's translation is an aggregate expression, embeddable only where the target aggregates (a `SELECT` list, a `summarise()`). An expression that builds on another definition is not translated: composing it is the consumer's job, from the referenced definition's own translations (named by `definitions`), so every target carries the reason in `error`. One entry per target the exporter can produce; a target that can't express the expression still appears, carrying the reason instead of code:
+A `Translation` is the expression rendered as a bare expression in one target language — the same translation `translate` produces, so a consumer can embed it directly in that language's pipeline rather than re-parsing `expression`. For an assertion the rendering is a predicate; for a definition it computes the definition's value, so a metric's translation is an aggregate expression, embeddable only where the target aggregates (a `SELECT` list, a `summarise()`). A reference to another definition renders as a bare name, as if it were a column — substituting the referenced definition's own translation (named by `definitions`) is the consumer's job. One entry per target the exporter can produce; a target that can't express the expression still appears, carrying the reason instead of code:
 
 ```jsonc
 {
