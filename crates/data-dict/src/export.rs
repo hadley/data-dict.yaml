@@ -19,12 +19,14 @@ use data_dict_parquet::{
     profile, profile_paths, render_scalar,
 };
 
-use crate::assert_expr::{ColumnsSelector, Expr, ExprKind};
+use crate::assert_expr::{self, ColumnsSelector, Expr, ExprKind};
+use crate::emit;
 use crate::model::{
     Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
     Spanned, Table, Version,
 };
 use crate::problem::{ProblemKind, ProblemSet, Severity};
+use crate::validate_spec::TableEnv;
 use crate::{load, validate_and_lower};
 
 /// The version of the export document format itself, carried as the
@@ -185,6 +187,22 @@ struct ExportAssertion {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     columns: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    translations: Vec<ExportTranslation>,
+}
+
+/// One target's rendering of an assertion: the predicate, or the reason the
+/// target refused. `notes` names each documented edge where the predicate
+/// diverges from the expression's own semantics.
+#[derive(Debug, Serialize)]
+struct ExportTranslation {
+    target: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -705,13 +723,38 @@ fn representation_labels(rep: &Representation) -> BTreeMap<String, String> {
 
 fn build_assertion(assertion: &Assertion, table: &Table) -> ExportAssertion {
     let mut columns = Vec::new();
+    let mut translations = Vec::new();
     if let Some(expr) = &assertion.expr {
         collect_columns(&expr.root, table, &mut columns);
+        // The spec pass has already checked every assertion, so lowering only
+        // fails when export runs without it.
+        if let Some(ir) = assert_expr::lower(expr, &TableEnv::new(table)) {
+            for target in crate::translate::registry() {
+                translations.push(match emit::emit(target.as_ref(), &ir) {
+                    Ok(emitted) => ExportTranslation {
+                        target: target.name(),
+                        code: Some(emitted.code),
+                        error: None,
+                        notes: emitted.notes,
+                    },
+                    Err(unsupported) => ExportTranslation {
+                        target: target.name(),
+                        code: None,
+                        error: Some(format!(
+                            "{} is not supported: {}",
+                            unsupported.what, unsupported.why
+                        )),
+                        notes: Vec::new(),
+                    },
+                });
+            }
+        }
     }
     ExportAssertion {
         expression: assertion.text.value.clone(),
         description: prose(&assertion.description),
         columns,
+        translations,
     }
 }
 

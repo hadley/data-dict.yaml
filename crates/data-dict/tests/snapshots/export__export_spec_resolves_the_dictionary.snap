@@ -122,6 +122,22 @@ expression: export_json(RICH_DICT)
               "description": "<p>Weights are positive.</p>",
               "columns": [
                 "weight"
+              ],
+              "translations": [
+                {
+                  "target": "SQL(duckdb)",
+                  "code": "\"weight\" > 0",
+                  "notes": [
+                    "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
+                },
+                {
+                  "target": "R(tidyverse)",
+                  "code": "weight > 0L",
+                  "notes": [
+                    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
+                }
               ]
             }
           ]
@@ -141,6 +157,16 @@ expression: export_json(RICH_DICT)
           "columns": [
             "pet_id",
             "owner_id"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "\"pet_id\" IS NOT NULL AND \"owner_id\" IS NOT NULL"
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "if_all(matches(\"_id$\"), \\(x) !is.na(x))"
+            }
           ]
         }
       ]

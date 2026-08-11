@@ -3,10 +3,11 @@ title: "Examples"
 listing:
   contents: "*.qmd"
   type: table
-  fields: [title, description, page, raw]
+  fields: [title, description, page, raw, json]
   field-display-names:
     page: "Rendered"
     raw: "YAML"
+    json: "JSON"
   sort: "title"
   filter-ui: false
   sort-ui: false

@@ -48,7 +48,7 @@ mod r_tidyverse;
 
 use std::collections::BTreeSet;
 
-use crate::assert_expr::{Selection, TypedAssertion, TypedExpr};
+use crate::assert_expr::{Selection, Type, TypedAssertion, TypedExpr};
 
 pub use duckdb::DuckDb;
 pub use r_tidyverse::RTidyverse;
@@ -64,6 +64,13 @@ pub enum Fidelity {
     Guarded,
     /// Agrees except on a documented edge. Using it attaches the note.
     Divergent(&'static str),
+}
+
+/// Whether a comparison can see a `number`, and so a NaN. No target answers a
+/// NaN comparison the way [the language does](https://data-dict.tidyverse.org/floating-point.html#comparison),
+/// so a comparison over numbers diverges where one over any other type is exact.
+pub fn over_numbers(operands: &[&TypedExpr]) -> bool {
+    operands.iter().any(|e| e.ty == Type::Number)
 }
 
 /// A construct this target cannot express. Refusal is per (expression, target):
@@ -336,6 +343,17 @@ mod tests {
         assert_eq!(sql("s = 'it''s'"), r#""s" = 'it''s'"#);
         assert_eq!(sql("flag = TRUE"), r#""flag" = TRUE"#);
         assert_eq!(sql("qty IS NULL"), r#""qty" IS NULL"#);
+        // A non-finite float has no numeric spelling in SQL.
+        assert_eq!(sql("qty = INF"), r#""qty" = CAST('Infinity' AS DOUBLE)"#);
+        assert_eq!(sql("qty = -INF"), r#""qty" = -CAST('Infinity' AS DOUBLE)"#);
+        assert_eq!(sql("qty = NAN"), r#""qty" = CAST('NaN' AS DOUBLE)"#);
+    }
+
+    #[test]
+    fn the_non_finite_predicates_are_native() {
+        assert_eq!(sql("IS_FINITE(qty)"), r#"isfinite("qty")"#);
+        assert_eq!(sql("IS_INFINITE(qty)"), r#"isinf("qty")"#);
+        assert_eq!(sql("IS_NAN(n / qty)"), r#"isnan("n" / "qty")"#);
     }
 
     #[test]
@@ -444,10 +462,18 @@ mod tests {
 
     #[test]
     fn divergences_attach_a_note_by_being_used() {
-        assert!(notes("qty > 0").is_empty());
-        assert!(notes("n / qty > 1")[0].contains("infinity"));
-        assert!(notes("MOD(n, qty) = 0")[0].contains("zero modulus"));
-        assert!(notes("SUM(qty) > 0")[0].contains("128 bits"));
+        assert!(notes("flag").is_empty());
+        assert!(notes("s = 'a'").is_empty());
+        // Any comparison a NaN can reach carries the NaN note, and a zero
+        // divisor no longer carries one of its own.
+        assert!(notes("qty > 0")[0].contains("NaN"));
+        assert_eq!(notes("n / qty > 1").len(), 1);
+        assert!(
+            notes("MOD(n, qty) = 0")
+                .iter()
+                .any(|n| n.contains("modulus"))
+        );
+        assert!(notes("SUM(qty) > 0").iter().any(|n| n.contains("128 bits")));
     }
 }
 
@@ -496,6 +522,30 @@ mod r_tests {
         // `NA %in% c(1)` is FALSE in R, where the language says null.
         assert_eq!(r("qty IN (1, 2)"), "is.na(qty) | (qty %in% c(1L, 2L))");
         assert_eq!(r("qty NOT IN (1)"), "is.na(qty) | !(qty %in% c(1L))");
+    }
+
+    #[test]
+    fn non_finite_literals_use_rs_own_names() {
+        assert_eq!(r("qty = INF"), "qty == Inf");
+        assert_eq!(r("qty = -INF"), "qty == -Inf");
+        assert_eq!(r("qty = NAN"), "qty == NaN");
+    }
+
+    #[test]
+    fn a_kind_test_is_guarded_so_a_null_stays_null() {
+        // `is.nan(NA)` is FALSE in R, where the language propagates the null.
+        assert_eq!(
+            r("IS_NAN(qty)"),
+            "if_else(is.na(qty) & !is.nan(qty), NA, is.nan(qty))"
+        );
+        assert_eq!(
+            r("IS_FINITE(qty)"),
+            "if_else(is.na(qty) & !is.nan(qty), NA, is.finite(qty))"
+        );
+        assert_eq!(
+            r("IS_INFINITE(qty)"),
+            "if_else(is.na(qty) & !is.nan(qty), NA, is.infinite(qty))"
+        );
     }
 
     #[test]
@@ -570,13 +620,28 @@ mod r_tests {
 
     #[test]
     fn divergences_attach_notes() {
-        assert!(r_notes("qty > 0").is_empty());
-        assert!(r_notes("ROUND(n) = n")[0].contains("halves to even"));
-        assert!(r_notes("n / qty > 1")[0].contains("Inf"));
+        assert!(r_notes("flag").is_empty());
+        assert!(r_notes("s = 'a'").is_empty());
+        assert!(r_notes("qty > 0")[0].contains("NaN"));
+        assert!(
+            r_notes("ROUND(n) = n")
+                .iter()
+                .any(|n| n.contains("halves to even"))
+        );
         assert!(
             r_notes("SUM(qty) > 0")
                 .iter()
                 .any(|n| n.contains("identity"))
+        );
+        assert!(
+            r_notes("SUM(qty) > 0")
+                .iter()
+                .any(|n| n.contains("na.rm = TRUE"))
+        );
+        assert!(
+            r_notes("qty IS NULL")
+                .iter()
+                .any(|n| n.contains("is.na` is TRUE"))
         );
     }
 

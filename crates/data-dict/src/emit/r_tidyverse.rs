@@ -1,11 +1,17 @@
 //! `R(tidyverse)` — dplyr and stringr.
 //!
 //! R's `&`, `|` and `!` are already three-valued over `NA`, so the logic needs
-//! nothing, and `%%` agrees with the language about a remainder's sign. Two
+//! nothing, and `%%` agrees with the language about a remainder's sign. Three
 //! things do need work: `%in%` answers `FALSE` for an `NA` subject where the
-//! language says null, and adding a duration to a `Date` keeps it a `Date`
-//! where the language produces a datetime. Both are guarded, so they are exact
-//! rather than approximate.
+//! language says null, adding a duration to a `Date` keeps it a `Date` where the
+//! language produces a datetime, and `is.nan`/`is.finite` answer `FALSE` for an
+//! `NA` where a null argument must stay null. All three are guarded, so they are
+//! exact rather than approximate.
+//!
+//! What can't be guarded is that R reads a NaN as *missing*: comparing against
+//! one gives `NA`, `is.na` is `TRUE`, and `na.rm` drops it, where
+//! [the language treats it as a value](https://data-dict.tidyverse.org/floating-point.html#non-finite).
+//! Each of those travels as a note.
 
 use super::{Ctx, Fidelity, Side, Target, Unsupported};
 use crate::assert_expr::{
@@ -123,9 +129,6 @@ impl Target for RTidyverse {
             NodeKind::And(l, r) => cx.infix(p::AND, "&", l, r)?,
             NodeKind::Or(l, r) => cx.infix(p::OR, "|", l, r)?,
             NodeKind::Arith { op, lhs, rhs } => {
-                if *op == ArithOp::Div {
-                    cx.fidelity(DIVISION);
-                }
                 if is_interval_shift(lhs, rhs) {
                     return write_interval_shift(cx, *op, lhs, rhs);
                 }
@@ -138,6 +141,9 @@ impl Target for RTidyverse {
                 cx.infix(level, symbol, lhs, rhs)?;
             }
             NodeKind::Compare { op, lhs, rhs } => {
+                if super::over_numbers(&[lhs, rhs]) {
+                    cx.fidelity(NAN_COMPARISON);
+                }
                 let symbol = match op {
                     CmpOp::Eq => "==",
                     CmpOp::Ne => "!=",
@@ -149,6 +155,9 @@ impl Target for RTidyverse {
                 cx.infix(p::CMP, symbol, lhs, rhs)?;
             }
             NodeKind::IsNull { operand, negated } => {
+                if super::over_numbers(&[operand]) {
+                    cx.fidelity(NAN_IS_MISSING);
+                }
                 if *negated {
                     cx.push("!");
                 }
@@ -160,6 +169,9 @@ impl Target for RTidyverse {
                 hi,
                 negated,
             } => {
+                if super::over_numbers(&[operand, lo, hi]) {
+                    cx.fidelity(NAN_COMPARISON);
+                }
                 if *negated {
                     cx.push("!");
                 }
@@ -226,11 +238,23 @@ impl Target for RTidyverse {
     }
 }
 
-const DIVISION: Fidelity =
-    Fidelity::Divergent("R yields Inf when dividing by zero, where data-dict reports it (D10).");
+const NAN_COMPARISON: Fidelity = Fidelity::Divergent(
+    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+);
 
-const MODULO_ZERO: Fidelity =
-    Fidelity::Divergent("R yields NaN for a zero modulus, where data-dict reports it (D10).");
+const NAN_IS_MISSING: Fidelity = Fidelity::Divergent(
+    "`is.na` is TRUE for a NaN, where data-dict counts a NaN as a value and answers false for `IS NULL`.",
+);
+
+const NAN_DROPPED: Fidelity = Fidelity::Divergent(
+    "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs.",
+);
+
+/// R's doubles agree with the language (`7 %% 0` is `NaN`), but its integers
+/// don't, and a column read as `integer` takes that path.
+const MODULO_ZERO: Fidelity = Fidelity::Divergent(
+    "R yields NA for an integer modulus by zero (`7L %% 0L`), where data-dict yields a NaN.",
+);
 
 const ROUNDING: Fidelity = Fidelity::Divergent(
     "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half.",
@@ -241,7 +265,7 @@ const REGEX: Fidelity = Fidelity::Divergent(
 );
 
 const EMPTY_FOLD: Fidelity = Fidelity::Divergent(
-    "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null, so an aggregate assertion differs on such a column.",
+    "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
 );
 
 const OVERFLOW: Fidelity = Fidelity::Divergent(
@@ -281,13 +305,17 @@ fn write_interval_shift(
 }
 
 /// `%in%` answers `FALSE` for an `NA` subject where the language says null, and
-/// null passes. The guard restores that.
+/// null passes. The guard restores that — but it catches a NaN with it, since
+/// `is.na` is `TRUE` for one, which is why a numeric subject diverges.
 fn write_in(
     cx: &mut Ctx,
     operand: &TypedExpr,
     list: &[TypedExpr],
     negated: bool,
 ) -> Result<(), Unsupported> {
+    if super::over_numbers(&[operand]) {
+        cx.fidelity(NAN_COMPARISON);
+    }
     cx.push("is.na(");
     cx.free(operand)?;
     cx.push(") | ");
@@ -384,10 +412,16 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             cx.fidelity(MODULO_ZERO);
             cx.infix(p::SPECIAL, "%%", &args[0], &args[1])?;
         }
+        Op::IsFinite => write_kind_test(cx, "is.finite", &args[0])?,
+        Op::IsInfinite => write_kind_test(cx, "is.infinite", &args[0])?,
+        Op::IsNan => write_kind_test(cx, "is.nan", &args[0])?,
         Op::Min | Op::Max | Op::Sum | Op::Avg => {
             cx.fidelity(EMPTY_FOLD);
             if op == Op::Sum {
                 cx.fidelity(OVERFLOW);
+            }
+            if super::over_numbers(&[&args[0]]) {
+                cx.fidelity(NAN_DROPPED);
             }
             let name = match op {
                 Op::Min => "min",
@@ -407,17 +441,37 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             cx.push(", na.rm = TRUE)");
         }
         Op::Count => {
+            if super::over_numbers(&[&args[0]]) {
+                cx.fidelity(NAN_DROPPED);
+            }
             cx.push("sum(!is.na(");
             cx.free(&args[0])?;
             cx.push("))");
         }
         Op::RowCount => cx.push("n()"),
         Op::CountDistinct => {
+            if super::over_numbers(&[&args[0]]) {
+                cx.fidelity(NAN_DROPPED);
+            }
             cx.push("n_distinct(");
             cx.free(&args[0])?;
             cx.push(", na.rm = TRUE)");
         }
     }
+    Ok(())
+}
+
+/// `is.nan` and its siblings answer `FALSE` for an `NA`, where a scalar function
+/// of the language propagates a null. `is.na(x) & !is.nan(x)` is R's test for a
+/// missing value that isn't a NaN, which is exactly where the two disagree.
+fn write_kind_test(cx: &mut Ctx, test: &str, x: &TypedExpr) -> Result<(), Unsupported> {
+    cx.push("if_else(is.na(");
+    cx.free(x)?;
+    cx.push(") & !is.nan(");
+    cx.free(x)?;
+    cx.push("), NA, ");
+    cx.call(test, &[x])?;
+    cx.push(")");
     Ok(())
 }
 
@@ -465,8 +519,14 @@ fn string(text: &str) -> String {
 }
 
 fn render_float(x: f64) -> String {
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x.is_sign_negative() { "-Inf" } else { "Inf" }.to_string();
+    }
     let text = x.to_string();
-    if text.contains(['.', 'e', 'E', 'n', 'i']) {
+    if text.contains(['.', 'e', 'E']) {
         text
     } else {
         format!("{text}.0")

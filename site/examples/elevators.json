@@ -1,0 +1,474 @@
+{
+  "$version": "0.1.0",
+  "description": "<p>Registered elevator devices in New York City, as provided by the NYC Department of Buildings in response to a September 2015 FOIL request. The data was received in November 2015 and covers ~76k devices. Includes elevators, escalators, dumbwaiters, and other vertical transportation devices.</p>",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "tables": [
+    {
+      "name": "elevators",
+      "source": {
+        "parquet": "elevators.parquet"
+      },
+      "columns": [
+        {
+          "name": "dv_device_number",
+          "description": "<p>Unique device number assigned by the NYC Department of Buildings. Can be used to look up a device on the DOB <a href=\"http://a810-bisweb.nyc.gov/bisweb/bispi00.jsp\">Building Information Search</a> (Field 26).</p>",
+          "type": "string",
+          "constraints": [
+            "primary_key",
+            "unique",
+            "required"
+          ],
+          "examples": [
+            "1D1",
+            "1P26114",
+            "1P47998",
+            "3P14044",
+            "5T722"
+          ]
+        },
+        {
+          "name": "device_status",
+          "description": "<p>Single-letter code for the device's registration status.</p>",
+          "type": "enum",
+          "constraints": [
+            "required"
+          ],
+          "values": [
+            "A",
+            "D",
+            "H",
+            "J",
+            "W"
+          ],
+          "value_labels": {
+            "A": "active",
+            "D": "dismantled",
+            "H": "NYCHA",
+            "J": "no jurisdiction",
+            "W": "work in progress"
+          }
+        },
+        {
+          "name": "bin",
+          "description": "<p>Building Identification Number, a unique identifier assigned by the NYC Department of Buildings to each building. More reliable than street address for geolocation.</p>",
+          "type": "number(id)",
+          "examples": [
+            1000003,
+            1044931,
+            2018006,
+            3329429,
+            5863656
+          ]
+        },
+        {
+          "name": "tax_block",
+          "description": "<p>Tax block number within the borough, part of the BBL.</p>",
+          "type": "number(id)",
+          "examples": [
+            1,
+            1726,
+            3627,
+            6356,
+            16350
+          ]
+        },
+        {
+          "name": "tax_lot",
+          "description": "<p>Tax lot number within the block, part of the BBL. Stored as a string because some lots have letter suffixes (e.g. <code>7501T</code>).</p>",
+          "type": "string",
+          "examples": [
+            "1",
+            "276",
+            "483",
+            "992",
+            "7501T"
+          ]
+        },
+        {
+          "name": "house_number",
+          "description": "<p>Street number portion of the filed at address.</p>",
+          "type": "string",
+          "examples": [
+            "1",
+            "55",
+            "200",
+            "521",
+            "72-20"
+          ]
+        },
+        {
+          "name": "street_name",
+          "description": "<p>Street name portion of the filed at address.</p>",
+          "type": "string",
+          "examples": [
+            "BROADWAY",
+            "EAST 28 ST",
+            "FOOD CENTER DRIVE",
+            "HOWARD AVE",
+            "SEVENTH AVENUE"
+          ]
+        },
+        {
+          "name": "zip_code",
+          "description": "<p>Five-digit ZIP code for the filed at address.</p>",
+          "type": "string",
+          "examples": [
+            "10001",
+            "10302",
+            "11109",
+            "11362",
+            "99999"
+          ]
+        },
+        {
+          "name": "borough",
+          "description": "<p>NYC borough where the device is located. A small number of rows have this field blank.</p>",
+          "type": "enum",
+          "values": [
+            "Bronx",
+            "Brooklyn",
+            "Manhattan",
+            "Queens",
+            "Staten Island"
+          ]
+        },
+        {
+          "name": "device_type",
+          "description": "<p>Type of elevator device.</p>",
+          "type": "enum",
+          "values": [
+            "Passenger Elevator (P)",
+            "Freight (F)",
+            "Escalator (E)",
+            "Dumbwaiter (D)",
+            "Sidewalk (S)",
+            "Private Elevator (T)",
+            "Handicap Lift (H)",
+            "Manlift (M)",
+            "Public Elevator (L)"
+          ]
+        },
+        {
+          "name": "dv_lastper_insp_date",
+          "description": "<p>Date of the last periodic inspection by the NYC Department of Buildings. May be missing if the device has never been inspected. Because the data is from late 2015, these dates may no longer be current.</p>",
+          "type": "date",
+          "range": {
+            "min": "1988-08-19",
+            "max": "2015-10-13"
+          }
+        },
+        {
+          "name": "dv_lastper_insp_disp",
+          "description": "<p>Disposition code from the last periodic inspection. Missing if no inspection on record. <code>II</code> appears 17 times and its meaning is not documented anywhere; 18 rows using codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "DF",
+            "NV",
+            "PI",
+            "VF",
+            "II"
+          ],
+          "value_labels": {
+            "DF": "deficiency found",
+            "II": "unknown",
+            "NV": "no violation",
+            "PI": "partial inspection",
+            "VF": "violation filed"
+          }
+        },
+        {
+          "name": "dv_approval_date",
+          "description": "<p>Date the device was approved. Typically reflects when the device was first registered or last had a major approval action.</p>",
+          "type": "date",
+          "range": {
+            "min": "1925-02-24",
+            "max": "2015-10-16"
+          }
+        },
+        {
+          "name": "dv_manufacturer",
+          "description": "<p>Name of the device manufacturer as entered by the filer. Free-text with many inconsistencies (e.g. <code>OTIS</code> and <code>OTIS ELEV CO</code> are the same company). Over 2,000 unique values. Some entries like <code>HOUSING AUTHORITY</code> or <code>PRIVATE RESIDENCE</code> describe ownership rather than manufacturer.</p>",
+          "type": "string",
+          "examples": [
+            "OTIS",
+            "HOUSING AUTHORITY",
+            "PRIVATE RESIDENCE",
+            "MRL ELEVATOR",
+            "STALEY"
+          ]
+        },
+        {
+          "name": "dv_travel_distance",
+          "description": "<p>Vertical travel distance of the device in feet. Often omitted (~62% missing). Parsed from highly inconsistent raw strings. See travel-distance.qmd for details.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 1300
+          }
+        },
+        {
+          "name": "dv_speed_fpm",
+          "description": "<p>Speed of the device in feet per minute. Common values include 50, 100, 200, 350. Converted from string by extracting leading numeric values (e.g. <code>95UP</code> -&gt; 95). 16 unparseable entries (e.g. <code>----</code>, <code>VAR</code>, <code>EX</code>) were set to missing.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 1800
+          }
+        },
+        {
+          "name": "dv_capacity_lbs",
+          "description": "<p>Weight capacity of the device in pounds. Common values include 2500, 3000, 3500 for passenger elevators. Converted from string by fixing <code>O</code>/<code>o</code> -&gt; <code>0</code>, removing commas, and extracting leading numeric values. 6 unparseable entries (e.g. <code>ESC</code>, <code>NIUD</code>) were set to missing.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 0,
+            "max": 20000
+          }
+        },
+        {
+          "name": "dv_car_buffer_type",
+          "description": "<p>Type of car buffer. Often missing, particularly for non-elevator devices. <code>R</code> (41 rows) is an inferred label. 42 rows using digits or codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "S",
+            "O",
+            "R"
+          ],
+          "value_labels": {
+            "O": "oil",
+            "R": "rubber",
+            "S": "spring"
+          }
+        },
+        {
+          "name": "dv_governor_type",
+          "description": "<p>Type of speed governor. Often missing for non-elevator devices. <code>I</code> and <code>O</code> are inferred labels; <code>B</code>, <code>G</code>, and <code>V</code> are used often enough to be real codes but their meanings are not documented anywhere. 29 rows using digits or codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "C",
+            "F",
+            "N",
+            "I",
+            "O",
+            "B",
+            "G",
+            "V"
+          ],
+          "value_labels": {
+            "B": "unknown",
+            "C": "centrifugal",
+            "F": "fly-ball",
+            "G": "unknown",
+            "I": "inertia",
+            "N": "none",
+            "O": "other",
+            "V": "unknown"
+          }
+        },
+        {
+          "name": "dv_machine_type",
+          "description": "<p>Type of hoisting machine. Missing for some devices. <code>OD</code> (652 rows, concentrated in dumbwaiters and freight elevators), <code>D</code>, <code>H</code>, and <code>RP</code> are inferred labels; <code>A</code> (243 rows), <code>B</code> (224 rows), <code>LT</code>, and <code>WT</code> are undocumented. 23 rows using codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "OG",
+            "GL",
+            "OH",
+            "BG",
+            "BD",
+            "OD",
+            "D",
+            "H",
+            "RP",
+            "O",
+            "T",
+            "A",
+            "B",
+            "LT",
+            "WT"
+          ],
+          "value_labels": {
+            "A": "unknown",
+            "B": "unknown",
+            "BD": "basement drum",
+            "BG": "basement geared",
+            "D": "drum",
+            "GL": "gearless",
+            "H": "hydraulic",
+            "LT": "unknown",
+            "O": "other",
+            "OD": "overhead drum",
+            "OG": "overhead geared",
+            "OH": "overhead",
+            "RP": "roped plunger",
+            "T": "traction",
+            "WT": "unknown"
+          }
+        },
+        {
+          "name": "dv_safety_type",
+          "description": "<p>Type of safety device. Missing for roughly half of all devices. <code>W</code>, <code>N</code>, and <code>O</code> are inferred labels; the remaining codes are undocumented, though <code>B</code> and <code>C</code> may correspond to the ASME Type B and Type C safety classes. 53 rows using digits, punctuation, or codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "I",
+            "F",
+            "G",
+            "W",
+            "N",
+            "O",
+            "B",
+            "C",
+            "E",
+            "L",
+            "M",
+            "P",
+            "S",
+            "U",
+            "V"
+          ],
+          "value_labels": {
+            "B": "unknown",
+            "C": "unknown",
+            "E": "unknown",
+            "F": "flexible guide clamp",
+            "G": "governor-operated",
+            "I": "instantaneous",
+            "L": "unknown",
+            "M": "unknown",
+            "N": "none",
+            "O": "other",
+            "P": "unknown",
+            "S": "unknown",
+            "U": "unknown",
+            "V": "unknown",
+            "W": "wedge clamp"
+          }
+        },
+        {
+          "name": "dv_mode_operation",
+          "description": "<p>Mode of operation. Missing for some devices. <code>N</code> is an inferred label; <code>R</code> (42 rows) and <code>K</code> (11 rows, all on escalators) are undocumented. 59 rows using digits or codes seen fewer than 10 times were treated as data entry errors and set to missing.</p>",
+          "type": "enum",
+          "values": [
+            "A",
+            "P",
+            "E",
+            "C",
+            "D",
+            "S",
+            "H",
+            "N",
+            "K",
+            "R"
+          ],
+          "value_labels": {
+            "A": "automatic",
+            "C": "car-switch",
+            "D": "dumbwaiter",
+            "E": "escalator",
+            "H": "handicap",
+            "K": "unknown",
+            "N": "none",
+            "P": "push button",
+            "R": "unknown",
+            "S": "signal control"
+          }
+        },
+        {
+          "name": "dv_status_date",
+          "description": "<p>Date when the device status was last updated.</p>",
+          "type": "date",
+          "range": {
+            "min": "1940-07-18",
+            "max": "2015-10-17"
+          }
+        },
+        {
+          "name": "dv_floor_from",
+          "description": "<p>Lowest floor served by the device. May be an integer (<code>1</code>), a standard letter code (<code>B</code> basement, <code>C</code> cellar, <code>L</code> lobby, <code>G</code> ground, <code>M</code> mezzanine, <code>SB</code> sub-basement, <code>SC</code> sub-cellar), or a comma-separated pair indicating two lobby entry levels (e.g. <code>B,1</code>). See floor.qmd for details.</p>",
+          "type": "string",
+          "examples": [
+            "B",
+            "1",
+            "C",
+            "SB",
+            "B,1"
+          ]
+        },
+        {
+          "name": "dv_floor_to",
+          "description": "<p>Highest floor served by the device. Uses the same notation as <code>dv_floor_from</code>. Common letter codes include <code>PH</code> (penthouse), <code>R</code> (roof), <code>T</code> (top), and <code>ST</code> (street). Subject to the same cleaning as <code>dv_floor_from</code>.</p>",
+          "type": "string",
+          "examples": [
+            "6",
+            "12",
+            "PH",
+            "R",
+            "ST"
+          ]
+        },
+        {
+          "name": "latitude",
+          "description": "<p>Approximate latitude of the device's building, obtained by geocoding the BIN, Borough-Block-Lot, or street address via the NYC Geoclient API. Not authoritative; some values may be in error.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": 40.5,
+            "max": 40.9
+          }
+        },
+        {
+          "name": "longitude",
+          "description": "<p>Approximate longitude of the device's building, obtained by geocoding. Not authoritative; some values may be in error.</p>",
+          "type": "number(quantity)",
+          "range": {
+            "min": -74.3,
+            "max": -73.7
+          }
+        }
+      ]
+    }
+  ],
+  "glossary": [
+    {
+      "term": "BIN",
+      "definition": "<p>Building Identification Number. A unique numeric identifier assigned to each building by the NYC Department of Buildings.</p>"
+    },
+    {
+      "term": "BBL",
+      "definition": "<p>Borough-Block-Lot. A three-part identifier (borough code, tax block, tax lot) used by NYC to uniquely identify a parcel of land for property tax purposes.</p>"
+    },
+    {
+      "term": "DOB",
+      "definition": "<p>New York City Department of Buildings. The agency responsible for ensuring the safe and lawful use of buildings and properties.</p>"
+    },
+    {
+      "term": "NYCHA",
+      "definition": "<p>New York City Housing Authority. The public housing authority for NYC, which manages its own elevator inspection program.</p>"
+    },
+    {
+      "term": "periodic inspection",
+      "definition": "<p>A required inspection of elevator devices conducted by the NYC Department of Buildings on a regular cycle (typically annual or biennial depending on device type).</p>"
+    },
+    {
+      "term": "manlift",
+      "definition": "<p>A continuous-loop conveyor with platforms or steps used to transport people between floors. Largely obsolete and rarely installed new.</p>"
+    },
+    {
+      "term": "sidewalk elevator",
+      "definition": "<p>A freight elevator that opens at sidewalk level, used to move goods between the sidewalk and a building's basement or cellar.</p>"
+    },
+    {
+      "term": "gearless traction",
+      "definition": "<p>An elevator machine type where the motor directly drives the sheave without a gearbox. Used in high-rise buildings for high speeds and smooth operation.</p>"
+    },
+    {
+      "term": "governor",
+      "definition": "<p>A speed-limiting safety device on an elevator. If the car exceeds a set speed, the governor triggers the safety mechanism to stop the car.</p>"
+    },
+    {
+      "term": "filed at",
+      "definition": "<p>The address where the elevator application or paperwork was filed with the Department of Buildings. This may differ from the actual physical location of the device. The BIN or Borough-Block-Lot is generally more reliable for geolocation.</p>"
+    },
+    {
+      "term": "car buffer",
+      "definition": "<p>A shock-absorbing device at the bottom of the elevator shaft that cushions the car in the event of an overrun. Spring buffers are used for lower speeds; oil buffers for higher speeds.</p>"
+    }
+  ]
+}
