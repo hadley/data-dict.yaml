@@ -401,6 +401,22 @@ mod tests {
     }
 
     #[test]
+    fn a_filtered_aggregate_carries_the_clause() {
+        assert_eq!(
+            sql("SUM(qty) FILTER (WHERE flag) > 0"),
+            r#"sum("qty") FILTER (WHERE "flag") > 0"#
+        );
+        assert_eq!(
+            sql("ROW_COUNT() FILTER (WHERE qty > 0) > 0"),
+            r#"count(*) FILTER (WHERE "qty" > 0) > 0"#
+        );
+        assert_eq!(
+            sql("COUNT_DISTINCT(s) FILTER (WHERE flag) > 0"),
+            r#"count(DISTINCT "s") FILTER (WHERE "flag") > 0"#
+        );
+    }
+
+    #[test]
     fn an_interval_folds_into_a_literal_when_it_can() {
         assert_eq!(
             sql("ts >= NOW() - interval(2, weeks)"),
@@ -595,6 +611,38 @@ mod r_tests {
             "n_distinct(s, na.rm = TRUE) <= 16L"
         );
         assert_eq!(r("ANY(flag)"), "any(flag, na.rm = TRUE)");
+    }
+
+    #[test]
+    fn a_filtered_aggregate_subsets_its_argument() {
+        assert_eq!(
+            r("SUM(qty) FILTER (WHERE flag) > 0"),
+            "sum(qty[flag], na.rm = TRUE) > 0L"
+        );
+        // A computed argument is parenthesised before it is subset.
+        assert_eq!(
+            r("SUM(qty * 2) FILTER (WHERE flag) > 0"),
+            "sum((qty * 2L)[flag], na.rm = TRUE) > 0L"
+        );
+        // An NA in the condition subsets to an NA element, which `na.rm`
+        // drops — the row is excluded, as the language says.
+        assert_eq!(
+            r("ANY(flag) FILTER (WHERE qty > 0)"),
+            "any(flag[qty > 0L], na.rm = TRUE)"
+        );
+        assert_eq!(
+            r("COUNT(s) FILTER (WHERE qty > 0)"),
+            "sum(!is.na(s[qty > 0L]))"
+        );
+        assert_eq!(
+            r("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
+            "n_distinct(s[flag], na.rm = TRUE)"
+        );
+        // `n()` can't be subset, so a filtered row count sums the condition.
+        assert_eq!(
+            r("ROW_COUNT() FILTER (WHERE qty > 0)"),
+            "sum(qty > 0L, na.rm = TRUE)"
+        );
     }
 
     #[test]

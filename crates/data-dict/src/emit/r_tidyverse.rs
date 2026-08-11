@@ -233,13 +233,7 @@ impl Target for RTidyverse {
                 cx.push(")");
             }
             NodeKind::Func { op, args, filter } => {
-                if filter.is_some() {
-                    return Err(Unsupported {
-                        what: "FILTER (WHERE ...)",
-                        why: "filtered aggregates are not yet translated",
-                    });
-                }
-                write_func(cx, *op, args)?;
+                write_func(cx, *op, args, filter.as_deref())?;
             }
         }
         Ok(())
@@ -389,8 +383,25 @@ fn write_like(
     Ok(())
 }
 
-fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupported> {
+fn write_func(
+    cx: &mut Ctx,
+    op: Op,
+    args: &[TypedExpr],
+    filter: Option<&TypedExpr>,
+) -> Result<(), Unsupported> {
     let refs: Vec<&TypedExpr> = args.iter().collect();
+    // A filtered aggregate folds a subset of rows, so subset the argument by
+    // the condition. An NA in the condition subsets to an NA element, which
+    // the aggregate's own `na.rm` then drops — the row is excluded either way.
+    let folded = |cx: &mut Ctx, arg: &TypedExpr| -> Result<(), Unsupported> {
+        cx.child(p::ATOM, Side::Left, arg)?;
+        if let Some(filter) = filter {
+            cx.push("[");
+            cx.free(filter)?;
+            cx.push("]");
+        }
+        Ok(())
+    };
     match op {
         Op::Length => cx.call("str_length", &refs)?,
         Op::Lower => cx.call("str_to_lower", &refs)?,
@@ -439,13 +450,13 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
             };
             cx.push(name);
             cx.push("(");
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push(", na.rm = TRUE)");
         }
         Op::Any | Op::All => {
             cx.fidelity(EMPTY_FOLD);
             cx.push(if op == Op::Any { "any(" } else { "all(" });
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push(", na.rm = TRUE)");
         }
         Op::Count => {
@@ -453,16 +464,24 @@ fn write_func(cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupporte
                 cx.fidelity(NAN_DROPPED);
             }
             cx.push("sum(!is.na(");
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push("))");
         }
-        Op::RowCount => cx.push("n()"),
+        Op::RowCount => match filter {
+            // `n()` takes no subset, so count the rows the condition keeps.
+            Some(filter) => {
+                cx.push("sum(");
+                cx.free(filter)?;
+                cx.push(", na.rm = TRUE)");
+            }
+            None => cx.push("n()"),
+        },
         Op::CountDistinct => {
             if super::over_numbers(&[&args[0]]) {
                 cx.fidelity(NAN_DROPPED);
             }
             cx.push("n_distinct(");
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push(", na.rm = TRUE)");
         }
     }
