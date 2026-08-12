@@ -8,14 +8,13 @@
   --ink: light-dark(#1c2430, #e3e6ea);
   --ink-soft: light-dark(#5b6675, #a3acb7);
   --ink-faint: light-dark(#66707e, #8d97a2);
-  --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
+  --float: light-dark(#ffffff, #161b21); /* tooltip, search results, controls */
   --rule: light-dark(#d6d0c4, #333b44);
   --row-line: light-dark(#e4e0d7, #2a3138);
 
   /* The page background and the surface everthing sits on */
-  --background: light-dark(#f1eee8, #14181c);
+  --background: light-dark(#f1eee8, #181d22);
   --paper: light-dark(#f8f6f4, #0e1216);
-
 
   /* ---- accents ------------------------------------------------------------
      Solarized's eight. Everything coloured on the page is one of them as it
@@ -87,7 +86,7 @@
   --null-fill: light-dark(#e3e3e3, #444c55);
   --null-edge: light-dark(#bcbcbc, #5a626c);
   --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
-  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.196));
+  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.07));
 
   /* The two faces everything on the page wears: sans for prose, mono for
      names, values, and micro-labels. */
