@@ -1527,7 +1527,7 @@ fn s12_optional_range_on_a_number_is_type_checked() {
     "});
     diagnostic.assert_contains(&[
         "S12",
-        "Each `range` value of a `number` column must be a number",
+        "Both `range` values of a `number` column must be a number",
     ]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);

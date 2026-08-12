@@ -10,7 +10,7 @@ tables:
         type: number
         examples: [1, two, 3]
 ────────────────────────────────────────
-error[S12]: Each `examples` value of a `number` column must be a number.
+error[S12]: Every `examples` value of a `number` column must be a number.
   --> dict.yaml:8:23
    |
 LL |   - name: table

@@ -10,7 +10,7 @@ tables:
         type: string
         examples: ['02134', 94110]
 ────────────────────────────────────────
-error[S12]: Each `examples` value of a `string` column must be a string.
+error[S12]: Every `examples` value of a `string` column must be a string.
   --> dict.yaml:8:29
    |
 LL |   - name: table

@@ -11,7 +11,7 @@ tables:
         range: [low, 9]
         examples: [1, 5, 9]
 ────────────────────────────────────────
-error[S12]: Each `range` value of a `number` column must be a number.
+error[S12]: Both `range` values of a `number` column must be a number.
   --> dict.yaml:8:17
    |
 LL |   - name: t

@@ -10,7 +10,7 @@ tables:
         type: number
         examples: [1.5, .nan, 3.5]
 ────────────────────────────────────────
-error[S12]: Each `examples` value must have a place on the number line.
+error[S12]: Every `examples` value must have a place on the number line.
   --> dict.yaml:8:25
    |
 LL |   - name: table

@@ -11,7 +11,7 @@ tables:
         units: kg
         range: [.nan, 10]
 ────────────────────────────────────────
-error[S12]: Each `range` value must have a place on the number line.
+error[S12]: Both `range` values must have a place on the number line.
   --> dict.yaml:9:17
    |
 LL |   - name: table

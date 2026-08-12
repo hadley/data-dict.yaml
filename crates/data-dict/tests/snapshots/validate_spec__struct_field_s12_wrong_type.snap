@@ -13,7 +13,7 @@ tables:
             type: number(id)
             examples: [not-a-number]
 ────────────────────────────────────────
-error[S12]: Each `examples` value of a `number(id)` column must be a number.
+error[S12]: Every `examples` value of a `number(id)` column must be a number.
   --> dict.yaml:11:24
    |
 LL |   - name: t

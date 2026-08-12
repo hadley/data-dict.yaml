@@ -14,7 +14,7 @@ tables:
           - 60614
           - '98101'
 ────────────────────────────────────────
-error[S12]: Each `examples` value of a `string` column must be a string.
+error[S12]: Every `examples` value of a `string` column must be a string.
   --> dict.yaml:11:13
    |
 LL |   - name: table

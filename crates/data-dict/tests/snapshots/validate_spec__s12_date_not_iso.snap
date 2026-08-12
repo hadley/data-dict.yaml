@@ -10,7 +10,7 @@ tables:
         type: date
         range: ["2020-01-01", "20-01-2021"]
 ────────────────────────────────────────
-error[S12]: Each `range` value of a `date` column must be an ISO 8601 date (YYYY-MM-DD).
+error[S12]: Both `range` values of a `date` column must be an ISO 8601 date (YYYY-MM-DD).
   --> dict.yaml:8:31
    |
 LL |   - name: table

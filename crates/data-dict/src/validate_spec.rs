@@ -514,12 +514,12 @@ fn validate_s25_unaliased_self_join(dict: &DataDict, out: &mut ProblemSet) {
         };
         out.push_spec_error(
             "S25",
-            "A self-join must give each side its own alias.",
+            "A self-join must give both sides their own aliases.",
             found,
             [rel.join_text.span.clone()],
         );
         out.hint_last(format!(
-            "Name the role each side plays, e.g. `aliases: {{parent: {table}, child: {table}}}`, \
+            "Name the roles both sides play, e.g. `aliases: {{parent: {table}, child: {table}}}`, \
              and use those names in the `join`."
         ));
     }
@@ -1290,7 +1290,11 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
                 ok = false;
                 out.push_spec_error(
                     "S12",
-                    format!("Each `{key}` value must have a place on the number line."),
+                    if key == "range" {
+                        "Both `range` values must have a place on the number line.".to_string()
+                    } else {
+                        format!("Every `{key}` value must have a place on the number line.")
+                    },
                     "is `.nan`".to_string(),
                     spans,
                 );
@@ -1307,12 +1311,20 @@ fn validate_s12_value_types(table: &Table, col: &Column, out: &mut ProblemSet) -
             ok = false;
             out.push_spec_error(
                 "S12",
-                format!(
-                    "Each `{}` value of a `{}` column must be {}.",
-                    key,
-                    type_name,
-                    expected_noun(effective_type, tz_present),
-                ),
+                if key == "range" {
+                    format!(
+                        "Both `range` values of a `{}` column must be {}.",
+                        type_name,
+                        expected_noun(effective_type, tz_present),
+                    )
+                } else {
+                    format!(
+                        "Every `{}` value of a `{}` column must be {}.",
+                        key,
+                        type_name,
+                        expected_noun(effective_type, tz_present),
+                    )
+                },
                 format!("is {}", v.value.noun()),
                 spans,
             );

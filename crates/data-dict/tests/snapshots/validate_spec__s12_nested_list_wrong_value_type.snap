@@ -11,7 +11,7 @@ tables:
         units: kg
         range: [0, top]
 ────────────────────────────────────────
-error[S12]: Each `range` value of a `list(list(number(quantity)))` column must be a number.
+error[S12]: Both `range` values of a `list(list(number(quantity)))` column must be a number.
   --> dict.yaml:9:20
    |
 LL |   - name: t
