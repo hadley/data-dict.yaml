@@ -7,7 +7,7 @@
 
   --ink: light-dark(#1c2430, #e3e6ea);
   --ink-soft: light-dark(#5b6675, #a3acb7);
-  --ink-faint: light-dark(#7d8794, #6f7883);
+  --ink-faint: light-dark(#66707e, #8d97a2);
   --paper: light-dark(#f1eee8, #14181c);
   --card: light-dark(#ffffff, #1e242a);
   --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
@@ -92,7 +92,20 @@
   --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
   --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.196));
 
-  --row-text: 11.5px; /* diagram rows and the tooltip share this size */
+  /* The two faces everything on the page wears: sans for prose, mono for
+     names, values, and micro-labels. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale, in rem so the whole page follows the browser's font-size
+     setting. Pixel comments assume the 16px default. */
+  --text-sm: 0.875rem;   /* 14px — the smallest size used anywhere */
+  --text-base: 1rem;     /* 16px */
+  --text-lg: 1.125rem;   /* 18px */
+  --text-xl: 1.5rem;     /* 24px */
+  --text-2xl: 2rem;      /* 32px */
+
+  --row-text: var(--text-sm); /* diagram rows and the tooltip share this size */
 }
 
 :root[data-theme="light"] { color-scheme: only light; }
@@ -104,8 +117,8 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
   line-height: 1.55;
 }
 main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
@@ -113,7 +126,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; }
+h1.title { color: var(--accent1); font-size: var(--text-2xl); font-weight: 700; margin: 0; }
 /* The title as a link keeps the title's own colour and weight: it should read as
    the heading it is, with the chevron the only sign it goes anywhere. Only the
    name underlines on hover, so the chevron isn't struck through. */
@@ -146,8 +159,8 @@ h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; 
 /* The key badges, worn identically by a column in the diagram's tables and by
    the same column on its own page. */
 .key {
-  font-family: ui-sans-serif, sans-serif;
-  font-size: 9px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--accent1);
@@ -192,7 +205,7 @@ h1.title { color: var(--accent1); font-size: 29px; font-weight: 700; margin: 0; 
 /* "name: label" — the name keeps whatever (usually mono) face surrounds it;
    the label reads as plain text beside it. */
 .name-label {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   font-weight: 400;
   color: var(--ink-soft);
 }
@@ -221,7 +234,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 }
 #tip[hidden] { display: none; }
 #tip code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: var(--row-text);
 }
 #tip .tip-head {
@@ -248,7 +261,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 #tip .tip-todo .tip-head code { color: var(--warn); }
 #tip .tip-todo .prose { display: block; margin-top: 5px; color: var(--ink-soft); }
 #tip .tip-todo-note { margin-top: 9px; }
-#tip .tip-todo-lbl { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--warn); }
+#tip .tip-todo-lbl { font-family: var(--font-mono); color: var(--warn); }
 #tip .tip-todo :is(p, ul, ol) { margin: 0; }
 #tip .tip-todo :is(ul, ol) { padding-left: 1.2em; }
 #tip .tip-todo li + li { margin-top: 2px; }
