@@ -14,6 +14,6 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 # Whether to install an updater program
 install-updater = false
 # Which actions to run on pull requests
-pr-run-mode = "plan"
+pr-run-mode = "upload"
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
