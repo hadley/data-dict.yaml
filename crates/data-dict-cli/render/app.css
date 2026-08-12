@@ -126,7 +126,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-h1.title { color: var(--accent1); font-size: var(--text-2xl); font-weight: 700; margin: 0; }
+.pagehead h1 { color: var(--accent1); font-size: var(--text-2xl); font-weight: 700; margin: 0; }
 /* The title as a link keeps the title's own colour and weight: it should read as
    the heading it is, with the chevron the only sign it goes anywhere. Only the
    name underlines on hover, so the chevron isn't struck through. */

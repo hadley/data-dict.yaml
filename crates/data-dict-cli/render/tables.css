@@ -96,10 +96,6 @@ a.cpath:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .tlist tbody.tgroup:not(.expanded) tr.crow.xtra { display: none; }
 
 /* rendered Markdown in prose */
-.prose code {
-  font-family: var(--font-mono); font-size: .92em;
-  background: var(--chip); border-radius: 3px; padding: 0 3px;
-}
 .prose a { color: var(--link); text-underline-offset: 2px; }
 .prose a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .prose p { margin: 0 0 10px; }
@@ -128,7 +124,9 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 /* ---- table detail page ---- */
 .tpage-head { padding-bottom: 14px; }
 .tpage-title-row { display: flex; align-items: center; gap: 10px; }
-.mtitle { font-family: var(--font-mono); font-weight: 650; font-size: var(--text-lg); color: var(--ink); }
+.tpage-title-row > h2, .modal-title-row > h2 {
+  font-family: var(--font-mono); font-weight: 650; font-size: var(--text-lg); color: var(--ink); margin: 0;
+}
 .tpage-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
 
 /* Each block of the page sits on a card over the paper: the dataset's lead, the
@@ -243,6 +241,8 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .missfill.full { right: -0.5px; min-width: 0; border-radius: 999px; }
 .miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: var(--text-sm); font-family: var(--font-mono); white-space: nowrap; }
 .col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* the heading is the document outline; the anchor inside carries the look */
+.col-head h3 { margin: 0; font-size: inherit; font-weight: inherit; }
 .col-name { font-family: var(--font-mono); font-weight: 650; font-size: var(--text-sm); color: var(--ink); }
 a.col-name { text-decoration: none; border-radius: 3px; }
 a.col-name:hover { color: var(--link); }
@@ -253,15 +253,16 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .col-desc { color: var(--ink); font-size: var(--text-sm); margin-top: 4px; line-height: 1.5; }
 .col-meta { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }
-.col-meta code { font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+.col-meta code { font-family: var(--font-mono); background: var(--inset); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
 /* One chip for every value a column reports — allowed, given as an example,
    sampled from the data, or the range and counts read off it — set off from the
-   line but in the page's own text face. */
-.val {
-  display: inline-block;
+   line but in the page's own text face. Join chips share the shell; what sets
+   them apart is what they carry (a wire icon, mono names) and that they act. */
+.val, .join-chip {
   background: var(--inset); border: 1px solid var(--rule); border-radius: 4px;
   padding: 0 3px; color: var(--ink);
 }
+.val { display: inline-block; }
 /* a chip cut short for its length: click reveals the whole value, wrapped */
 button.val { font: inherit; }
 .val.cut { cursor: pointer; }
@@ -282,7 +283,7 @@ button.val { font: inherit; }
 .more-less:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .joins-line .lbl { margin-right: 0; }
-.join-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; color: var(--ink); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
+.join-chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
 .join-chip:hover { border-color: var(--link); color: var(--link); }
 .join-chip svg { width: 20px; height: 10px; display: block; color: var(--ink-soft); }
 /* a quiet panel behind the bars, so the histogram reads as one thing */
