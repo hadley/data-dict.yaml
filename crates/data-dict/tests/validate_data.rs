@@ -2264,6 +2264,38 @@ fn a_filter_that_admits_no_rows_leaves_empty_input() {
 }
 
 #[test]
+fn a_filtered_row_count_counts_only_matching_rows() {
+    let yaml = build_asserted(
+        &[1, 2, 3],
+        &[Some(1), Some(-1), Some(1)],
+        &assertion("ROW_COUNT() FILTER (WHERE b > 0) = 2"),
+    );
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+}
+
+#[test]
+fn a_filtered_aggregate_folds_before_a_row_assertion_is_judged() {
+    // Mixed grain: the filtered sum is folded once (1 + 3 = 4), then compared
+    // against each row.
+    let holds = build_asserted(
+        &[1, 2, 3],
+        &[Some(1), Some(-1), Some(1)],
+        &assertion("a <= 2 * SUM(a) FILTER (WHERE b > 0)"),
+    );
+    assert_eq!(validate_data(&holds, None).status(), Status::Ok);
+
+    // The large value is excluded from the fold, so the sum stays small and
+    // its own row violates.
+    let fails = build_asserted(
+        &[1, 2, 30],
+        &[Some(1), Some(-1), Some(-1)],
+        &assertion("a <= 2 * SUM(a) FILTER (WHERE b > 0)"),
+    );
+    let diagnostic = asserted(&fails);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "3"]);
+}
+
+#[test]
 fn an_aggregate_assertion_passes_vacuously_on_an_empty_table() {
     // Folding nothing yields null, and null passes.
     let yaml = build_asserted(&[], &[], &assertion("SUM(a) > 100"));
