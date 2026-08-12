@@ -155,7 +155,7 @@ function Header({ onGlossary, atTable }) {
     <span>${name}</span>`;
   return html`<header class="pagehead">
     <div class="head-title">
-      <h1 class="title" id="dict-title">
+      <h1 id="dict-title">
         ${atTable
           ? html`<a class="homelink" href="#" title="Back to every table"
               onClick=${(e) => { e.preventDefault(); goHome(); }}>${titled(true)}</a>`
@@ -377,14 +377,14 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
     <div class="col-main">
       <div class="col-head">
         ${c.name
-          ? html`<a class="col-name" href=${"#" + t.name + "." + c.name}
+          ? html`<h3><a class="col-name" href=${"#" + t.name + "." + c.name}
               title=${"Link to " + t.name + "." + c.name}
               onClick=${(e) => { e.preventDefault(); go("#" + t.name + "." + c.name); }}>
               <${Marked} text=${c.name} ql=${hl} />
               ${c.label && html`<span class="name-label">: ${c.label}</span>`}
               <span class="anchor-mark">#</span>
-            </a>`
-          : html`<span class="col-name">(unnamed)</span>`}
+            </a></h3>`
+          : html`<h3><span class="col-name">(unnamed)</span></h3>`}
         ${keys.map((k) =>
           k === "primary_key"
             ? html`<span class="key">PK</span>`
@@ -396,11 +396,6 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
       ${constraints.length > 0 &&
         html`<${MetaLine} label="constraints" hl=${hl}
           items=${constraints.map((k) => k.replace(/_/g, " "))} />`}
-      ${joins.length > 0 &&
-        html`<div class="col-meta joins-line">
-          <span class="lbl">joins:</span>
-          ${joins.map((j) => html`<${JoinChip} join=${j} />`)}
-        </div>`}
       ${c.values && c.values.length > 0 &&
         (c.value_labels
           ? html`<${ValueDefs} values=${c.values} labels=${c.value_labels} hl=${hl} />`
@@ -415,6 +410,11 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
       ${c.units != null && html`<${MetaText} label="units" text=${String(c.units)} />`}
       ${p && p.sample_values && p.sample_values.length > 0 &&
         html`<${SampleValues} values=${p.sample_values} hl=${hl} />`}
+      ${joins.length > 0 &&
+        html`<div class="col-meta joins-line">
+          <span class="lbl">joins:</span>
+          ${joins.map((j) => html`<${JoinChip} join=${j} />`)}
+        </div>`}
     </div>
     <div class="col-side">
       ${p && html`<${Histogram} profile=${p} rows=${t.rows} />`}
@@ -469,7 +469,7 @@ function TablePage({ table: t, targetCol }) {
       <div class="tpage-top">
         <div class="tpage-headmain">
           <div class="tpage-title-row">
-            <span class="mtitle"><${NameLabel} label=${t.label}><span>${t.name}</span><//></span>
+            <h2><${NameLabel} label=${t.label}><span>${t.name}</span><//></h2>
             <${TodoFlag} source=${t.todo} />
           </div>
           <div class="tpage-substat">${substat}</div>
@@ -517,7 +517,7 @@ function GlossaryModal({ onClose }) {
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="gloss-title">
       <div class="modal-head">
         <button class="modal-close" type="button" aria-label="Close" onClick=${onClose}>×</button>
-        <div class="modal-title-row"><span class="mtitle" id="gloss-title">Glossary</span></div>
+        <div class="modal-title-row"><h2 id="gloss-title">Glossary</h2></div>
         <div class="modal-substat">${glossItems.length} terms</div>
         <input class="modal-filter gloss-filter" type="search" placeholder="Filter terms…"
           autocomplete="off" ref=${filterRef} value=${filter}

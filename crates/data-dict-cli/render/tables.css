@@ -5,36 +5,36 @@
 details.xdetails { margin: 0 0 18px; }
 details.xdetails > summary {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
   color: var(--ink-soft);
 }
 details.xdetails > summary::-webkit-details-marker { display: none; }
-details.xdetails > summary::before { content: '\25B8'; font-size: 8px; }
+details.xdetails > summary::before { content: '\25B8'; font-size: var(--text-sm); }
 details.xdetails[open] > summary::before { content: '\25BE'; }
 details.xdetails > summary:hover { color: var(--ink); }
 details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 3px; }
 .xdetails-body { margin-top: 8px; max-width: 1000px; line-height: 1.55; color: var(--ink); }
 .tpage-details details.xdetails { margin: 0 0 13px; }
-.tpage-details .xdetails-body { font-size: 13.5px; max-width: none; }
+.tpage-details .xdetails-body { font-size: var(--text-sm); max-width: none; }
 
 .toolbar { margin-bottom: 14px; }
 .toolbar input[type=search] {
   width: 100%;
   padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card); color: var(--ink); font-size: 14px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
 }
 
 /* ---- table index ---- */
 .tlist-wrap {
   border: 1px solid var(--rule); border-radius: 10px;
-  background: var(--card); overflow-x: auto;
+  background: var(--paper); overflow-x: auto;
 }
-.tlist { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tlist { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 .tlist thead th {
   text-align: left; padding: 8px 14px; white-space: nowrap;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: var(--ink-soft); border-bottom: 1px solid var(--rule);
 }
 .tlist th.num, .tlist td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -50,14 +50,14 @@ details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outli
 .tlist tbody.tgroup:not(:has(.drow)) tr.trow td { padding-bottom: 10px; }
 
 a.tname {
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 13px;
+  font-family: var(--font-mono); font-weight: 650; font-size: var(--text-sm);
   color: var(--ink); text-decoration: none; border-radius: 3px;
 }
 a.tname:hover { color: var(--link); }
 a.tname:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-.tlist td.size { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; }
+.tlist td.size { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-soft); white-space: nowrap; }
 .tlist .stimes { margin: 0 5px; opacity: .55; }
-.tlist td.desc { color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+.tlist td.desc { color: var(--ink); font-size: var(--text-sm); line-height: 1.45; }
 /* the clamp needs a block of its own; a <td> does not honour -webkit-box */
 .tlist td.desc .dclamp {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -66,11 +66,11 @@ a.tname:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 /* the search's receipt: the columns that matched, nested under their table */
 .tlist tr.mhead td.mheadcell { padding-top: 5px; padding-bottom: 3px; }
 .mlbl {
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; font-weight: 700;
+  font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700;
   letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
 }
 button.showall {
-  font: inherit; font-size: 11px; margin-left: 10px; padding: 0;
+  font: inherit; font-size: var(--text-sm); margin-left: 10px; padding: 0;
   border: none; background: none; color: var(--link); cursor: pointer; text-decoration: underline;
 }
 button.showall:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
@@ -79,7 +79,7 @@ button.showall:focus-visible { outline: 2px solid var(--link); outline-offset: 2
 .tlist tbody.tgroup tr.crow:last-child td { padding-bottom: 10px; }
 .tlist td.csub { padding-left: 26px; white-space: nowrap; }
 a.cpath {
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  font-family: var(--font-mono); font-size: var(--text-sm);
   text-decoration: none; border-radius: 3px;
 }
 a.cpath .cp-tbl { color: var(--ink-soft); }
@@ -88,18 +88,14 @@ a.cpath:hover .cp-col, a.cpath:hover .cp-tbl { color: var(--link); }
 a.cpath:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .cwhere {
   margin-left: 8px;
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9.5px;
+  font-family: var(--font-mono); font-size: var(--text-sm);
   letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft);
 }
-.tlist td.csub-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.4; text-align: left; }
+.tlist td.csub-desc { font-size: var(--text-sm); color: var(--ink-soft); line-height: 1.4; text-align: left; }
 .dclamp1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .tlist tbody.tgroup:not(.expanded) tr.crow.xtra { display: none; }
 
 /* rendered Markdown in prose */
-.prose code {
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em;
-  background: var(--chip); border-radius: 3px; padding: 0 3px;
-}
 .prose a { color: var(--link); text-underline-offset: 2px; }
 .prose a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .prose p { margin: 0 0 10px; }
@@ -115,7 +111,7 @@ abbr.gterm {
 }
 abbr.gterm:hover { text-decoration-color: var(--accent1); }
 
-.tables-empty { color: var(--ink-soft); font-size: 13.5px; padding: 18px 14px; }
+.tables-empty { color: var(--ink-soft); font-size: var(--text-sm); padding: 18px 14px; }
 
 @media (max-width: 720px) {
   .tlist td.csub-desc { display: none; }
@@ -128,22 +124,19 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 /* ---- table detail page ---- */
 .tpage-head { padding-bottom: 14px; }
 .tpage-title-row { display: flex; align-items: center; gap: 10px; }
-.mtitle { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 18px; color: var(--ink); }
-.tpage-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
+.tpage-title-row > h2, .modal-title-row > h2 {
+  font-family: var(--font-mono); font-weight: 650; font-size: var(--text-lg); color: var(--ink); margin: 0;
+}
+.tpage-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
 
-/* Each block of the page sits on a card over the paper: the dataset's lead, the
-   table's header, and the column list. The light palette's surfaces are close
-   together by nature, so the border is what actually separates them; the fill
-   is what stops the page reading as one flat sheet. */
+/* Each block of the page sits on a card over the background: the dataset's
+   lead, the table's header, and the column list. They all share the one
+   surface, so the border is what separates them. */
 .lead, .tpage-top, .tpage-list {
   border: 1px solid var(--rule);
   border-radius: 10px;
+  background: var(--paper);
 }
-/* The description cards take the warm panel, so prose reads as its own surface
-   without taking a colour. Opacity can't do this job: card and paper are ~20/255
-   apart, so no alpha is visible against it. */
-.lead, .tpage-top { background: var(--panel); }
-.tpage-list { background: var(--card); }
 .lead { padding: 14px 16px; margin-bottom: 20px; }
 .lead > :last-child, .lead p:last-child { margin-bottom: 0; }
 /* The rows bleed 13px outward to let a highlighted one span the full width, so
@@ -159,7 +152,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .tpage-headmain { flex: 1 1 auto; min-width: 0; }
 .tpage-headmain > :last-child, .tpage-main > :last-child { margin-bottom: 0; }
 .tpage-main { max-width: 76ch; }
-.tpage-desc { color: var(--ink); font-size: 13.5px; margin: 0 0 13px; }
+.tpage-desc { color: var(--ink); font-size: var(--text-sm); margin: 0 0 13px; }
 .tpage-desc:last-child { margin-bottom: 0; }
 /* Outlined rather than filled — it is already on the card, so a border is all
    it takes to set it apart. Sized by its chips, so a table with a few relations
@@ -171,8 +164,8 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 }
 .tpage-related[hidden] { display: none; }
 .tpage-related .rel-lbl {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
   color: var(--ink-soft); margin-bottom: 8px;
 }
 .tpage-related .rel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -180,13 +173,13 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .tpage-controls { display: flex; gap: 10px; align-items: center; }
 .tpage-sort {
   flex: none; padding: 8px 30px 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
-  color: var(--ink); font-size: 13.5px; cursor: pointer;
+  background: var(--paper) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
+  color: var(--ink); font-size: var(--text-sm); cursor: pointer;
   -webkit-appearance: none; appearance: none;
 }
 .tpage-filter {
   flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card); color: var(--ink); font-size: 14px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
 }
 
 .col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
@@ -199,7 +192,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
   padding: 16px 21px;
   border-radius: 10px;
   border: 1px solid var(--rule);
-  background: var(--card);
+  background: var(--paper);
   box-shadow: 0 1px 2px var(--shadow-near), 0 8px 22px -8px var(--shadow-far);
 }
 .col-item:has(+ .is-target) { border-bottom-color: transparent; padding-bottom: 5px }
@@ -212,21 +205,21 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 }
 .modal-overlay[hidden] { display: none; }
 .modal {
-  background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 14px;
   width: min(760px, 96vw); max-height: 86vh;
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 24px 60px var(--modal-shadow), 0 0 44px var(--modal-glow);
 }
 .modal-head { flex: none; padding: 18px 22px 14px; border-bottom: 1px solid var(--rule); position: relative; }
 .modal-title-row { display: flex; align-items: center; gap: 10px; }
-.modal-substat { color: var(--ink-soft); font-size: 12.5px; margin: 7px 0 13px; }
+.modal-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
 .modal-filter {
   width: 100%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--paper); color: var(--ink); font-size: 14px;
+  background: var(--background); color: var(--ink); font-size: var(--text-sm);
 }
 .modal-close {
   position: absolute; top: 12px; right: 15px; border: none; background: transparent;
-  font-size: 24px; line-height: 1; color: var(--ink-soft); cursor: pointer;
+  font-size: var(--text-xl); line-height: 1; color: var(--ink-soft); cursor: pointer;
 }
 .modal-close:hover { color: var(--ink); }
 .modal-body { flex: 1; overflow-y: auto; padding: 4px 22px 22px; }
@@ -238,30 +231,33 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
    left, and on the right the missing share in red, anchored left over a grey
    base — each taking half the width */
 .miss-meter { display: flex; align-items: center; gap: 8px; width: 240px; margin: 6px 10px 0; }
-.missbar { flex: 1 1 0; min-width: 0; height: 9px; border-radius: 999px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
+.missbar { flex: 1 1 0; min-width: 0; height: 9px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
 .missfill { position: absolute; top: -0.5px; left: -0.5px; bottom: -0.5px; min-width: 6px; border-radius: 999px 0 0 999px; background: var(--null-bar); box-sizing: border-box; }
-.missfill.full { right: -0.5px; min-width: 0; border-radius: 999px; }
-.miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+.missfill.full { right: -0.5px; min-width: 0; }
+.miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: var(--text-sm); font-family: var(--font-mono); white-space: nowrap; }
 .col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.col-name { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 650; font-size: 13.5px; color: var(--ink); }
+/* the heading is the document outline; the anchor inside carries the look */
+.col-head h3 { margin: 0; font-size: inherit; font-weight: inherit; font-size: var(--text-base); }
+.col-name { font-family: var(--font-mono); font-weight: 650; color: var(--ink); }
 a.col-name { text-decoration: none; border-radius: 3px; }
 a.col-name:hover { color: var(--link); }
 a.col-name:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 /* the anchor mark holds its space, so hovering never nudges the row */
 a.col-name .anchor-mark { margin-left: 6px; font-weight: 400; color: var(--ink-soft); opacity: 0; }
 a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 1; }
-.col-desc { color: var(--ink); font-size: 13px; margin-top: 4px; line-height: 1.5; }
-.col-meta { color: var(--ink-soft); font-size: 11.5px; margin-top: 5px; }
+.col-desc { color: var(--ink); font-size: var(--text-sm); margin-top: 4px; line-height: 1.5; }
+.col-meta { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }
-.col-meta code { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+.col-meta code { font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
 /* One chip for every value a column reports — allowed, given as an example,
    sampled from the data, or the range and counts read off it — set off from the
-   line but in the page's own text face. */
-.val {
-  display: inline-block;
-  background: var(--inset); border: 1px solid var(--rule); border-radius: 4px;
+   line but in the page's own text face. Join chips share the shell; what sets
+   them apart is what they carry (a wire icon, mono names) and that they act. */
+.val, .join-chip {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
   padding: 0 3px; color: var(--ink);
 }
+.val { display: inline-block; }
 /* a chip cut short for its length: click reveals the whole value, wrapped */
 button.val { font: inherit; }
 .val.cut { cursor: pointer; }
@@ -282,7 +278,7 @@ button.val { font: inherit; }
 .more-less:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 .joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .joins-line .lbl { margin-right: 0; }
-.join-chip { display: inline-flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; color: var(--ink); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
+.join-chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
 .join-chip:hover { border-color: var(--link); color: var(--link); }
 .join-chip svg { width: 20px; height: 10px; display: block; color: var(--ink-soft); }
 /* a quiet panel behind the bars, so the histogram reads as one thing */
@@ -290,7 +286,7 @@ button.val { font: inherit; }
   margin-top: 2px;
   padding: 9px 10px 8px;
   border-radius: 6px;
-  background: var(--inset);
+  background: var(--paper);
 }
 .hist-svg { display: block; }
 .hist-svg .hist-bar { fill: var(--hist-bar); transition: fill .08s ease; shape-rendering: crispEdges;}
@@ -302,15 +298,15 @@ button.val { font: inherit; }
 .hist-svg .hist-band { fill: transparent; transition: fill .08s ease; }
 .hist-svg .hist-band.hot { fill: var(--hist-band); }
 .hist-svg .hist-hit { fill: transparent; }
-.hist-cap { color: var(--ink-soft); font-size: 11px; margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.hist-cap { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 4px; font-family: var(--font-mono); }
 /* the observed extremes as axis labels: min under the left edge, max under
    the right */
 .hist-cap-range { display: flex; justify-content: space-between; gap: 8px; }
 .hist-cap-range .cap-mid { color: var(--ink-faint); }
 .gloss-item { padding: 12px 0; border-bottom: 1px solid var(--rule); }
 .gloss-item:last-child { border-bottom: none; }
-.gloss-term { font-weight: 700; font-size: 14.5px; color: var(--ink); }
-.gloss-def { color: var(--ink); font-size: 13px; margin-top: 3px; line-height: 1.55; }
+.gloss-term { font-weight: 700; font-size: var(--text-base); color: var(--ink); }
+.gloss-def { color: var(--ink); font-size: var(--text-sm); margin-top: 3px; line-height: 1.55; }
 
 /* On a narrow window the profiles and the related-tables box come off the
    right-hand side and sit under what they sat beside. Last, so it outranks the

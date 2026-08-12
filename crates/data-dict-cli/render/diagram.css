@@ -1,27 +1,28 @@
 /* The relationships diagram. Shares the page palette in app.css; the metrics
    and tints only the diagram uses live here. */
 :root {
-  --row-h: 30px; /* leaves ~8px above and below the text, matching --row-pad */
+  /* rem so the rows grow with the text inside them */
+  --row-h: 1.875rem; /* leaves ~8px above and below the text, matching --row-pad */
   --row-pad: 9px;
   /* mixed off the Solarized accents in app.css, towards whatever sits behind */
   --head-bg: light-dark(
     color-mix(in oklab, var(--accent1-hue) 80%, black),
-    color-mix(in oklab, var(--accent1-hue) 40%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 40%, var(--background)));
   --head-ink: light-dark(#ffffff, #e7f1ef);
   --demo-head: light-dark(#6b7684, #3a434d);
   --demo-rule: light-dark(#c9c4b8, #454e58);
   /* row touched by the hovered relationship */
   --tint-edge: light-dark(
     color-mix(in oklab, var(--accent1-hue) 20%, white),
-    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--background)));
   /* row matching the search */
   --tint-search: light-dark(
     color-mix(in oklab, var(--mark-hue) 20%, white),
-    color-mix(in oklab, var(--mark-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--mark-hue) 20%, var(--background)));
   /* the match you selected */
   --tint-search-on: light-dark(
     color-mix(in oklab, var(--mark-hue) 40%, white),
-    color-mix(in oklab, var(--mark-hue) 40%, var(--paper)));
+    color-mix(in oklab, var(--mark-hue) 40%, var(--background)));
 }
 
 /* ---- diagram surface ---------------------------------------------------- */
@@ -40,7 +41,7 @@
 #canvas {
   height: min(87.5vh, 775px);
   overflow: auto;
-  background-color: var(--paper);
+  background-color: var(--background);
   /* faint dot grid, pinned to the board so it pans with it */
   background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1.4px, transparent 0);
   background-size: 24px 24px;
@@ -77,7 +78,7 @@
   left: 0;
   width: max-content;
   max-width: 340px;
-  background: var(--card);
+  background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 7px;
   box-shadow: 0 1px 2px var(--shadow-near), 0 6px 16px -10px var(--shadow-far);
@@ -95,9 +96,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.01em;
   background: var(--head-bg);
   color: var(--head-ink);
@@ -126,7 +127,7 @@
   right: 0;
   bottom: 0;
   height: 14px;
-  background: linear-gradient(to top, var(--card), transparent);
+  background: linear-gradient(to top, var(--paper), transparent);
   pointer-events: none;
   transition: opacity 120ms;
 }
@@ -140,7 +141,7 @@
   gap: 10px;
   height: var(--row-h);
   padding: 0 var(--row-pad);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: var(--row-text);
   white-space: nowrap;
 }
@@ -150,7 +151,7 @@
 .row.pinned {
   position: sticky;
   z-index: 1;
-  --row-bg: var(--card);
+  --row-bg: var(--paper);
 }
 .row.pinned.linked { --row-bg: var(--hover-row); }
 .row.pin-last { box-shadow: 0 1px 0 var(--rule), 0 3px 6px -4px var(--shadow-far); }
@@ -165,7 +166,7 @@
 }
 .row .name:hover { color: var(--link); text-decoration: underline; }
 .row .name:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; border-radius: 2px; }
-.row .type { color: var(--ink-faint); font-size: 10.5px; }
+.row .type { color: var(--ink-soft); font-size: var(--text-sm); }
 .row .keys { display: flex; gap: 4px; }
 /* the badges themselves are styled in app.css, shared with the tables app */
 /* badges that stand for at least one relationship respond to the mouse */
@@ -251,10 +252,10 @@
 
 .node > h2 .count {
   margin-left: auto;
-  font-family: ui-sans-serif, sans-serif;
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
   font-weight: 500;
-  opacity: 0.75;
+  opacity: 0.85;
 }
 
 /* ---- picking tables ------------------------------------------------------ */
@@ -327,7 +328,7 @@
 #showall {
   padding: 6px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--ink);
   background: var(--float);
   border: 1px solid var(--rule);
@@ -351,7 +352,7 @@
   width: 100%;
   padding: 6px 9px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--ink);
   background: var(--float);
   border: 1px solid var(--rule);
@@ -374,7 +375,7 @@
   border: 1px solid var(--rule);
   border-radius: 6px;
   box-shadow: 0 10px 26px -14px var(--shadow-lift);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
 }
 #hits[hidden] { display: none; }
 #hits .none { padding: 7px 9px; color: var(--ink-faint); }
@@ -384,8 +385,8 @@
   padding: 5px 9px;
   border: 0;
   background: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   color: var(--ink);
   text-align: left;
   cursor: pointer;
