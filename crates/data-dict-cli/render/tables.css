@@ -237,8 +237,8 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: var(--text-sm); font-family: var(--font-mono); white-space: nowrap; }
 .col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* the heading is the document outline; the anchor inside carries the look */
-.col-head h3 { margin: 0; font-size: inherit; font-weight: inherit; }
-.col-name { font-family: var(--font-mono); font-weight: 650; font-size: var(--text-sm); color: var(--ink); }
+.col-head h3 { margin: 0; font-size: inherit; font-weight: inherit; font-size: var(--text-base); }
+.col-name { font-family: var(--font-mono); font-weight: 650; color: var(--ink); }
 a.col-name { text-decoration: none; border-radius: 3px; }
 a.col-name:hover { color: var(--link); }
 a.col-name:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
