@@ -236,9 +236,9 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
    left, and on the right the missing share in red, anchored left over a grey
    base — each taking half the width */
 .miss-meter { display: flex; align-items: center; gap: 8px; width: 240px; margin: 6px 10px 0; }
-.missbar { flex: 1 1 0; min-width: 0; height: 9px; border-radius: 999px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
+.missbar { flex: 1 1 0; min-width: 0; height: 9px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
 .missfill { position: absolute; top: -0.5px; left: -0.5px; bottom: -0.5px; min-width: 6px; border-radius: 999px 0 0 999px; background: var(--null-bar); box-sizing: border-box; }
-.missfill.full { right: -0.5px; min-width: 0; border-radius: 999px; }
+.missfill.full { right: -0.5px; min-width: 0; }
 .miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: var(--text-sm); font-family: var(--font-mono); white-space: nowrap; }
 .col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* the heading is the document outline; the anchor inside carries the look */
