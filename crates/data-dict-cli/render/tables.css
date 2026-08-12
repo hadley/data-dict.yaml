@@ -22,13 +22,13 @@ details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outli
 .toolbar input[type=search] {
   width: 100%;
   padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card); color: var(--ink); font-size: var(--text-sm);
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
 }
 
 /* ---- table index ---- */
 .tlist-wrap {
   border: 1px solid var(--rule); border-radius: 10px;
-  background: var(--card); overflow-x: auto;
+  background: var(--paper); overflow-x: auto;
 }
 .tlist { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
 .tlist thead th {
@@ -129,19 +129,14 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 }
 .tpage-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
 
-/* Each block of the page sits on a card over the paper: the dataset's lead, the
-   table's header, and the column list. The light palette's surfaces are close
-   together by nature, so the border is what actually separates them; the fill
-   is what stops the page reading as one flat sheet. */
+/* Each block of the page sits on a card over the background: the dataset's
+   lead, the table's header, and the column list. They all share the one
+   surface, so the border is what separates them. */
 .lead, .tpage-top, .tpage-list {
   border: 1px solid var(--rule);
   border-radius: 10px;
+  background: var(--paper);
 }
-/* The description cards take the warm panel, so prose reads as its own surface
-   without taking a colour. Opacity can't do this job: card and paper are ~20/255
-   apart, so no alpha is visible against it. */
-.lead, .tpage-top { background: var(--panel); }
-.tpage-list { background: var(--card); }
 .lead { padding: 14px 16px; margin-bottom: 20px; }
 .lead > :last-child, .lead p:last-child { margin-bottom: 0; }
 /* The rows bleed 13px outward to let a highlighted one span the full width, so
@@ -178,13 +173,13 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .tpage-controls { display: flex; gap: 10px; align-items: center; }
 .tpage-sort {
   flex: none; padding: 8px 30px 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
+  background: var(--paper) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
   color: var(--ink); font-size: var(--text-sm); cursor: pointer;
   -webkit-appearance: none; appearance: none;
 }
 .tpage-filter {
   flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--card); color: var(--ink); font-size: var(--text-sm);
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
 }
 
 .col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
@@ -197,7 +192,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
   padding: 16px 21px;
   border-radius: 10px;
   border: 1px solid var(--rule);
-  background: var(--card);
+  background: var(--paper);
   box-shadow: 0 1px 2px var(--shadow-near), 0 8px 22px -8px var(--shadow-far);
 }
 .col-item:has(+ .is-target) { border-bottom-color: transparent; padding-bottom: 5px }
@@ -210,7 +205,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 }
 .modal-overlay[hidden] { display: none; }
 .modal {
-  background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 14px;
   width: min(760px, 96vw); max-height: 86vh;
   display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 24px 60px var(--modal-shadow), 0 0 44px var(--modal-glow);
@@ -220,7 +215,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 .modal-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
 .modal-filter {
   width: 100%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
-  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
+  background: var(--background); color: var(--ink); font-size: var(--text-sm);
 }
 .modal-close {
   position: absolute; top: 12px; right: 15px; border: none; background: transparent;
@@ -253,13 +248,13 @@ a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 
 .col-desc { color: var(--ink); font-size: var(--text-sm); margin-top: 4px; line-height: 1.5; }
 .col-meta { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
 .col-meta .lbl { font-weight: 650; margin-right: 6px; }
-.col-meta code { font-family: var(--font-mono); background: var(--inset); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+.col-meta code { font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
 /* One chip for every value a column reports — allowed, given as an example,
    sampled from the data, or the range and counts read off it — set off from the
    line but in the page's own text face. Join chips share the shell; what sets
    them apart is what they carry (a wire icon, mono names) and that they act. */
 .val, .join-chip {
-  background: var(--inset); border: 1px solid var(--rule); border-radius: 4px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
   padding: 0 3px; color: var(--ink);
 }
 .val { display: inline-block; }
@@ -291,7 +286,7 @@ button.val { font: inherit; }
   margin-top: 2px;
   padding: 9px 10px 8px;
   border-radius: 6px;
-  background: var(--inset);
+  background: var(--paper);
 }
 .hist-svg { display: block; }
 .hist-svg .hist-bar { fill: var(--hist-bar); transition: fill .08s ease; shape-rendering: crispEdges;}

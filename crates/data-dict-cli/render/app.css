@@ -8,11 +8,15 @@
   --ink: light-dark(#1c2430, #e3e6ea);
   --ink-soft: light-dark(#5b6675, #a3acb7);
   --ink-faint: light-dark(#66707e, #8d97a2);
-  --paper: light-dark(#f1eee8, #14181c);
-  --card: light-dark(#ffffff, #1e242a);
   --float: light-dark(#ffffff, #262d35); /* tooltip, search results, controls */
   --rule: light-dark(#d6d0c4, #333b44);
   --row-line: light-dark(#e4e0d7, #2a3138);
+
+  /* The page background and the surface everthing sits on */
+  --background: light-dark(#f1eee8, #14181c);
+  --paper: light-dark(#f8f6f4, #0e1216);
+
+
   /* ---- accents ------------------------------------------------------------
      Solarized's eight. Everything coloured on the page is one of them as it
      stands, or one of them mixed by one of four amounts and nothing in between:
@@ -42,14 +46,14 @@
     color-mix(in oklab, var(--accent1-hue) 80%, white));
   --accent1-soft: light-dark(
     color-mix(in oklab, var(--accent1-hue) 20%, white),
-    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--background)));
   --on-accent1: light-dark(#ffffff, #14142c); /* text on an accent1 fill */
   --accent2: light-dark(
     color-mix(in oklab, var(--accent2-hue) 80%, black),
     color-mix(in oklab, var(--accent2-hue) 80%, white));
   --accent2-soft: light-dark(
     color-mix(in oklab, var(--accent2-hue) 20%, white),
-    color-mix(in oklab, var(--accent2-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--accent2-hue) 20%, var(--background)));
   /* unresolved work — the one thing on the page that is a caveat rather than a
      fact, so it takes the palette's yellow and no other colour does */
   --warn: light-dark(
@@ -57,26 +61,19 @@
     color-mix(in oklab, var(--yellow) 80%, white));
   --warn-soft: light-dark(
     color-mix(in oklab, var(--yellow) 20%, white),
-    color-mix(in oklab, var(--yellow) 20%, var(--paper)));
+    color-mix(in oklab, var(--yellow) 20%, var(--background)));
   --grid-dot: light-dark(#cdc6b6, #2c343c);
   --scroll-thumb: light-dark(#cdc9c1, #3f4751);
   /* every row that takes part in a relationship wears this, so it is the
      quietest step on the ladder */
   --hover-row: light-dark(
     color-mix(in oklab, var(--accent1-hue) 10%, white),
-    color-mix(in oklab, var(--accent1-hue) 10%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 10%, var(--background)));
   --focus-ring: color-mix(in oklab, var(--accent1-hue) 20%, transparent);
   --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
   --shadow-far: light-dark(rgba(28, 36, 48, 0.25), rgba(0, 0, 0, 0.5));
   --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
   --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
-
-  /* A panel set into a card, halfway between the card and the page behind it. */
-  --inset: light-dark(#f8f6f4, #191e23);
-
-  /* The surfaces that hold prose: a warm step off the card, so a block of writing
-     doesn't sit on the same white as a list of data. */
-  --panel: light-dark(#f9f6f2, #191e23);
 
   /* the tables app's vocabulary, mapped onto the same palette */
   --chip: light-dark(#e9ecf2, #21262d);
@@ -115,7 +112,7 @@
 
 body {
   margin: 0;
-  background: var(--paper);
+  background: var(--background);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--text-base);
@@ -153,7 +150,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .icon-btn {
   flex: none; width: 38px; height: 38px; border: 1px solid var(--rule); border-radius: 9px;
-  background: var(--card); color: var(--ink); cursor: pointer;
+  background: var(--paper); color: var(--ink); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
 /* The key badges, worn identically by a column in the diagram's tables and by

@@ -7,22 +7,22 @@
   /* mixed off the Solarized accents in app.css, towards whatever sits behind */
   --head-bg: light-dark(
     color-mix(in oklab, var(--accent1-hue) 80%, black),
-    color-mix(in oklab, var(--accent1-hue) 40%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 40%, var(--background)));
   --head-ink: light-dark(#ffffff, #e7f1ef);
   --demo-head: light-dark(#6b7684, #3a434d);
   --demo-rule: light-dark(#c9c4b8, #454e58);
   /* row touched by the hovered relationship */
   --tint-edge: light-dark(
     color-mix(in oklab, var(--accent1-hue) 20%, white),
-    color-mix(in oklab, var(--accent1-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--accent1-hue) 20%, var(--background)));
   /* row matching the search */
   --tint-search: light-dark(
     color-mix(in oklab, var(--mark-hue) 20%, white),
-    color-mix(in oklab, var(--mark-hue) 20%, var(--paper)));
+    color-mix(in oklab, var(--mark-hue) 20%, var(--background)));
   /* the match you selected */
   --tint-search-on: light-dark(
     color-mix(in oklab, var(--mark-hue) 40%, white),
-    color-mix(in oklab, var(--mark-hue) 40%, var(--paper)));
+    color-mix(in oklab, var(--mark-hue) 40%, var(--background)));
 }
 
 /* ---- diagram surface ---------------------------------------------------- */
@@ -41,7 +41,7 @@
 #canvas {
   height: min(87.5vh, 775px);
   overflow: auto;
-  background-color: var(--paper);
+  background-color: var(--background);
   /* faint dot grid, pinned to the board so it pans with it */
   background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1.4px, transparent 0);
   background-size: 24px 24px;
@@ -78,7 +78,7 @@
   left: 0;
   width: max-content;
   max-width: 340px;
-  background: var(--card);
+  background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 7px;
   box-shadow: 0 1px 2px var(--shadow-near), 0 6px 16px -10px var(--shadow-far);
@@ -127,7 +127,7 @@
   right: 0;
   bottom: 0;
   height: 14px;
-  background: linear-gradient(to top, var(--card), transparent);
+  background: linear-gradient(to top, var(--paper), transparent);
   pointer-events: none;
   transition: opacity 120ms;
 }
@@ -151,7 +151,7 @@
 .row.pinned {
   position: sticky;
   z-index: 1;
-  --row-bg: var(--card);
+  --row-bg: var(--paper);
 }
 .row.pinned.linked { --row-bg: var(--hover-row); }
 .row.pin-last { box-shadow: 0 1px 0 var(--rule), 0 3px 6px -4px var(--shadow-far); }
