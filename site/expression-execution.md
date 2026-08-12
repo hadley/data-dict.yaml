@@ -175,8 +175,8 @@ A translation's `fidelity` is the weakest [class](#fidelity) among the construct
   "type": "boolean",
   "columns": [{ "table": "survey", "column": "postcode" }],
   "translations": [
-    { "target": "R(base)", "code": "nchar(postcode) <= 10" },
-    { "target": "R(tidyverse)", "code": "str_length(postcode) <= 10" },
+    { "target": "R(base)", "code": "nchar(postcode) <= 10L" },
+    { "target": "R(tidyverse)", "code": "str_length(postcode) <= 10L" },
     { "target": "SQL(duckdb)", "code": "length(\"postcode\") <= 10" },
     { "target": "Python(pandas)", "code": "postcode.str.len() <= 10",
       "fidelity": "divergent",
