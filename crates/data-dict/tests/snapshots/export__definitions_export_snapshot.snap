@@ -47,6 +47,14 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             {
               "target": "R(tidyverse)",
               "code": "is_enterprise"
+            },
+            {
+              "target": "R(base)",
+              "code": "is_enterprise"
+            },
+            {
+              "target": "R(data.table)",
+              "code": "is_enterprise"
             }
           ]
         }
@@ -80,6 +88,26 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
                 "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
                 "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
               ]
+            },
+            {
+              "target": "R(base)",
+              "code": "sum(ifelse(status_cd == 90L, 0L, order_total), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
+            },
+            {
+              "target": "R(data.table)",
+              "code": "sum(fcase(status_cd == 90L, 0L, default = order_total), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
             }
           ]
         },
@@ -99,6 +127,14 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             },
             {
               "target": "R(tidyverse)",
+              "code": "is.na(tile_size) | (tile_size %in% c(\"Mid-Market-3\", \"Enterprise-1\"))"
+            },
+            {
+              "target": "R(base)",
+              "code": "is.na(tile_size) | (tile_size %in% c(\"Mid-Market-3\", \"Enterprise-1\"))"
+            },
+            {
+              "target": "R(data.table)",
               "code": "is.na(tile_size) | (tile_size %in% c(\"Mid-Market-3\", \"Enterprise-1\"))"
             }
           ]
@@ -130,6 +166,24 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
                 "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
                 "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
               ]
+            },
+            {
+              "target": "R(base)",
+              "code": "sum(ifelse(is_enterprise, order_total, 0L), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
+            },
+            {
+              "target": "R(data.table)",
+              "code": "sum(fcase(is_enterprise, order_total, default = 0L), na.rm = TRUE)",
+              "notes": [
+                "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
+                "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
+                "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
+              ]
             }
           ]
         },
@@ -148,6 +202,14 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             },
             {
               "target": "R(tidyverse)",
+              "code": "order_total * 1.2"
+            },
+            {
+              "target": "R(base)",
+              "code": "order_total * 1.2"
+            },
+            {
+              "target": "R(data.table)",
               "code": "order_total * 1.2"
             }
           ]
