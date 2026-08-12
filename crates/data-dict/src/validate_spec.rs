@@ -201,6 +201,7 @@ pub(crate) fn validate_and_lower(
     validate_s09_learn_more(doc, out);
     validate_s17_version(doc, out);
     validate_s18_version_present(doc, out);
+    validate_s32_spec_version(doc, out);
     out.sort();
 
     if out.status().failed() {
@@ -1724,8 +1725,7 @@ fn validate_s17_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
 // --- S18 --------------------------------------------------------------
 
 /// Error when the document omits the required top-level `$version` key. The
-/// schema leaves this key optional so its absence lands here with a patch
-/// (a present-but-wrong value is still an enum error at the schema level).
+/// schema leaves this key optional so its absence lands here with a patch.
 /// Like S09, the missing key has no location of its own, so the error is
 /// anchored at the document's first character.
 fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
@@ -1752,6 +1752,78 @@ fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet)
         replacement: format!("$version: {SPEC_VERSION}\n"),
         span: insert_at,
     });
+}
+
+// --- S32 --------------------------------------------------------------
+
+/// Error when the document's `$version` names a spec version this validator
+/// doesn't support. The schema admits any string so the comparison lands here
+/// with a clear message: a higher version means the tool is older than the
+/// document, so the hint points at upgrading data-dict; a lower one is invalid
+/// outright, since spec numbering starts at `0.1.0`. Comparison uses the
+/// numeric core, ignoring any pre-release/build suffix.
+fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
+    let Some(entries) = root.as_hash() else {
+        return;
+    };
+    let Some(version) = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("$version"))
+    else {
+        return;
+    };
+
+    let text = version.value.yaml.as_str();
+    let spans = [version.key_span.clone(), version.value_span.clone()];
+    let supported =
+        parse_version_core(SPEC_VERSION).expect("SPEC_VERSION is a valid version number");
+    match text.and_then(|t| parse_version_core(t).map(|core| (t, core))) {
+        Some((_, core)) if core == supported => {}
+        Some((t, core)) if core > supported => {
+            out.push_spec_error(
+                "S32",
+                "This document conforms to a newer version of the data-dict spec than this validator supports.",
+                format!(
+                    "`$version` is `{t}`, but this version of data-dict supports up to `{SPEC_VERSION}`"
+                ),
+                spans,
+            );
+            out.hint_last("Upgrade data-dict to the latest version.");
+        }
+        Some((t, _)) => {
+            out.push_spec_error(
+                "S32",
+                format!("Spec version numbering starts at `{SPEC_VERSION}`."),
+                format!("`$version` is `{t}`, which is not a valid spec version"),
+                spans,
+            );
+        }
+        None => {
+            out.push_spec_error(
+                "S32",
+                "A `$version` must have three dot-separated numeric components, with an optional pre-release/build suffix.",
+                match text {
+                    Some(t) => format!("`{t}` is not a valid version number"),
+                    None => "is not a valid version number".to_string(),
+                },
+                spans,
+            );
+        }
+    }
+}
+
+/// The numeric `MAJOR.MINOR.PATCH` core of a version number, ignoring any
+/// pre-release/build suffix; `None` when `s` is not a valid version number.
+fn parse_version_core(s: &str) -> Option<(u64, u64, u64)> {
+    if !is_version_number(s) {
+        return None;
+    }
+    let mut parts = s.split(['+', '-']).next()?.split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
 }
 
 /// A version `number` per the spec: three dot-separated numeric components
