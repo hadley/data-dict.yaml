@@ -35,6 +35,10 @@ pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 /// The spec version this validator implements, suggested for a missing `$version`.
 pub const SPEC_VERSION: &str = "0.1.0";
 
+/// The first spec version ever released. A `$version` below this is invalid
+/// outright; anything from here up to [`SPEC_VERSION`] is accepted.
+const FIRST_SPEC_VERSION: &str = "0.1.0";
+
 const SCHEMA_YAML: &str = include_str!("../../../schema.yaml");
 const FIELD_SCHEMA_YAML: &str = include_str!("../../../schema-field.yaml");
 
@@ -1758,10 +1762,11 @@ fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet)
 
 /// Error when the document's `$version` names a spec version this validator
 /// doesn't support. The schema admits any string so the comparison lands here
-/// with a clear message: a higher version means the tool is older than the
-/// document, so the hint points at upgrading data-dict; a lower one is invalid
-/// outright, since spec numbering starts at `0.1.0`. Comparison uses the
-/// numeric core, ignoring any pre-release/build suffix.
+/// with a clear message: a version above [`SPEC_VERSION`] means the tool is
+/// older than the document, so the hint points at upgrading data-dict; one
+/// below [`FIRST_SPEC_VERSION`] is invalid outright, since spec numbering
+/// starts there. Anything in between is accepted. Comparison uses the numeric
+/// core, ignoring any pre-release/build suffix.
 fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let Some(entries) = root.as_hash() else {
         return;
@@ -1777,8 +1782,9 @@ fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
     let spans = [version.key_span.clone(), version.value_span.clone()];
     let supported =
         parse_version_core(SPEC_VERSION).expect("SPEC_VERSION is a valid version number");
+    let first =
+        parse_version_core(FIRST_SPEC_VERSION).expect("FIRST_SPEC_VERSION is a valid version");
     match text.and_then(|t| parse_version_core(t).map(|core| (t, core))) {
-        Some((_, core)) if core == supported => {}
         Some((t, core)) if core > supported => {
             out.push_spec_error(
                 "S32",
@@ -1790,14 +1796,15 @@ fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
             );
             out.hint_last("Upgrade data-dict to the latest version.");
         }
-        Some((t, _)) => {
+        Some((t, core)) if core < first => {
             out.push_spec_error(
                 "S32",
-                format!("Spec version numbering starts at `{SPEC_VERSION}`."),
+                format!("Spec version numbering starts at `{FIRST_SPEC_VERSION}`."),
                 format!("`$version` is `{t}`, which is not a valid spec version"),
                 spans,
             );
         }
+        Some(_) => {}
         None => {
             out.push_spec_error(
                 "S32",

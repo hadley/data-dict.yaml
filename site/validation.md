@@ -61,7 +61,7 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 | S29 | Invalid constraint on list or struct | E | A `primary_key`, `foreign_key`, or `unique` constraint appears on a `list` or `struct` column. (There is no such check for fields: a field can't carry `constraints` at all, which the schema enforces structurally.) |
 | S30 | Nested aggregate | E | An aggregate function's argument contains another aggregate call, as in `AVG(MIN(x))`: an aggregate folds one value per row, and another aggregate gives it a single value. This is the only [shape](expressions.md#shapes) an expression can get wrong — every other combination is legal, including mixing a row-level subexpression with an aggregate one (`value <= 2 * MIN(value)`). |
 | S31 | Unresolved todo | W | A `todo` key remains in the dictionary. Each one is reported at its location. Delete the key once the work it records is done. |
-| S32 | Unsupported spec version | E | The document's `$version` is not the spec version this validator supports (currently `0.1.0`): it is not a valid version number, it predates the first spec version (`0.1.0`), or it names a newer spec. A newer version means the tool is older than the document — upgrade `data-dict`. |
+| S32 | Unsupported spec version | E | The document's `$version` names a spec version this validator can't accept: it is not a valid version number, it predates the first spec version (`0.1.0`), or it is newer than the version the validator supports (currently `0.1.0`). A newer version means the tool is older than the document — upgrade `data-dict`. Versions between the first and the supported one are accepted. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
