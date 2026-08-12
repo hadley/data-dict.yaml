@@ -50,33 +50,43 @@ Commands:
 
 ### Install
 
-Build and install from source with [Cargo](https://rustup.rs):
+Every release ships prebuilt binaries for macOS, Linux, and Windows. On macOS
+and Linux:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/tidyverse/data-dict/releases/latest/download/data-dict-cli-installer.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/tidyverse/data-dict/releases/latest/download/data-dict-cli-installer.ps1 | iex"
+```
+
+This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). You can also download
+an archive straight from the [releases
+page](https://github.com/tidyverse/data-dict/releases/latest), or build from
+source with [Cargo](https://rustup.rs):
 
 ```bash
 cargo install --git https://github.com/tidyverse/data-dict data-dict-cli
 ```
 
-Or clone the repo and install the local build:
-
-```bash
-git clone https://github.com/tidyverse/data-dict.git
-cd data-dict
-cargo install --path crates/data-dict-cli
-```
-
-This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). To build without
-installing, run `cargo build --release` instead — the binary is then at
-`target/release/data-dict`.
+See [the install
+page](https://data-dict.tidyverse.org/install.html) for the other options, including
+the supported platforms and how to uninstall.
 
 ## Development
 
-This is a Rust workspace with three crates:
+This is a Rust workspace with four crates:
 
 * `crates/data-dict/` — core library: YAML parsing, schema validation, lowering
   to a typed model, and semantic schema checks.
 * `crates/data-dict-cli/` — thin CLI wrapper.
 * `crates/data-dict-parquet/` — reads Parquet schemas and maps column types to
   data-dict types.
+* `crates/data-dict-lsp/` — language server, compiled into the CLI behind its
+  `lsp` feature.
 
 ```bash
 cargo build --workspace
@@ -91,3 +101,21 @@ instead, so `cargo run -- render --live <dict>` reloads the browser when you
 edit them — no rebuild in between.
 
 The website is a [Quarto](https://quarto.org) project in [`site/`](site/), published automatically to [data-dict.tidyverse.org](https://data-dict.tidyverse.org) on every push to `main`.
+
+### Releases
+
+Releases are built by [`dist`](https://opensource.axo.dev/cargo-dist/),
+configured in [`dist-workspace.toml`](dist-workspace.toml). To cut one, bump
+`workspace.package.version` in [`Cargo.toml`](Cargo.toml), then tag and push:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` then builds the binaries for every supported
+platform, generates the installers and checksums, and publishes a GitHub
+release. The workflow is generated, not hand-written: after changing
+`dist-workspace.toml`, re-run `dist init` (or `dist generate`) with the `dist`
+version pinned in that file, and commit the result. `dist plan` shows what a
+release would produce without building it.
