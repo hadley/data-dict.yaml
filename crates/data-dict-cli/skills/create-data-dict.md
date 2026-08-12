@@ -28,6 +28,7 @@ This skill teaches you how to create a `data-dict.yaml` file for a dataset, foll
     -   **Which columns are trustworthy** vs. deprecated, derived, or known to be dirty.
     -   **Domain terms and acronyms** you don't recognise (these become glossary entries).
     -   **Relationships and cardinality** you can't infer from the data alone.
+    -   **PII and other sensitive data.** Flag any column that looks like it identifies or could contact a person -- names, email addresses, phone numbers, social security numbers, precise locations, IDs tied to individuals -- or is otherwise confidential. Mark each one `display: restricted` so it is excluded from user-facing output, and replace any real values `draft` put in its `examples` with plausible fakes (real values must never appear in the dictionary). When unsure whether a column is sensitive, ask the user.
 
     Where you have a reasonable guess, offer it as a concrete option to confirm or correct ("`amount` looks like it's in cents -- is that right?") -- that's far easier to answer than an open-ended question. Record every open question as a `todo` on the exact relationship, table, column, or field it concerns (`todo: Confirm whether amount is in cents or dollars.`).
 

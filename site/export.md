@@ -193,6 +193,8 @@ String, boolean, and enum columns summarize by value:
 
 A `list` column reports only its containers — `{ "missing": 4 }`, the null-list count — never its elements.
 
+A `display: restricted` column's profile carries **counts only** — `missing` and `distinct` — never a value the data held: `sample_values`, `common_values`, `range`, and `histogram` are always omitted, so consumers can safely embed the export in user-facing output. (The column's declared `examples` and `range` still appear; the spec requires those to be plausible fakes, written by the author rather than read from the data.)
+
 Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.
 
 Nested columns profile as far as the data allows:
