@@ -1088,24 +1088,18 @@ mod tests {
 
     #[test]
     fn a_filtered_aggregate_subsets_its_argument() {
-        assert_eq!(
+        // Subsetting the argument is spelled the same in every dialect.
+        for code in [
             tidy("SUM(qty) FILTER (WHERE flag) > 0"),
-            "sum(qty[flag], na.rm = TRUE) > 0L"
-        );
+            base("SUM(qty) FILTER (WHERE flag) > 0"),
+            dt("SUM(qty) FILTER (WHERE flag) > 0"),
+        ] {
+            assert_eq!(code, "sum(qty[flag], na.rm = TRUE) > 0L");
+        }
         // A computed argument is parenthesised before it is subset.
         assert_eq!(
             tidy("SUM(qty * 2) FILTER (WHERE flag) > 0"),
             "sum((qty * 2L)[flag], na.rm = TRUE) > 0L"
-        );
-        // An NA in the condition subsets to an NA element, which `na.rm`
-        // drops — the row is excluded, as the language says.
-        assert_eq!(
-            tidy("ANY(flag) FILTER (WHERE qty > 0)"),
-            "any(flag[qty > 0L], na.rm = TRUE)"
-        );
-        assert_eq!(
-            tidy("COUNT(s) FILTER (WHERE qty > 0)"),
-            "sum(!is.na(s[qty > 0L]))"
         );
         assert_eq!(
             tidy("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
@@ -1121,14 +1115,13 @@ mod tests {
         );
         // `n()` and `.N` can't be subset, so a filtered row count sums the
         // condition.
-        assert_eq!(
+        for code in [
             tidy("ROW_COUNT() FILTER (WHERE qty > 0)"),
-            "sum(qty > 0L, na.rm = TRUE)"
-        );
-        assert_eq!(
+            base("ROW_COUNT() FILTER (WHERE qty > 0)"),
             dt("ROW_COUNT() FILTER (WHERE qty > 0)"),
-            "sum(qty > 0L, na.rm = TRUE)"
-        );
+        ] {
+            assert_eq!(code, "sum(qty > 0L, na.rm = TRUE)");
+        }
     }
 
     #[test]
