@@ -209,6 +209,8 @@ struct ExportDefinition {
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    todo: Option<String>,
     expression: String,
     kind: &'static str,
     /// The expression's value type; absent when it couldn't be resolved (a
@@ -787,6 +789,7 @@ fn build_definition(
         label: def.label.clone(),
         description: prose(&def.description),
         details: prose(&def.details),
+        todo: spanned_prose(&def.todo),
         expression: def.text.value.clone(),
         kind,
         value_type,

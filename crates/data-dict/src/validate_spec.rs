@@ -566,19 +566,28 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
 
     // The definitions a reference may resolve to: the first of each non-empty
     // name, excluding names a column claims (references there resolve to the
-    // column; the collision is S33) and expressions that didn't parse (S19).
+    // column; the collision is S33).
     let mut referable: HashMap<&str, &Definition> = HashMap::new();
     for def in &table.definitions {
-        if !def.name.value.is_empty()
-            && table.column(&def.name.value).is_none()
-            && def.expr.is_some()
-        {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
             referable.entry(def.name.value.as_str()).or_insert(def);
         }
     }
     let def_refs = |def: &Definition| definition_refs(def, &referable);
 
+    // A definition whose expression didn't parse (S19, reported at lowering)
+    // resolves to the permissive `Ty::Any`, so its referencers don't cascade
+    // its error — the same treatment a failed check gets below.
     let mut resolved: HashMap<String, DefType> = HashMap::new();
+    for def in referable.values().filter(|d| d.expr.is_none()) {
+        resolved.insert(
+            def.name.value.clone(),
+            DefType {
+                ty: assert_expr::Ty::Any,
+                shape: assert_expr::Shape::Row,
+            },
+        );
+    }
     let mut pending: Vec<&Definition> = table
         .definitions
         .iter()
@@ -682,16 +691,28 @@ pub(crate) fn resolve_definitions(table: &Table) -> HashMap<String, DefType> {
 
     let mut referable: HashMap<&str, &Definition> = HashMap::new();
     for def in &table.definitions {
-        if !def.name.value.is_empty()
-            && table.column(&def.name.value).is_none()
-            && def.expr.is_some()
-        {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
             referable.entry(def.name.value.as_str()).or_insert(def);
         }
     }
 
+    // A definition whose expression didn't parse resolves to `Ty::Any`, as in
+    // `check_definition_exprs`.
     let mut resolved: HashMap<String, DefType> = HashMap::new();
-    let mut pending: Vec<&Definition> = referable.values().copied().collect();
+    let mut pending: Vec<&Definition> = Vec::new();
+    for def in referable.values() {
+        if def.expr.is_some() {
+            pending.push(def);
+        } else {
+            resolved.insert(
+                def.name.value.clone(),
+                DefType {
+                    ty: assert_expr::Ty::Any,
+                    shape: assert_expr::Shape::Row,
+                },
+            );
+        }
+    }
     while !pending.is_empty() {
         let before = pending.len();
         let mut i = 0;
@@ -727,6 +748,49 @@ pub(crate) fn resolve_definitions(table: &Table) -> HashMap<String, DefType> {
                     },
                 );
             }
+        }
+    }
+    resolved
+}
+
+/// The table's referable definitions as name → expression, each with its own
+/// definition references already substituted, resolved in dependency order.
+/// For evaluation against data, where a definition reference must become the
+/// definition's expression. Runs only after spec validation has passed, so
+/// every expression parses and no cycle survives; anything unresolvable is
+/// omitted.
+pub(crate) fn definition_exprs(table: &Table) -> HashMap<String, assert_expr::AssertExpr> {
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty()
+            && table.column(&def.name.value).is_none()
+            && def.expr.is_some()
+        {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    let mut resolved: HashMap<String, assert_expr::AssertExpr> = HashMap::new();
+    let mut pending: Vec<&Definition> = referable.values().copied().collect();
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let expr = def.expr.as_ref().unwrap();
+                resolved.insert(
+                    def.name.value.clone(),
+                    assert_expr::substitute_definitions(expr, &resolved),
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            break;
         }
     }
     resolved
@@ -1964,12 +2028,16 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
 // --- S31 --------------------------------------------------------------
 
 /// Warn for every `todo` left anywhere in the dictionary: the dataset, each
-/// table, column, and struct field (recursively), and each relationship.
+/// table, column, struct field (recursively), and definition, and each
+/// relationship.
 fn validate_s31_todos(dict: &DataDict, out: &mut ProblemSet) {
     report_todo(&dict.todo, &[], out);
     for table in &dict.tables {
         report_todo(&table.todo, &[&table.name.span], out);
         report_column_todos(table, &table.columns, out);
+        for def in &table.definitions {
+            report_todo(&def.todo, &[&table.name.span, &def.name.span], out);
+        }
     }
     for rel in &dict.relationships {
         report_todo(&rel.todo, &[&rel.join_text.span], out);

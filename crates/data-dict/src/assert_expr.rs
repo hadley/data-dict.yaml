@@ -1260,6 +1260,118 @@ pub fn referenced_names(expr: &AssertExpr) -> Vec<String> {
     names
 }
 
+/// `expr` with every reference to a definition in `defs` replaced by that
+/// definition's own expression. Only a bare name can reference a definition
+/// (a dotted path is a struct field), and `defs` holds only definitions whose
+/// names no column claims. For evaluation against data, where a referenced
+/// definition must become its expression; translation instead keeps the name
+/// for the consumer to substitute.
+pub fn substitute_definitions(
+    expr: &AssertExpr,
+    defs: &std::collections::HashMap<String, AssertExpr>,
+) -> AssertExpr {
+    fn walk(e: &Expr, defs: &std::collections::HashMap<String, AssertExpr>) -> Expr {
+        let kind = match &e.kind {
+            ExprKind::Column(path) if path.len() == 1 && defs.contains_key(&path[0]) => {
+                return defs[&path[0]].root.clone();
+            }
+            ExprKind::Number(_)
+            | ExprKind::Str(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Now
+            | ExprKind::Column(_)
+            | ExprKind::Columns(_) => e.kind.clone(),
+            ExprKind::Neg(inner) => ExprKind::Neg(Box::new(walk(inner, defs))),
+            ExprKind::Not(inner) => ExprKind::Not(Box::new(walk(inner, defs))),
+            ExprKind::IsNull { operand, negated } => ExprKind::IsNull {
+                operand: Box::new(walk(operand, defs)),
+                negated: *negated,
+            },
+            ExprKind::Interval {
+                n,
+                unit,
+                unit_start,
+                unit_end,
+            } => ExprKind::Interval {
+                n: Box::new(walk(n, defs)),
+                unit: unit.clone(),
+                unit_start: *unit_start,
+                unit_end: *unit_end,
+            },
+            ExprKind::Arith { op, lhs, rhs } => ExprKind::Arith {
+                op: *op,
+                lhs: Box::new(walk(lhs, defs)),
+                rhs: Box::new(walk(rhs, defs)),
+            },
+            ExprKind::Compare { op, lhs, rhs } => ExprKind::Compare {
+                op: *op,
+                lhs: Box::new(walk(lhs, defs)),
+                rhs: Box::new(walk(rhs, defs)),
+            },
+            ExprKind::And(l, r) => ExprKind::And(Box::new(walk(l, defs)), Box::new(walk(r, defs))),
+            ExprKind::Or(l, r) => ExprKind::Or(Box::new(walk(l, defs)), Box::new(walk(r, defs))),
+            ExprKind::Like {
+                operand,
+                pattern,
+                negated,
+            } => ExprKind::Like {
+                operand: Box::new(walk(operand, defs)),
+                pattern: Box::new(walk(pattern, defs)),
+                negated: *negated,
+            },
+            ExprKind::SimilarTo {
+                operand,
+                pattern,
+                negated,
+            } => ExprKind::SimilarTo {
+                operand: Box::new(walk(operand, defs)),
+                pattern: Box::new(walk(pattern, defs)),
+                negated: *negated,
+            },
+            ExprKind::Between {
+                operand,
+                lo,
+                hi,
+                negated,
+            } => ExprKind::Between {
+                operand: Box::new(walk(operand, defs)),
+                lo: Box::new(walk(lo, defs)),
+                hi: Box::new(walk(hi, defs)),
+                negated: *negated,
+            },
+            ExprKind::In {
+                operand,
+                list,
+                negated,
+            } => ExprKind::In {
+                operand: Box::new(walk(operand, defs)),
+                list: list.iter().map(|item| walk(item, defs)).collect(),
+                negated: *negated,
+            },
+            ExprKind::Call { name, args } => ExprKind::Call {
+                name: name.clone(),
+                args: args.iter().map(|a| walk(a, defs)).collect(),
+            },
+            ExprKind::Case { whens, els } => ExprKind::Case {
+                whens: whens
+                    .iter()
+                    .map(|(cond, result)| (walk(cond, defs), walk(result, defs)))
+                    .collect(),
+                els: els.as_ref().map(|e| Box::new(walk(e, defs))),
+            },
+        };
+        Expr {
+            kind,
+            start: e.start,
+            end: e.end,
+        }
+    }
+    AssertExpr {
+        root: walk(&expr.root, defs),
+    }
+}
+
 struct Checker<'a> {
     env: &'a dyn CheckEnv,
     findings: Vec<Finding>,

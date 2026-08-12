@@ -248,6 +248,7 @@ fn assertion_issues(
     out: &mut ProblemSet,
 ) -> Result<(), data_dict_parquet::ParquetError> {
     let env = crate::validate_spec::TableEnv::new(table);
+    let defs = crate::validate_spec::definition_exprs(table);
     let column_assertions = table
         .columns
         .iter()
@@ -265,7 +266,10 @@ fn assertion_issues(
         let Some(expr) = &assertion.expr else {
             continue;
         };
-        let Some(ir) = crate::assert_expr::lower(expr, &env) else {
+        // A reference to a definition must become the definition's expression
+        // to evaluate: the data has no such column.
+        let expr = crate::assert_expr::substitute_definitions(expr, &defs);
+        let Some(ir) = crate::assert_expr::lower(&expr, &env) else {
             continue;
         };
 

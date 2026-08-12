@@ -1115,6 +1115,10 @@ fn s31_todo_at_every_level() {
                     type: string
                     examples: ['97201']
                     todo: Is this always 5 digits?
+            definitions:
+              - name: is_active
+                expr: status = 'active'
+                todo: Confirm the active status codes.
           - name: category
             columns:
               - name: id
@@ -2724,6 +2728,32 @@ fn definition_broken_reference_no_cascade() {
     "});
     diagnostic.assert_contains(&["S21", "LENGTH"]);
     assert_eq!(diagnostic.rendered.matches("S21").count(), 1);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition whose expression doesn't parse is S19 at its own location;
+// definitions and assertions referencing it see the permissive `Any` type
+// rather than a cascading S20.
+#[test]
+fn definition_unparseable_reference_no_cascade() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: broken
+                expr: 1 +
+              - name: uses_broken
+                expr: broken + 1
+            constraints:
+              - assert: order_total <= uses_broken
+    "});
+    diagnostic.assert_contains(&["S19", "does not parse"]);
+    assert!(!diagnostic.rendered.contains("S20"));
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
