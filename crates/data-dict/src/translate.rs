@@ -11,14 +11,19 @@
 use std::path::Path;
 
 use crate::assert_expr::{self, AssertExpr, ColumnRef, Root, TypedAssertion};
-use crate::emit::{self, DuckDb, RTidyverse, Target};
+use crate::emit::{self, DuckDb, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
 use crate::model::{DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet};
 use crate::validate_spec::TableEnv;
 
 /// Every target that can be emitted today, in a stable order.
 pub(crate) fn registry() -> Vec<Box<dyn Target>> {
-    vec![Box::new(DuckDb), Box::new(RTidyverse)]
+    vec![
+        Box::new(DuckDb),
+        Box::new(R_TIDYVERSE),
+        Box::new(R_BASE),
+        Box::new(R_DATA_TABLE),
+    ]
 }
 
 /// What a bare family name means, per the spec. A default that isn't built yet

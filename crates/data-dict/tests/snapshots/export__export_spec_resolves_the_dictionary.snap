@@ -137,6 +137,20 @@ expression: export_json(RICH_DICT)
                   "notes": [
                     "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
                   ]
+                },
+                {
+                  "target": "R(base)",
+                  "code": "weight > 0L",
+                  "notes": [
+                    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
+                },
+                {
+                  "target": "R(data.table)",
+                  "code": "weight > 0L",
+                  "notes": [
+                    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+                  ]
                 }
               ]
             }
@@ -166,6 +180,14 @@ expression: export_json(RICH_DICT)
             {
               "target": "R(tidyverse)",
               "code": "if_all(matches(\"_id$\"), \\(x) !is.na(x))"
+            },
+            {
+              "target": "R(base)",
+              "code": "!is.na(pet_id) & !is.na(owner_id)"
+            },
+            {
+              "target": "R(data.table)",
+              "code": "!is.na(pet_id) & !is.na(owner_id)"
             }
           ]
         }
