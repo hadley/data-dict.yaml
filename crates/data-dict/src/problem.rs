@@ -235,11 +235,6 @@ pub enum ProblemKind {
         assertion: String,
         row: Option<usize>,
     },
-    /// `D10` — an `assert` expression divided by zero, in `/` or `MOD`.
-    AssertionDividedByZero {
-        assertion: String,
-        row: Option<usize>,
-    },
 }
 
 impl ProblemKind {
@@ -262,7 +257,6 @@ impl ProblemKind {
             ProblemKind::AssertionViolated { .. } | ProblemKind::AssertionFalse { .. } => "D07",
             ProblemKind::AssertionNotChecked { .. } => "D08",
             ProblemKind::AssertionOverflow { .. } => "D09",
-            ProblemKind::AssertionDividedByZero { .. } => "D10",
             _ => return None,
         })
     }
@@ -286,8 +280,7 @@ impl ProblemKind {
             | ProblemKind::AssertionViolated { .. }
             | ProblemKind::AssertionFalse { .. }
             | ProblemKind::AssertionNotChecked { .. }
-            | ProblemKind::AssertionOverflow { .. }
-            | ProblemKind::AssertionDividedByZero { .. } => Level::Data,
+            | ProblemKind::AssertionOverflow { .. } => Level::Data,
             _ => return None,
         })
     }

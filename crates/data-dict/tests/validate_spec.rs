@@ -867,6 +867,61 @@ fn s12_s13_infinite_bounds_ok() {
     "});
 }
 
+// `.nan` reads as a number but has no place on the number line, so it can
+// neither bound a range nor stand for an observed value.
+#[test]
+fn s12_nan_is_not_a_bound() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: mass
+                type: number(quantity)
+                units: kg
+                range: [.nan, 10]
+    "});
+    diagnostic.assert_contains(&[
+        "S12",
+        "must have a place on the number line",
+        "is `.nan`",
+        "leave that end of the range open",
+    ]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn s12_nan_is_not_a_maximum_either() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: mass
+                type: number(quantity)
+                units: kg
+                range: [0, .nan]
+    "});
+    diagnostic.assert_contains(&["S12", "must have a place on the number line"]);
+    // A NaN bound is rejected before S13 compares the two ends, so a range it
+    // makes uncomparable is reported once, not twice.
+    assert!(!diagnostic.rendered.contains("S13"));
+}
+
+#[test]
+fn s12_nan_is_not_an_example() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: table
+            columns:
+              - name: ratio
+                type: number
+                examples: [1.5, .nan, 3.5]
+    "});
+    diagnostic.assert_contains(&["S12", "must have a place on the number line"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // `.inf` as a minimum runs backwards even on a temporal column, where the
 // maximum is a finite ISO 8601 date.
 #[test]

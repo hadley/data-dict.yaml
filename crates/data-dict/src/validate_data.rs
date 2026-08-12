@@ -229,7 +229,7 @@ fn plan_enum_fields<'a>(
     }
 }
 
-/// Evaluate the table's `assert` expressions against its data (D07–D10).
+/// Evaluate the table's `assert` expressions against its data (D07–D09).
 ///
 /// Assertions don't join [`VALUE_CHECKS`]: that pipeline is per column, and an
 /// assertion reads several and may belong to the table rather than any one of
@@ -346,14 +346,6 @@ fn assertion_problem(
                         &format!("`{pattern}`{where_} is not a valid regular expression"),
                     ));
                 }
-                crate::eval::Fault::DividedByZero => (
-                    format!("divides by zero{where_}"),
-                    "An assertion must be computable for every row.",
-                    ProblemKind::AssertionDividedByZero {
-                        assertion: text,
-                        row,
-                    },
-                ),
                 crate::eval::Fault::Overflow => (
                     format!("overflows a 64-bit integer{where_}"),
                     "An assertion's arithmetic must stay within 64-bit integers.",
