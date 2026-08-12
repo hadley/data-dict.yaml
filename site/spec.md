@@ -368,8 +368,10 @@ Each entry is a map with:
 The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
 
 * A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
-* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows. 
+* A `agg`- or `const`-shape expression is a **metric**, a single value summarising the rows it's evaluated against.
 * Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
+
+The expression language has no grouping of its own: a metric is defined over whatever rows the consumer evaluates it against, and any grouping — SQL's `GROUP BY`, dplyr's `.by =`, a dashboard's drill-down — is up to the host environment to supply.
 
 ```yaml
 tables:
