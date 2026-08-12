@@ -371,7 +371,7 @@ fn validate_column_assertions(
         defs,
     };
     for assertion in &col.assertions {
-        run_assertion_check(&env, assertion, &[&table.name, &col.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name, &col.name], out);
     }
 }
 
@@ -381,7 +381,7 @@ fn validate_table_assertions(table: &Table, defs: &HashMap<String, DefType>, out
         defs,
     };
     for assertion in &table.constraints {
-        run_assertion_check(&env, assertion, &[&table.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name], out);
     }
 }
 
@@ -414,6 +414,7 @@ const DEFINITION_WORDING: ExprWording = ExprWording {
 /// for a column assertion) shown as context before the offending token.
 fn run_assertion_check(
     env: &dyn CheckEnv,
+    table: &Table,
     assertion: &Assertion,
     enclosing: &[&Spanned<String>],
     out: &mut ProblemSet,
@@ -427,6 +428,44 @@ fn run_assertion_check(
         &ASSERTION_WORDING,
         out,
     );
+
+    // The at-most-one `COLUMNS(...)` rule binds the expression as it
+    // evaluates, with definition references substituted in: an assertion and
+    // a filter it references may each use one, which combines to two. Report
+    // each reference that brings a selection in over the budget of one. (More
+    // than one in the assertion's own text was already reported above.)
+    let own = assert_expr::columns_selection_count(expr);
+    if own <= 1 {
+        let defs = definition_exprs(table);
+        let with_selection: std::collections::HashSet<&str> = defs
+            .iter()
+            .filter(|(_, e)| assert_expr::columns_selection_count(e) > 0)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let mut refs: Vec<(usize, usize)> = Vec::new();
+        assert_expr::visit(&expr.root, |e| {
+            if let assert_expr::ExprKind::Column(path) = &e.kind
+                && path.len() == 1
+                && with_selection.contains(path[0].as_str())
+            {
+                refs.push((e.start, e.end));
+            }
+        });
+        // The first selection is the allowed one: the assertion's own if it
+        // has one, else the first reference's.
+        for &(start, end) in refs.iter().skip(1 - own) {
+            let span = subspan(&assertion.text.span, start, end)
+                .unwrap_or_else(|| assertion.text.span.clone());
+            let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
+            spans.push(span);
+            out.push_spec_error(
+                "S21",
+                "An expression may use at most one `COLUMNS(...)`.",
+                "recursively includes `COLUMNS(...)`",
+                spans,
+            );
+        }
+    }
 }
 
 /// Turn one expression's findings into located problems. `enclosing` are the

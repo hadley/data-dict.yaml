@@ -913,7 +913,7 @@ fn collect_columns(
     definitions: &mut Vec<String>,
 ) {
     let typed_columns = || table.columns.iter().filter(|col| col.col_type.is_some());
-    match &e.kind {
+    assert_expr::visit(e, |e| match &e.kind {
         ExprKind::Column(path) => {
             if path.len() == 1 && defs.contains_key(&path[0]) {
                 push_unique(definitions, path[0].clone());
@@ -942,62 +942,8 @@ fn collect_columns(
                 }
             }
         },
-        ExprKind::Neg(inner) | ExprKind::Not(inner) => {
-            collect_columns(inner, table, defs, columns, definitions)
-        }
-        ExprKind::Arith { lhs, rhs, .. }
-        | ExprKind::Compare { lhs, rhs, .. }
-        | ExprKind::And(lhs, rhs)
-        | ExprKind::Or(lhs, rhs) => {
-            collect_columns(lhs, table, defs, columns, definitions);
-            collect_columns(rhs, table, defs, columns, definitions);
-        }
-        ExprKind::IsNull { operand, .. } => {
-            collect_columns(operand, table, defs, columns, definitions)
-        }
-        ExprKind::Between {
-            operand, lo, hi, ..
-        } => {
-            collect_columns(operand, table, defs, columns, definitions);
-            collect_columns(lo, table, defs, columns, definitions);
-            collect_columns(hi, table, defs, columns, definitions);
-        }
-        ExprKind::In { operand, list, .. } => {
-            collect_columns(operand, table, defs, columns, definitions);
-            for item in list {
-                collect_columns(item, table, defs, columns, definitions);
-            }
-        }
-        ExprKind::Like {
-            operand, pattern, ..
-        }
-        | ExprKind::SimilarTo {
-            operand, pattern, ..
-        } => {
-            collect_columns(operand, table, defs, columns, definitions);
-            collect_columns(pattern, table, defs, columns, definitions);
-        }
-        ExprKind::Call { args, .. } => {
-            for arg in args {
-                collect_columns(arg, table, defs, columns, definitions);
-            }
-        }
-        ExprKind::Interval { n, .. } => collect_columns(n, table, defs, columns, definitions),
-        ExprKind::Case { whens, els } => {
-            for (when, then) in whens {
-                collect_columns(when, table, defs, columns, definitions);
-                collect_columns(then, table, defs, columns, definitions);
-            }
-            if let Some(els) = els {
-                collect_columns(els, table, defs, columns, definitions);
-            }
-        }
-        ExprKind::Number(_)
-        | ExprKind::Str(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Null
-        | ExprKind::Now => {}
-    }
+        _ => {}
+    });
 }
 
 fn push_unique(out: &mut Vec<String>, name: String) {

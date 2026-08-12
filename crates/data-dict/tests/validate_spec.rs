@@ -2866,6 +2866,54 @@ fn assertion_using_definitions_ok() {
     "});
 }
 
+// A filter definition's COLUMNS(...) is the assertion's one allowed selection
+// once the reference is substituted in.
+#[test]
+fn assertion_using_columns_filter_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: all_present
+    "});
+}
+
+// The at-most-one COLUMNS(...) rule binds after definition references are
+// substituted in: the assertion's own selection and the filter's combine to
+// two, which evaluation couldn't resolve to a single selection.
+#[test]
+fn assertion_plus_filter_two_columns_selections() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: COLUMNS(*) IS NOT NULL AND all_present
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 // An assertion referencing a name that is neither a column nor a definition.
 #[test]
 fn assertion_unknown_name_with_definitions() {
