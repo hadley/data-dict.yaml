@@ -44,14 +44,14 @@
 //! through `child`; it never reasons about parentheses itself.
 
 mod duckdb;
-mod r_tidyverse;
+mod r;
 
 use std::collections::BTreeSet;
 
 use crate::assert_expr::{Selection, Type, TypedAssertion, TypedExpr};
 
 pub use duckdb::DuckDb;
-pub use r_tidyverse::RTidyverse;
+pub use r::{R_BASE, R_DATA_TABLE, R_TIDYVERSE};
 
 /// How faithfully a construct translates. Every (construct, target) pair has
 /// one, and the differential tests hold the first two to their word.
@@ -312,6 +312,22 @@ mod tests {
     }
 
     #[test]
+    fn a_filtered_aggregate_carries_the_clause() {
+        assert_eq!(
+            sql("SUM(qty) FILTER (WHERE flag) > 0"),
+            r#"sum("qty") FILTER (WHERE "flag") > 0"#
+        );
+        assert_eq!(
+            sql("ROW_COUNT() FILTER (WHERE qty > 0) > 0"),
+            r#"count(*) FILTER (WHERE "qty" > 0) > 0"#
+        );
+        assert_eq!(
+            sql("COUNT_DISTINCT(s) FILTER (WHERE flag) > 0"),
+            r#"count(DISTINCT "s") FILTER (WHERE "flag") > 0"#
+        );
+    }
+
+    #[test]
     fn columns_are_quoted() {
         assert_eq!(sql("qty > 0"), r#""qty" > 0"#);
         // A struct field is a path, each segment quoted.
@@ -401,22 +417,6 @@ mod tests {
     }
 
     #[test]
-    fn a_filtered_aggregate_carries_the_clause() {
-        assert_eq!(
-            sql("SUM(qty) FILTER (WHERE flag) > 0"),
-            r#"sum("qty") FILTER (WHERE "flag") > 0"#
-        );
-        assert_eq!(
-            sql("ROW_COUNT() FILTER (WHERE qty > 0) > 0"),
-            r#"count(*) FILTER (WHERE "qty" > 0) > 0"#
-        );
-        assert_eq!(
-            sql("COUNT_DISTINCT(s) FILTER (WHERE flag) > 0"),
-            r#"count(DISTINCT "s") FILTER (WHERE "flag") > 0"#
-        );
-    }
-
-    #[test]
     fn an_interval_folds_into_a_literal_when_it_can() {
         assert_eq!(
             sql("ts >= NOW() - interval(2, weeks)"),
@@ -490,212 +490,5 @@ mod tests {
                 .any(|n| n.contains("modulus"))
         );
         assert!(notes("SUM(qty) > 0").iter().any(|n| n.contains("128 bits")));
-    }
-}
-
-#[cfg(test)]
-mod r_tests {
-    use super::*;
-    use crate::assert_expr::{AssertExpr, Root, check_root, lower, tests::TestEnv};
-
-    fn r(source: &str) -> String {
-        let expr = AssertExpr::parse(source).expect("parses");
-        let findings = check_root(&expr, &TestEnv, Root::Any);
-        assert!(findings.is_empty(), "{source:?}: {findings:?}");
-        let ir = lower(&expr, &TestEnv).expect("lowers");
-        emit(&RTidyverse, &ir).expect("emits").code
-    }
-
-    fn refused(source: &str) -> String {
-        let expr = AssertExpr::parse(source).expect("parses");
-        let ir = lower(&expr, &TestEnv).expect("lowers");
-        let Err(unsupported) = emit(&RTidyverse, &ir) else {
-            panic!("{source:?} should be refused")
-        };
-        format!("{}: {}", unsupported.what, unsupported.why)
-    }
-
-    #[test]
-    fn columns_are_bare_names() {
-        assert_eq!(r("qty > 0"), "qty > 0L");
-        // A struct column is a data-frame column of its own.
-        assert_eq!(r("LENGTH(addr.zip) > 0"), "str_length(addr$zip) > 0L");
-        assert_eq!(r("`addr`.`nick names` IS NULL"), "is.na(addr$`nick names`)");
-    }
-
-    #[test]
-    fn an_infix_percent_operator_binds_tighter_than_arithmetic() {
-        // R parses `n + 1 %in% c(1)` as `n + (1 %in% c(1))`, so the guarded
-        // membership test has to bracket its own subject.
-        assert_eq!(
-            r("n + 1 IN (1, 2)"),
-            "is.na(n + 1L) | ((n + 1L) %in% c(1L, 2L))"
-        );
-    }
-
-    #[test]
-    fn membership_is_guarded_so_a_null_still_passes() {
-        // `NA %in% c(1)` is FALSE in R, where the language says null.
-        assert_eq!(r("qty IN (1, 2)"), "is.na(qty) | (qty %in% c(1L, 2L))");
-        assert_eq!(r("qty NOT IN (1)"), "is.na(qty) | !(qty %in% c(1L))");
-    }
-
-    #[test]
-    fn non_finite_literals_use_rs_own_names() {
-        assert_eq!(r("qty = INF"), "qty == Inf");
-        assert_eq!(r("qty = -INF"), "qty == -Inf");
-        assert_eq!(r("qty = NAN"), "qty == NaN");
-    }
-
-    #[test]
-    fn a_kind_test_is_guarded_so_a_null_stays_null() {
-        // `is.nan(NA)` is FALSE in R, where the language propagates the null.
-        assert_eq!(
-            r("IS_NAN(qty)"),
-            "if_else(is.na(qty) & !is.nan(qty), NA, is.nan(qty))"
-        );
-        assert_eq!(
-            r("IS_FINITE(qty)"),
-            "if_else(is.na(qty) & !is.nan(qty), NA, is.finite(qty))"
-        );
-        assert_eq!(
-            r("IS_INFINITE(qty)"),
-            "if_else(is.na(qty) & !is.nan(qty), NA, is.infinite(qty))"
-        );
-    }
-
-    #[test]
-    fn modulo_is_the_native_operator() {
-        // `%%` follows the divisor, as the language does.
-        assert_eq!(r("MOD(n, 3) = 0"), "n %% 3L == 0L");
-        // `%%` binds tighter than arithmetic, so a compound operand brackets.
-        assert_eq!(r("MOD(n + 1, 3) = 0"), "(n + 1L) %% 3L == 0L");
-        assert_eq!(r("MOD(n, qty + 1) = 0"), "n %% (qty + 1L) == 0L");
-    }
-
-    #[test]
-    fn a_shifted_date_is_promoted_first() {
-        // `Date + difftime` stays a Date in R, dropping anything under a day.
-        assert_eq!(
-            r("d + interval(12, hours)"),
-            "as.POSIXct(d, tz = \"UTC\") + as.difftime(12L, units = \"hours\")"
-        );
-        // A datetime needs no promotion.
-        assert_eq!(
-            r("ts - interval(2, weeks)"),
-            "ts - as.difftime(2L, units = \"weeks\")"
-        );
-    }
-
-    #[test]
-    fn a_literal_like_pattern_stays_literal() {
-        // `fixed()` matters: a `.` in a LIKE pattern is not a regex dot.
-        assert_eq!(r("s LIKE 'a.c%'"), "str_starts(s, fixed(\"a.c\"))");
-        assert_eq!(r("s LIKE '%.nz'"), "str_ends(s, fixed(\".nz\"))");
-        assert_eq!(r("s LIKE 'exact'"), "s == \"exact\"");
-    }
-
-    #[test]
-    fn a_computed_like_pattern_is_refused() {
-        let message = refused("s LIKE LOWER(postcode)");
-        assert!(message.contains("computed pattern"), "{message}");
-    }
-
-    #[test]
-    fn aggregates_skip_nulls_and_declare_the_empty_case() {
-        assert_eq!(r("SUM(qty) > 0"), "sum(qty, na.rm = TRUE) > 0L");
-        assert_eq!(r("ROW_COUNT() > 0"), "n() > 0L");
-        assert_eq!(r("COUNT(s) > 0"), "sum(!is.na(s)) > 0L");
-        assert_eq!(
-            r("COUNT_DISTINCT(s) <= 16"),
-            "n_distinct(s, na.rm = TRUE) <= 16L"
-        );
-        assert_eq!(r("ANY(flag)"), "any(flag, na.rm = TRUE)");
-    }
-
-    #[test]
-    fn a_filtered_aggregate_subsets_its_argument() {
-        assert_eq!(
-            r("SUM(qty) FILTER (WHERE flag) > 0"),
-            "sum(qty[flag], na.rm = TRUE) > 0L"
-        );
-        // A computed argument is parenthesised before it is subset.
-        assert_eq!(
-            r("SUM(qty * 2) FILTER (WHERE flag) > 0"),
-            "sum((qty * 2L)[flag], na.rm = TRUE) > 0L"
-        );
-        // An NA in the condition subsets to an NA element, which `na.rm`
-        // drops — the row is excluded, as the language says.
-        assert_eq!(
-            r("ANY(flag) FILTER (WHERE qty > 0)"),
-            "any(flag[qty > 0L], na.rm = TRUE)"
-        );
-        assert_eq!(
-            r("COUNT(s) FILTER (WHERE qty > 0)"),
-            "sum(!is.na(s[qty > 0L]))"
-        );
-        assert_eq!(
-            r("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
-            "n_distinct(s[flag], na.rm = TRUE)"
-        );
-        // `n()` can't be subset, so a filtered row count sums the condition.
-        assert_eq!(
-            r("ROW_COUNT() FILTER (WHERE qty > 0)"),
-            "sum(qty > 0L, na.rm = TRUE)"
-        );
-    }
-
-    #[test]
-    fn a_selection_stays_a_selection() {
-        // `if_all` is an ordinary value, so it survives any wrapping.
-        assert_eq!(
-            r("COLUMNS('q[34]') IS NOT NULL"),
-            "if_all(matches(\"q[34]\"), \\(x) !is.na(x))"
-        );
-        assert_eq!(
-            r("COLUMNS(*) IS NOT NULL"),
-            "if_all(everything(), \\(x) !is.na(x))"
-        );
-    }
-
-    #[test]
-    fn case_becomes_case_when() {
-        assert_eq!(
-            r("CASE WHEN flag THEN qty > 1 ELSE qty > 10 END"),
-            "case_when(flag ~ qty > 1L, .default = qty > 10L)"
-        );
-    }
-
-    #[test]
-    fn divergences_attach_notes() {
-        assert!(r_notes("flag").is_empty());
-        assert!(r_notes("s = 'a'").is_empty());
-        assert!(r_notes("qty > 0")[0].contains("NaN"));
-        assert!(
-            r_notes("ROUND(n) = n")
-                .iter()
-                .any(|n| n.contains("halves to even"))
-        );
-        assert!(
-            r_notes("SUM(qty) > 0")
-                .iter()
-                .any(|n| n.contains("identity"))
-        );
-        assert!(
-            r_notes("SUM(qty) > 0")
-                .iter()
-                .any(|n| n.contains("na.rm = TRUE"))
-        );
-        assert!(
-            r_notes("qty IS NULL")
-                .iter()
-                .any(|n| n.contains("is.na` is TRUE"))
-        );
-    }
-
-    fn r_notes(source: &str) -> Vec<&'static str> {
-        let expr = AssertExpr::parse(source).expect("parses");
-        let ir = lower(&expr, &TestEnv).expect("lowers");
-        emit(&RTidyverse, &ir).expect("emits").notes
     }
 }

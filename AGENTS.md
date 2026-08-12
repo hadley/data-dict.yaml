@@ -9,6 +9,7 @@ The repo contains:
 - `site/`: the [Quarto](https://quarto.org) website published to data-dict.tidyverse.org. Holds the spec and design docs (`spec.md`, `semantic-models.md`), as well as example data dictionaries synced from other repos (see `examples.R`, which holds the list and is driven by both workflows: `Rscript examples.R sync` in `.github/workflows/update-examples.yaml`, `Rscript examples.R render` in `.github/workflows/publish-site.yaml`). Built and deployed by `.github/workflows/publish-site.yaml`; the rendered example pages in `site/examples/rendered/` are generated at publish time, not committed.
 - `crates/`: Rust workspace (see crate architecture below)
 - `schema.yaml`: JSON Schema for structural validation of data dictionary files (`schema-field.yaml` holds the recursive struct-field descriptor it references)
+- `dist-workspace.toml`: release config for [`dist`](https://opensource.axo.dev/cargo-dist/). It generates `.github/workflows/release.yml` — never hand-edit that file; change the config and re-run `dist generate`. Install docs live in `site/install.md` and the README.
 
 ## Code principles
 
