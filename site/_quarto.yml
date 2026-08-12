@@ -15,6 +15,7 @@ website:
     describes collections of related tables — their columns, types, 
     constraints, relationships — as well as a glossay for domain vocabulary.
   llms-txt: true
+  favicon: favicon.svg
   navbar:
     left:
       - href: index.md
