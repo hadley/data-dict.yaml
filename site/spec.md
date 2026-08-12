@@ -29,7 +29,7 @@ The content keys all hold the actual information about the data:
 `tables` is a list that describes each table in the dataset. Each table represents a rectangle of data with observations in the rows and variables in the columns. Each table has the following properties:
 
 * `name` (required): the table's name. Used to match the table to the underlying data and to refer to it from `relationships`. Must be non-empty and unique within the dictionary.
-* `label`, `description`, `details`: human-readable documentation for the table; see [Name, label, description & details](#name-label-description--details).
+* `label`, `description`, `details`: human-readable documentation for the table; see [Name, label, description & details](#name-label-description--details). A good table description answers at least two questions — **what's the grain?** (what does a row represent, e.g. "each row is a food item") and **what's the population?** (what's been included or filtered out, e.g. "only completed orders from 2020 onwards").
 * `source`: ways to access the data. Optional at the spec level, so you can draft a dictionary before its data exists, but required to validate against data (see [Validation](validation.md)).
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
@@ -125,14 +125,14 @@ A column may also be listed with only its `name` and no `type`. This acknowledge
 
 #### Name, label, description & details
 
-`name`, `label`, `description`, and `details` document a dataset, table, or column, from terse to expansive. They mean the same thing at every level:
+`name`, `label`, `description`, and `details` document a dataset, table, or column, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
 
-* `name` identifies the thing. For a table or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints. It's the only one of the four that is ever required.
+* `name` identifies the thing. For a table or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
 * `label` is a short, human-readable title, useful when the `name` is terse or technical (e.g. `FoodData Central ID` for `fdc_id`). Plain text (no markdown), typically a few words, it stands in for the `name` in user interfaces.
-* `description` is a short summary, typically a few sentences or at most a paragraph. May contain markdown, and is displayed in user interfaces. A good table description answers two questions — **what's the grain?** (what does a row represent, e.g. "each row is a food item") and **what's the population?** (what's been included or filtered out, e.g. "only completed orders from 2020 onwards").
-* `details` is a free-text note of any length: the place to carefully record everything else, such as assumptions about potential unknowns, known weak spots, surprising calculations, and how the data was collected or constructed.
+* `description` contains the most important information about the item, like known limitations or a surprising derivation compared to its `name`.
+* `details` contains anything else that might be useful to know, e.g. assumptions about potential unknowns, or background on how the data was collected or constructed.
 
-Every field but `name` is optional at every level.
+The primary difference between `description` and `details` is their treatment in user interfaces: `description` is shown in full, whereas you'll often need to click to see all of the `details`. Both `description` and `details` accept markdown.
 
 #### Display
 
