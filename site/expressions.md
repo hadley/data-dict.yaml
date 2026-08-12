@@ -371,6 +371,13 @@ Any aggregate may be narrowed to a subset of rows with a `FILTER (WHERE ...)` cl
   expr: SUM(order_total) FILTER (WHERE status_cd = 90)
 ```
 
+You can use `COLUMNS()` in the filter clause, with its usual interpretation of `AND`ing together the results from all selected columns:
+
+```yaml
+- name: complete-columns
+  expr: ROW_COUNT() FILTER (WHERE COLUMNS(*) IS NOT NULL)
+```
+
 The condition is a boolean expression over the same table, evaluated once per row, so it can't contain an aggregate — an aggregate's value isn't known until the whole table has been read. Only rows where it is true are folded; following [CHECK semantics](#truth-and-null), a row whose condition is null is excluded, exactly as `false` is. A filter that admits no rows leaves the aggregate with [empty input](#empty-input), so `SUM(x) FILTER (WHERE false)` is null and `COUNT(x) FILTER (WHERE false)` is 0.
 
 #### `MIN(x)`, `MAX(x)`
