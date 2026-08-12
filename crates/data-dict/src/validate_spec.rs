@@ -429,42 +429,83 @@ fn run_assertion_check(
         out,
     );
 
-    // The at-most-one `COLUMNS(...)` rule binds the expression as it
-    // evaluates, with definition references substituted in: an assertion and
-    // a filter it references may each use one, which combines to two. Report
-    // each reference that brings a selection in over the budget of one. (More
-    // than one in the assertion's own text was already reported above.)
+    check_expanded_selections(table, expr, None, &assertion.text, enclosing, out);
+}
+
+/// The `COLUMNS(...)` rules bind the expression as it evaluates, with
+/// definition references substituted in: a selection travels to whatever
+/// references the definition holding it. Report each reference that brings a
+/// selection in over the budget of one, and — for a definition (`ty` is
+/// `Some`), where a selection is meaningful only in a boolean filter — a
+/// reference that brings one into a non-boolean expression. Selections in the
+/// expression's own text were already checked by `analyze`.
+fn check_expanded_selections(
+    table: &Table,
+    expr: &assert_expr::AssertExpr,
+    ty: Option<assert_expr::Ty>,
+    text: &Spanned<String>,
+    enclosing: &[&Spanned<String>],
+    out: &mut ProblemSet,
+) {
     let own = assert_expr::columns_selection_count(expr);
-    if own <= 1 {
-        let defs = definition_exprs(table);
-        let with_selection: std::collections::HashSet<&str> = defs
-            .iter()
-            .filter(|(_, e)| assert_expr::columns_selection_count(e) > 0)
-            .map(|(name, _)| name.as_str())
-            .collect();
-        let mut refs: Vec<(usize, usize)> = Vec::new();
-        assert_expr::visit(&expr.root, |e| {
-            if let assert_expr::ExprKind::Column(path) = &e.kind
-                && path.len() == 1
-                && with_selection.contains(path[0].as_str())
-            {
-                refs.push((e.start, e.end));
-            }
-        });
-        // The first selection is the allowed one: the assertion's own if it
-        // has one, else the first reference's.
-        for &(start, end) in refs.iter().skip(1 - own) {
-            let span = subspan(&assertion.text.span, start, end)
-                .unwrap_or_else(|| assertion.text.span.clone());
+    if own > 1 {
+        return;
+    }
+    let defs = definition_exprs(table);
+    let with_selection: std::collections::HashSet<&str> = defs
+        .iter()
+        .filter(|(_, e)| assert_expr::columns_selection_count(e) > 0)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let mut refs: Vec<(String, usize, usize)> = Vec::new();
+    assert_expr::visit(&expr.root, |e| {
+        if let assert_expr::ExprKind::Column(path) = &e.kind
+            && path.len() == 1
+            && with_selection.contains(path[0].as_str())
+        {
+            refs.push((path[0].clone(), e.start, e.end));
+        }
+    });
+    if refs.is_empty() {
+        return;
+    }
+    let report =
+        |out: &mut ProblemSet, start: usize, end: usize, expected: &str, message: String| {
+            let span = subspan(&text.span, start, end).unwrap_or_else(|| text.span.clone());
             let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
             spans.push(span);
-            out.push_spec_error(
-                "S21",
-                "An expression may use at most one `COLUMNS(...)`.",
-                "recursively includes `COLUMNS(...)`",
-                spans,
-            );
-        }
+            out.push_spec_error("S21", expected, message, spans);
+        };
+
+    if let Some(ty) = ty
+        && own == 0
+        && !matches!(
+            ty,
+            assert_expr::Ty::Bool | assert_expr::Ty::Any | assert_expr::Ty::Unknown
+        )
+    {
+        let (name, start, end) = &refs[0];
+        report(
+            out,
+            *start,
+            *end,
+            "An expression using `COLUMNS(...)` must be a boolean filter.",
+            format!(
+                "`{name}` recursively includes `COLUMNS(...)` and the expression is not a boolean"
+            ),
+        );
+    }
+
+    // The first selection is the allowed one: the expression's own if it has
+    // one, else the first reference's.
+    for (_, start, end) in refs.iter().skip(1 - own) {
+        report(
+            out,
+            *start,
+            *end,
+            "An expression may use at most one `COLUMNS(...)`.",
+            "recursively includes `COLUMNS(...)`".to_string(),
+        );
     }
 }
 
@@ -653,6 +694,14 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
                     &def.text,
                     &[&table.name, &def.name],
                     &DEFINITION_WORDING,
+                    out,
+                );
+                check_expanded_selections(
+                    table,
+                    expr,
+                    Some(ty),
+                    &def.text,
+                    &[&table.name, &def.name],
                     out,
                 );
                 let is_referable = referable

@@ -2914,6 +2914,78 @@ fn assertion_plus_filter_two_columns_selections() {
     assert_snapshot!(diagnostic);
 }
 
+// A selection that arrives through a reference still makes the definition a
+// filter: building a non-boolean value on one is S21.
+#[test]
+fn definition_non_filter_via_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: filt
+                expr: COLUMNS(*) > 0
+              - name: bad
+                expr: CASE WHEN filt THEN 1 ELSE 0 END
+    "});
+    diagnostic.assert_contains(&["S21", "must be a boolean filter", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition's own selection plus one brought in by a reference is two
+// selections: over the budget of one.
+#[test]
+fn definition_own_selection_plus_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: f1
+                expr: COLUMNS('q1') IS NOT NULL
+              - name: f2
+                expr: f1 AND COLUMNS('q2') IS NOT NULL
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A boolean definition building on a filter is itself a filter; the single
+// selection travels with it.
+#[test]
+fn definition_filter_via_reference_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+              - name: any_missing
+                expr: NOT(all_present)
+    "});
+}
+
 // An assertion referencing a name that is neither a column nor a definition.
 #[test]
 fn assertion_unknown_name_with_definitions() {
