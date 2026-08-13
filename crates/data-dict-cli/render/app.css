@@ -165,6 +165,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
   padding: 1px 4px;
 }
 .key.fk { color: var(--accent2); background: var(--accent2-soft); }
+.key.restricted { color: var(--warn); background: var(--warn-soft); }
 
 /* The mark an unresolved `todo` leaves on the thing that carries it. Quiet
    until pointed at: it is a note to whoever is still writing the dictionary,

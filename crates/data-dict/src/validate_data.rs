@@ -23,6 +23,11 @@ use crate::validate_meta::CheckResult;
 /// issue. Issues count every offender but only list this many.
 const SAMPLE_LIMIT: usize = 5;
 
+/// A `display: restricted` column's values never appear in diagnostics.
+fn is_restricted(col: &Column) -> bool {
+    col.display.as_deref() == Some("restricted")
+}
+
 /// Validate a parquet file's values against a data dictionary.
 ///
 /// Validates the spec first, then — when it is free of errors — runs every
@@ -550,12 +555,17 @@ fn values_outside_enum(table: &Table, col: &Column, stats: &ColumnStats) -> Prob
     let count = stats.outside_count;
     let rows = crate::problem::format_rows(&stats.outside_rows, count);
     let plural = if count == 1 { "" } else { "s" };
-    let sample = stats
-        .outside_values
-        .iter()
-        .map(|value| format!("`{value}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let restricted = is_restricted(col);
+    let sample = if restricted {
+        "values restricted".to_string()
+    } else {
+        stats
+            .outside_values
+            .iter()
+            .map(|value| format!("`{value}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let values_span = col
         .values
         .as_ref()
@@ -572,7 +582,11 @@ fn values_outside_enum(table: &Table, col: &Column, stats: &ColumnStats) -> Prob
         kind: ProblemKind::ValuesOutsideEnum {
             count,
             rows: stats.outside_rows.clone(),
-            values: stats.outside_values.clone(),
+            values: if restricted {
+                Vec::new()
+            } else {
+                stats.outside_values.clone()
+            },
         },
     }
 }
@@ -849,12 +863,17 @@ fn foreign_key_not_found(
     let count = stats.orphan_count;
     let detail = crate::problem::format_rows(&stats.orphan_rows, count);
     let plural = if count == 1 { "" } else { "s" };
-    let sample = stats
-        .orphan_values
-        .iter()
-        .map(|value| format!("`{value}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let restricted = is_restricted(col);
+    let sample = if restricted {
+        "values restricted".to_string()
+    } else {
+        stats
+            .orphan_values
+            .iter()
+            .map(|value| format!("`{value}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let references = format!("{}.{}", parent_table.name.value, parent_col.name.value);
     Problem {
         code: Some("D05"),
@@ -878,7 +897,11 @@ fn foreign_key_not_found(
             references,
             count,
             rows: stats.orphan_rows.clone(),
-            values: stats.orphan_values.clone(),
+            values: if restricted {
+                Vec::new()
+            } else {
+                stats.orphan_values.clone()
+            },
         },
     }
 }

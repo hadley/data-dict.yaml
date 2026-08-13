@@ -103,6 +103,15 @@ A diagnostic is split across two parts: `expected` is a general statement of the
 
 If a schema change causes `site/examples/` to fail, don't fix them. Instead report them to me so I can fix upstream.
 
+### Restricted columns
+
+A column marked `display: restricted` holds sensitive data (typically PII), and **no value the data held may ever appear in tool output** — exports, rendered HTML, or diagnostics. Enforcement lives in two places:
+
+- `ExportProfile::restrict()` (`export.rs`) strips `sample_values`/`common_values`/`range`/`histogram` from a restricted column's profile, keeping only counts (`missing`, `distinct`). The website renders through this export, so gating here covers it.
+- `is_restricted()` (`validate_data.rs`) withholds offending-value samples from D04/D05 diagnostics (message and `ProblemKind::values` alike).
+
+Any new feature that moves data values toward the user — a new profile statistic, a new export field, a new diagnostic that quotes values — must gate on `display` the same way. Author-declared `examples`/`range` are the author's responsibility (the spec requires fakes); only data-derived values are gated.
+
 
 ## Data format
 

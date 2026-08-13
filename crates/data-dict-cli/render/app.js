@@ -389,6 +389,8 @@ function ColumnItem({ table: t, column: c, hl, isTarget }) {
           k === "primary_key"
             ? html`<span class="key">PK</span>`
             : html`<span class="key fk">FK</span>`)}
+        ${c.display === "restricted" &&
+          html`<span class="key restricted" title="Restricted: excluded from user-facing output">restricted</span>`}
         <${TodoFlag} source=${c.todo} />
       </div>
       ${c.description && html`<div class="col-desc"><${Prose} source=${c.description} hl=${hl} /></div>`}
