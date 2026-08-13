@@ -161,6 +161,9 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
   max-height: calc(100vh - 28px);
   display: flex; flex-direction: column; gap: 10px;
 }
+/* Wide screens show the list outright, so the toggle only exists for the
+   narrow-width rules in app.css. */
+.tnav-toggle { display: none; }
 .tnav-filter {
   flex: none; min-width: 0; padding: 7px 11px;
   border: 1px solid var(--rule); border-radius: 8px;
@@ -353,4 +356,24 @@ button.val { font: inherit; }
   .tpage-top { flex-wrap: wrap; row-gap: 14px; }
   .tpage-headmain { flex: 1 1 100%; }
   .tpage-related { max-width: none; }
+}
+
+/* Narrow widths: the list folds behind a toggle, since an open list would
+   push the table itself a screen or more down the page. These rules sit at
+   the end of the last-concatenated stylesheet so they beat the base rules
+   above at equal specificity. */
+@media (max-width: 720px) {
+  #table-view { display: block; }
+  .tnav { width: auto; position: static; max-height: none; margin-bottom: 14px; padding: 0; }
+  .tnav-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 10px 12px; border: 0; background: none; cursor: pointer;
+    color: var(--ink); font: inherit; text-align: left;
+  }
+  .tnav-toggle .chev { display: inline-block; transition: transform 0.15s; color: var(--ink-faint); }
+  .tnav.open .tnav-toggle .chev { transform: rotate(90deg); }
+  .tnav:not(.open) .tnav-filter, .tnav:not(.open) .tnav-list, .tnav:not(.open) .tnav-none { display: none; }
+  .tnav.open { padding: 12px; }
+  .tnav.open .tnav-toggle { padding: 0 0 2px; }
+  .tnav.open .tnav-list { max-height: 50vh; }
 }

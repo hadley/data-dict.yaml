@@ -268,10 +268,6 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
   /* too little margin left to hang the chevron in, so it takes real space and
      the name indents — on both pages alike, which is what matters */
   .homelink .chev, .title-row .chev { margin-left: 0; }
-  /* no room for a column beside the table, so the list goes above it and stays
-     put rather than following the page down over what is being read */
-  #table-view { display: block; }
-  .tnav { width: auto; position: static; max-height: 40vh; margin-bottom: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
