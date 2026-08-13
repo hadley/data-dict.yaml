@@ -336,6 +336,30 @@ fn missing_version() {
 }
 
 #[test]
+fn newer_spec_version() {
+    let diagnostic = failing_raw("$version: 99.0.0\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "newer", "Upgrade data-dict"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn older_spec_version() {
+    let diagnostic = failing_raw("$version: 0.0.9\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "starts at `0.1.0`", "not a valid spec version"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn malformed_spec_version() {
+    let diagnostic = failing_raw("$version: latest\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "`latest` is not a valid version number"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
 fn unknown_top_level_key() {
     let diagnostic = failing_dict("bogus: 1\n");
     diagnostic.assert_contains(&["Unknown property 'bogus'"]);
@@ -2574,7 +2598,7 @@ fn definition_shadows_column() {
               - name: order_total
                 expr: SUM(order_total)
     "});
-    diagnostic.assert_contains(&["S32", "can't overlap", "order_total"]);
+    diagnostic.assert_contains(&["S33", "can't overlap", "order_total"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2719,7 +2743,7 @@ fn definition_cycle() {
               - name: b
                 expr: a + 1
     "});
-    diagnostic.assert_contains(&["S33", "cycle"]);
+    diagnostic.assert_contains(&["S34", "cycle"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2737,7 +2761,7 @@ fn definition_self_reference() {
               - name: c
                 expr: c + 1
     "});
-    diagnostic.assert_contains(&["S33", "c → c"]);
+    diagnostic.assert_contains(&["S34", "c → c"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2761,7 +2785,7 @@ fn definition_downstream_of_cycle() {
               - name: downstream
                 expr: a * 2
     "});
-    diagnostic.assert_contains(&["S33"]);
+    diagnostic.assert_contains(&["S34"]);
     assert!(!diagnostic.rendered.contains("downstream"));
     #[cfg(unix)]
     assert_snapshot!(diagnostic);

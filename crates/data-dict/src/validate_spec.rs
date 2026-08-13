@@ -35,6 +35,10 @@ pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 /// The spec version this validator implements, suggested for a missing `$version`.
 pub const SPEC_VERSION: &str = "0.1.0";
 
+/// The first spec version ever released. A `$version` below this is invalid
+/// outright; anything from here up to [`SPEC_VERSION`] is accepted.
+const FIRST_SPEC_VERSION: &str = "0.1.0";
+
 const SCHEMA_YAML: &str = include_str!("../../../schema.yaml");
 const FIELD_SCHEMA_YAML: &str = include_str!("../../../schema-field.yaml");
 
@@ -201,6 +205,7 @@ pub(crate) fn validate_and_lower(
     validate_s09_learn_more(doc, out);
     validate_s17_version(doc, out);
     validate_s18_version_present(doc, out);
+    validate_s32_spec_version(doc, out);
     out.sort();
 
     if out.status().failed() {
@@ -462,7 +467,7 @@ fn report_findings(
     }
 }
 
-// --- definitions (S10, S11, S32, S33 + expression checks) -----------------
+// --- definitions (S10, S11, S33, S34 + expression checks) -----------------
 
 /// A [`TableEnv`] plus the definitions resolved so far, so a definition's
 /// expression can reference other definitions.
@@ -528,7 +533,7 @@ fn validate_definitions(table: &Table, out: &mut ProblemSet) -> HashMap<String, 
         }
         if let Some(col) = table.column(&def.name.value) {
             out.push_spec_error(
-                "S32",
+                "S33",
                 "Definition and column names can't overlap.",
                 format!("`{}` is both a column and a definition", def.name.value),
                 [
@@ -546,13 +551,13 @@ fn validate_definitions(table: &Table, out: &mut ProblemSet) -> HashMap<String, 
 /// other definitions, resolving references in dependency order. A definition
 /// whose expression fails is registered as the permissive `Ty::Any`, so its
 /// referencers don't cascade its error; a definition on a reference cycle is
-/// S33 and registers the same way. Returns the resolved definitions.
+/// S34 and registers the same way. Returns the resolved definitions.
 fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String, DefType> {
     use crate::assert_expr::FindingSeverity;
 
     // The definitions a reference may resolve to: the first of each non-empty
     // name, excluding names a column claims (references there resolve to the
-    // column; the collision is S32) and expressions that didn't parse (S19).
+    // column; the collision is S33) and expressions that didn't parse (S19).
     let mut referable: HashMap<&str, &Definition> = HashMap::new();
     for def in &table.definitions {
         if !def.name.value.is_empty()
@@ -630,7 +635,7 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
                 let name = def.name.value.as_str();
                 if let Some(path) = cycle_path(name, &pending_names, &referable) {
                     out.push_spec_error(
-                        "S33",
+                        "S34",
                         "Definitions must not reference each other in a cycle.",
                         format!("expression forms a cycle ({})", path.join(" → ")),
                         [table.name.span.clone(), def.name.span.clone()],
@@ -2042,8 +2047,7 @@ fn validate_s17_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
 // --- S18 --------------------------------------------------------------
 
 /// Error when the document omits the required top-level `$version` key. The
-/// schema leaves this key optional so its absence lands here with a patch
-/// (a present-but-wrong value is still an enum error at the schema level).
+/// schema leaves this key optional so its absence lands here with a patch.
 /// Like S09, the missing key has no location of its own, so the error is
 /// anchored at the document's first character.
 fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
@@ -2070,6 +2074,81 @@ fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet)
         replacement: format!("$version: {SPEC_VERSION}\n"),
         span: insert_at,
     });
+}
+
+// --- S32 --------------------------------------------------------------
+
+/// Error when the document's `$version` names a spec version this validator
+/// doesn't support. The schema admits any string so the comparison lands here
+/// with a clear message: a version above [`SPEC_VERSION`] means the tool is
+/// older than the document, so the hint points at upgrading data-dict; one
+/// below [`FIRST_SPEC_VERSION`] is invalid outright, since spec numbering
+/// starts there. Anything in between is accepted. Comparison uses the numeric
+/// core, ignoring any pre-release/build suffix.
+fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
+    let Some(entries) = root.as_hash() else {
+        return;
+    };
+    let Some(version) = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("$version"))
+    else {
+        return;
+    };
+
+    let text = version.value.yaml.as_str();
+    let spans = [version.key_span.clone(), version.value_span.clone()];
+    let supported =
+        parse_version_core(SPEC_VERSION).expect("SPEC_VERSION is a valid version number");
+    let first =
+        parse_version_core(FIRST_SPEC_VERSION).expect("FIRST_SPEC_VERSION is a valid version");
+    match text.and_then(|t| parse_version_core(t).map(|core| (t, core))) {
+        Some((t, core)) if core > supported => {
+            out.push_spec_error(
+                "S32",
+                "This document conforms to a newer version of the data-dict spec than this validator supports.",
+                format!(
+                    "`$version` is `{t}`, but this version of data-dict supports up to `{SPEC_VERSION}`"
+                ),
+                spans,
+            );
+            out.hint_last("Upgrade data-dict to the latest version.");
+        }
+        Some((t, core)) if core < first => {
+            out.push_spec_error(
+                "S32",
+                format!("Spec version numbering starts at `{FIRST_SPEC_VERSION}`."),
+                format!("`$version` is `{t}`, which is not a valid spec version"),
+                spans,
+            );
+        }
+        Some(_) => {}
+        None => {
+            out.push_spec_error(
+                "S32",
+                "A `$version` must have three dot-separated numeric components, with an optional pre-release/build suffix.",
+                match text {
+                    Some(t) => format!("`{t}` is not a valid version number"),
+                    None => "is not a valid version number".to_string(),
+                },
+                spans,
+            );
+        }
+    }
+}
+
+/// The numeric `MAJOR.MINOR.PATCH` core of a version number, ignoring any
+/// pre-release/build suffix; `None` when `s` is not a valid version number.
+fn parse_version_core(s: &str) -> Option<(u64, u64, u64)> {
+    if !is_version_number(s) {
+        return None;
+    }
+    let mut parts = s.split(['+', '-']).next()?.split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
 }
 
 /// A version `number` per the spec: three dot-separated numeric components

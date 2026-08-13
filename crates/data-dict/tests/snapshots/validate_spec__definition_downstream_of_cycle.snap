@@ -17,14 +17,14 @@ tables:
       - name: downstream
         expr: a * 2
 ────────────────────────────────────────
-error[S33]: Definitions must not reference each other in a cycle.
+error[S34]: Definitions must not reference each other in a cycle.
   --> dict.yaml:10:15
    |
 LL |   - name: orders
 ...
 LL |       - name: a
    |               ^ expression forms a cycle (a → b → a)
-error[S33]: Definitions must not reference each other in a cycle.
+error[S34]: Definitions must not reference each other in a cycle.
   --> dict.yaml:12:15
    |
 LL |   - name: orders

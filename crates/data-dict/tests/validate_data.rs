@@ -320,6 +320,41 @@ fn values_outside_enum_reported() {
     ));
 }
 
+/// A restricted column's offending values are withheld from both the message
+/// and the structured kind.
+#[test]
+fn values_outside_enum_withheld_when_restricted() {
+    let yaml = build_column(
+        "REQUIRED BYTE_ARRAY status (UTF8)",
+        write_strings(&["active", "banned", "active", "sleepy"]),
+        indoc! {"
+            - name: status
+              type: enum
+              values: [active, banned]
+              display: restricted
+        "},
+    );
+    let result = validate_data(&yaml, None);
+
+    assert_eq!(result.status(), Status::Error);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D04"),
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                ..
+            }] if rows == &[4] && values.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
+    let rendered = result.render(common::SNAPSHOT_STYLE).join("\n");
+    assert!(!rendered.contains("sleepy"), "got {rendered}");
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(&yaml, &rendered));
+}
+
 #[test]
 fn enum_values_within_set_ok() {
     let result = check_column(
@@ -1295,6 +1330,72 @@ fn foreign_key_orphan_value_reported() {
         &yaml,
         &result.render(common::SNAPSHOT_STYLE).join("\n")
     ));
+}
+
+/// A restricted foreign key's orphan values are withheld from both the
+/// message and the structured kind.
+#[test]
+fn foreign_key_orphans_withheld_when_restricted() {
+    let dir = temp_dir();
+    write_single_column(
+        &dir.join("item.parquet"),
+        "REQUIRED INT64 category_id",
+        |col| {
+            col.typed::<Int64Type>()
+                .write_batch(&[1, 2, 5], None, None)
+                .unwrap();
+        },
+    );
+    write_single_column(&dir.join("category.parquet"), "REQUIRED INT64 id", |col| {
+        col.typed::<Int64Type>()
+            .write_batch(&[1, 2, 3], None, None)
+            .unwrap();
+    });
+    let yaml = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: item
+                source:
+                  parquet: item.parquet
+                columns:
+                  - name: category_id
+                    type: number(id)
+                    constraints: [foreign_key]
+                    display: restricted
+                    examples: [1, 2]
+              - name: category
+                source:
+                  parquet: category.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [1, 2]
+            relationships:
+              - join: item.category_id = category.id
+                cardinality: many-to-one
+        "},
+    );
+    let result = validate_data(&yaml, None);
+
+    assert_eq!(result.status(), Status::Error, "got {:?}", result.items);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D05"),
+                kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
+                ..
+            }] if rows == &[3] && values.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
+    let rendered = result.render(common::SNAPSHOT_STYLE).join("\n");
+    assert!(!rendered.contains("`5`"), "got {rendered}");
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(&yaml, &rendered));
 }
 
 #[test]

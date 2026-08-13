@@ -55,6 +55,9 @@ const PARTS: &[(&str, &str, &str)] = &[
     ("{{APP_JS}}", "app.js", include_str!("../render/app.js")),
 ];
 
+/// The stylesheet parts of `PARTS`, in the order the template embeds them.
+const CSS_FILES: &[&str] = &["app.css", "diagram.css", "tables.css"];
+
 /// The template every part is substituted into.
 const PAGE: (&str, &str) = ("index.html", include_str!("../render/index.html"));
 
@@ -96,6 +99,27 @@ impl Assets {
             .chain([PAGE.0, LIVE_JS.0])
             .map(|file| dir.join(file))
             .collect()
+    }
+
+    /// The stylesheet files, for `--live` to tell a CSS-only change apart
+    /// from one that needs the page rebuilt.
+    pub fn css_files(&self) -> Vec<PathBuf> {
+        let Assets::Dir(dir) = self else {
+            return Vec::new();
+        };
+        CSS_FILES.iter().map(|file| dir.join(file)).collect()
+    }
+
+    /// The page's stylesheet as one document, in template order. Served on
+    /// its own by `render --live`, so a CSS edit can be swapped into the
+    /// page without a reload.
+    pub fn css(&self) -> io::Result<String> {
+        let mut css = String::new();
+        for (_, file, embedded) in PARTS.iter().filter(|(_, file, _)| CSS_FILES.contains(file)) {
+            css.push_str(&self.read(file, embedded)?);
+            css.push('\n');
+        }
+        Ok(css)
     }
 
     fn read(&self, file: &str, embedded: &'static str) -> io::Result<String> {
@@ -203,5 +227,31 @@ mod tests {
             Assets::Dir(PathBuf::from("x")).files().len(),
             PARTS.len() + 2
         );
+    }
+
+    #[test]
+    fn css_lists_the_stylesheets_in_template_order() {
+        let dir = Assets::Dir(PathBuf::from("x"));
+        assert_eq!(
+            dir.css_files(),
+            CSS_FILES
+                .iter()
+                .map(|file| PathBuf::from("x").join(file))
+                .collect::<Vec<_>>()
+        );
+        assert!(Assets::Embedded.css_files().is_empty());
+    }
+
+    /// The standalone stylesheet is the same CSS the page embeds, so a swap
+    /// shows what a reload would.
+    #[test]
+    fn the_standalone_stylesheet_matches_the_embedded_one() {
+        let css = Assets::Embedded.css().unwrap();
+        let page = Assets::Embedded.render_page("{}", false).unwrap();
+        for file in CSS_FILES {
+            let (_, _, embedded) = PARTS.iter().find(|(_, f, _)| f == file).unwrap();
+            assert!(css.contains(embedded), "{file} is missing from the css");
+            assert!(page.contains(embedded), "{file} is missing from the page");
+        }
     }
 }

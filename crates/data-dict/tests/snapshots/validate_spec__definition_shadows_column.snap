@@ -13,7 +13,7 @@ tables:
       - name: order_total
         expr: SUM(order_total)
 ────────────────────────────────────────
-error[S32]: Definition and column names can't overlap.
+error[S33]: Definition and column names can't overlap.
   --> dict.yaml:10:15
    |
 LL |   - name: orders

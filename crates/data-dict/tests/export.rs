@@ -431,6 +431,54 @@ fn export_data_profiles_each_column() {
     insta::assert_snapshot!(serde_json::to_string_pretty(&export.unwrap()).unwrap());
 }
 
+/// A `display: restricted` column's profile carries counts only — never a
+/// value the data held (no samples, common values, observed range, or
+/// histogram).
+#[test]
+fn export_data_restricts_profiles_of_restricted_columns() {
+    let dir = temp_dir();
+    write_profiled_parquet(&dir.join("data.parquet"));
+    let dict = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: animals
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    display: restricted
+                    examples: [1]
+                  - name: name
+                    type: string
+                    display: restricted
+                    examples: [otter]
+        "},
+    );
+    let (problems, export) = export_data(&dict);
+    assert_eq!(
+        problems.status(),
+        Status::Ok,
+        "{}",
+        problems.render(common::SNAPSHOT_STYLE).join("\n")
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&export.unwrap()).unwrap()).unwrap();
+    let columns = &json["tables"][0]["columns"];
+
+    let id = &columns[0]["profile"];
+    assert_eq!(id["distinct"]["count"], 3);
+    assert!(id["range"].is_null());
+    assert!(id["sample_values"].is_null());
+    assert!(id["histogram"].is_null());
+
+    let name = &columns[1]["profile"];
+    assert_eq!(name["distinct"]["count"], 2);
+    assert!(name["sample_values"].is_null());
+    assert!(name["common_values"].is_null());
+}
+
 #[test]
 fn export_data_profiles_struct_fields_and_list_containers() {
     let dir = temp_dir();

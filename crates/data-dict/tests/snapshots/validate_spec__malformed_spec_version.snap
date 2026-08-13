@@ -1,0 +1,11 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: latest
+tables: []
+────────────────────────────────────────
+error[S32]: A `$version` must have three dot-separated numeric components, with an optional pre-release/build suffix.
+  --> dict.yaml:1:11
+   |
+LL | $version: latest
+   |           ^^^^^^ `latest` is not a valid version number

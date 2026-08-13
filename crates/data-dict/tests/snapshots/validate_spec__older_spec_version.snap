@@ -1,0 +1,11 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: 0.0.9
+tables: []
+────────────────────────────────────────
+error[S32]: Spec version numbering starts at `0.1.0`.
+  --> dict.yaml:1:11
+   |
+LL | $version: 0.0.9
+   |           ^^^^^ `$version` is `0.0.9`, which is not a valid spec version

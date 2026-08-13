@@ -46,6 +46,9 @@ struct Page {
     /// The same export the page was built around, served on its own so the
     /// browser can take a new dictionary without reloading.
     json: String,
+    /// The page's stylesheet, served on its own so a CSS edit can be swapped
+    /// in without reloading.
+    css: String,
     /// Whether the last build failed, leaving `html` as the last good page.
     failed: bool,
     /// The last build's diagnostics, rendered for display.
@@ -101,7 +104,7 @@ struct Build {
     /// The page and the export it was built around. `None` when the dictionary
     /// stopped validating or the page's assets couldn't be read; the last good
     /// page keeps serving.
-    page: Option<(String, String)>,
+    page: Option<(String, String, String)>,
     /// Each table's source file, resolved against the dictionary's directory.
     /// `None` when the export failed, where the previous list stands.
     sources: Option<Vec<PathBuf>>,
@@ -134,6 +137,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
             page: Some((
                 html,
                 serde_json::to_string(&export).expect("an export always serializes"),
+                assets.css().unwrap_or_default(),
             )),
             sources: Some(sources),
             failed: problems.status().failed(),
@@ -159,7 +163,7 @@ pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
     }
     // A page that never built has nothing to serve, so this fails like `render`
     // rather than starting up empty; a later failure keeps the last good page.
-    let Some((html, json)) = first.page else {
+    let Some((html, json, css)) = first.page else {
         return ExitCode::FAILURE;
     };
     let listener = match bind(port) {
@@ -183,6 +187,7 @@ pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
         page: Mutex::new(Page {
             html,
             json,
+            css,
             failed: first.failed,
             text: first.text,
         }),
@@ -216,6 +221,10 @@ fn handle(session: &Arc<Session>, mut stream: TcpStream) -> std::io::Result<()> 
         "/dict.json" => {
             let json = session.page.lock().unwrap().json.clone();
             respond(&mut stream, "200 OK", "application/json", &json)
+        }
+        "/style.css" => {
+            let css = session.page.lock().unwrap().css.clone();
+            respond(&mut stream, "200 OK", "text/css; charset=utf-8", &css)
         }
         "/problems" => {
             let body = {
@@ -305,13 +314,15 @@ fn watch(session: &Arc<Session>, sources: Vec<PathBuf>) -> ! {
     let mut beat = Instant::now();
     loop {
         thread::sleep(POLL);
-        if stamps(&watched) != seen {
+        let now = stamps(&watched);
+        if now != seen {
             thread::sleep(SETTLE);
+            let css_only = css_only_change(&session.assets, &watched, &seen, &now);
             let build = build(&session.dict, &session.assets);
             if let Some(found) = &build.sources {
                 sources = found.clone();
             }
-            apply(session, build);
+            apply(session, build, css_only);
             watched = session.watch_list(&sources);
             seen = stamps(&watched);
             beat = Instant::now();
@@ -322,18 +333,39 @@ fn watch(session: &Arc<Session>, sources: Vec<PathBuf>) -> ! {
     }
 }
 
-/// Publish a build: a page that rendered reloads the browser, and one that
-/// didn't reports over the page already there.
-fn apply(session: &Arc<Session>, build: Build) {
+/// Whether every file that changed is a stylesheet. A CSS-only edit swaps the
+/// page's styles in place, keeping the scroll position and filter state a
+/// reload would throw away.
+fn css_only_change(
+    assets: &Assets,
+    watched: &[PathBuf],
+    before: &[Option<SystemTime>],
+    after: &[Option<SystemTime>],
+) -> bool {
+    let css = assets.css_files();
+    let mut changed = watched
+        .iter()
+        .zip(before)
+        .zip(after)
+        .filter(|((_, a), b)| a != b)
+        .map(|((path, _), _)| path);
+    !css.is_empty() && changed.clone().next().is_some() && changed.all(|path| css.contains(path))
+}
+
+/// Publish a build: a page that rendered reloads the browser — or, when only
+/// its CSS changed, swaps the stylesheet — and one that didn't reports over
+/// the page already there.
+fn apply(session: &Arc<Session>, build: Build, css_only: bool) {
     for line in &build.text {
         eprintln!("{line}");
     }
     let rebuilt = build.page.is_some();
     {
         let mut page = session.page.lock().unwrap();
-        if let Some((html, json)) = build.page {
+        if let Some((html, json, css)) = build.page {
             page.html = html;
             page.json = json;
+            page.css = css;
         }
         page.failed = build.failed;
         page.text = build.text;
@@ -341,7 +373,12 @@ fn apply(session: &Arc<Session>, build: Build) {
     if rebuilt {
         println!("reloaded {}", session.dict.display());
     }
-    session.broadcast(&event(if rebuilt { "reload" } else { "problems" }));
+    let name = match (rebuilt, css_only) {
+        (true, true) => "css",
+        (true, false) => "reload",
+        (false, _) => "problems",
+    };
+    session.broadcast(&event(name));
 }
 
 /// Show the page, best-effort: a browser that won't launch is no reason to
@@ -371,6 +408,7 @@ mod tests {
             page: Mutex::new(Page {
                 html: html.to_string(),
                 json: r#"{"tables":[]}"#.to_string(),
+                css: "body { color: red }".to_string(),
                 failed: false,
                 text: Vec::new(),
             }),
@@ -426,6 +464,43 @@ mod tests {
         let response = get(start(&session), "/dict.json");
         assert!(response.contains("Content-Type: application/json"));
         assert!(response.ends_with(r#"{"name":"a<b"}"#));
+    }
+
+    /// The stylesheet is served on its own so a CSS-only edit can be swapped
+    /// in without reloading the page.
+    #[test]
+    fn the_stylesheet_is_served_on_its_own() {
+        let session = session("page");
+        let response = get(start(&session), "/style.css");
+        assert!(response.contains("Content-Type: text/css; charset=utf-8"));
+        assert!(response.ends_with("body { color: red }"));
+    }
+
+    #[test]
+    fn a_change_is_css_only_when_every_changed_file_is_a_stylesheet() {
+        let dir = PathBuf::from("render");
+        let assets = Assets::Dir(dir.clone());
+        let css = dir.join("app.css");
+        let js = dir.join("app.js");
+        let watched = vec![PathBuf::from("data-dict.yaml"), css.clone(), js.clone()];
+        let before = vec![None, None, None];
+
+        let mut after = vec![None, None, None];
+        assert!(!css_only_change(&assets, &watched, &before, &after));
+
+        after[1] = Some(SystemTime::now());
+        assert!(css_only_change(&assets, &watched, &before, &after));
+
+        after[2] = Some(SystemTime::now());
+        assert!(!css_only_change(&assets, &watched, &before, &after));
+
+        // Embedded assets can't change, so no change is ever CSS-only.
+        assert!(!css_only_change(
+            &Assets::Embedded,
+            &watched,
+            &before,
+            &after
+        ));
     }
 
     #[test]

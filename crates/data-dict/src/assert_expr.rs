@@ -889,7 +889,7 @@ pub trait CheckEnv {
     fn column(&self, name: &str) -> Option<ColumnKind>;
     /// The resolved type and shape of the definition `name`, or `None` if the
     /// table has no such definition. Columns win a name shared with a
-    /// definition (the collision itself is S32), so this is consulted only
+    /// definition (the collision itself is S33), so this is consulted only
     /// when [`CheckEnv::column`] returns `None`. The default is no
     /// definitions, for envs that check expressions without definitions in
     /// scope.

@@ -291,6 +291,32 @@ impl ExportProfile {
             ExportProfile::Minimal { .. } => {}
         }
     }
+
+    /// Reduce to what a `display: restricted` column may show: counts only,
+    /// never a value the data held.
+    fn restrict(&mut self) {
+        match self {
+            ExportProfile::Scaled {
+                range,
+                sample_values,
+                histogram,
+                ..
+            } => {
+                *range = None;
+                sample_values.clear();
+                *histogram = None;
+            }
+            ExportProfile::Valued {
+                sample_values,
+                common_values,
+                ..
+            } => {
+                sample_values.clear();
+                *common_values = None;
+            }
+            ExportProfile::Minimal { .. } => {}
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -627,10 +653,12 @@ fn build_column(
         .map(representation_labels)
         .unwrap_or_default();
     let mut profile = profiles.remove(&path.join("."));
-    if let Some(profile) = &mut profile
-        && !values.is_empty()
-    {
-        profile.drop_samples();
+    if let Some(profile) = &mut profile {
+        if col.display.as_deref() == Some("restricted") {
+            profile.restrict();
+        } else if !values.is_empty() {
+            profile.drop_samples();
+        }
     }
 
     ExportColumn {
