@@ -105,6 +105,19 @@ pub struct Assertion {
     pub description: Option<String>,
 }
 
+/// A table-level definition: a named expression (a metric, filter, or derived
+/// value) with its documentation. Mirrors [`Assertion`]: `expr` is `None` if
+/// it failed to parse — S19 is emitted then.
+#[derive(Debug, Clone)]
+pub struct Definition {
+    pub name: Spanned<String>,
+    pub text: Spanned<String>,
+    pub expr: Option<AssertExpr>,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub details: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Table {
     /// The whole table entry node, so a consumer can find where one table ends
@@ -114,6 +127,8 @@ pub struct Table {
     pub columns: Vec<Column>,
     /// Table-level assertions (span multiple columns).
     pub constraints: Vec<Assertion>,
+    /// Named expressions defined on this table.
+    pub definitions: Vec<Definition>,
     /// Where the table's data lives, when it declares a `source`. Optional
     /// for spec validation; required for metadata validation (M04).
     pub source: Option<Source>,
@@ -137,6 +152,13 @@ pub struct Source {
 impl Table {
     pub fn column(&self, name: &str) -> Option<&Column> {
         self.columns.iter().find(|c| c.name.value == name)
+    }
+
+    /// The first definition with the given name, or `None`. Duplicate names
+    /// are an error (S10); lookups resolve to the first so downstream checks
+    /// still run.
+    pub fn definition(&self, name: &str) -> Option<&Definition> {
+        self.definitions.iter().find(|d| d.name.value == name)
     }
 }
 

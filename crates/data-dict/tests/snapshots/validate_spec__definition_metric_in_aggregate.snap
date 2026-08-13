@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: total
+        expr: SUM(order_total)
+      - name: double_counted
+        expr: SUM(total)
+────────────────────────────────────────
+error[S30]: An aggregate can't be nested inside another aggregate.
+  --> dict.yaml:13:19
+   |
+LL |   - name: orders
+...
+LL |       - name: double_counted
+LL |         expr: SUM(total)
+   |                   ^^^^^ this argument of `SUM` is already an aggregate

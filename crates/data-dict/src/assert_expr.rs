@@ -873,10 +873,29 @@ pub enum ColumnKind {
     Untyped,
 }
 
+/// A definition's resolved type and shape, as seen by an expression that
+/// references it. A definition whose own expression failed to check is
+/// reported at its root cause, so referencers see the permissive
+/// `Ty::Any` rather than a cascading error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefType {
+    pub ty: Ty,
+    pub shape: Shape,
+}
+
 /// What an assertion checker needs to know about the table it runs against.
 pub trait CheckEnv {
     /// The kind of column `name`, or `None` if the table has no such column.
     fn column(&self, name: &str) -> Option<ColumnKind>;
+    /// The resolved type and shape of the definition `name`, or `None` if the
+    /// table has no such definition. Columns win a name shared with a
+    /// definition (the collision itself is S33), so this is consulted only
+    /// when [`CheckEnv::column`] returns `None`. The default is no
+    /// definitions, for envs that check expressions without definitions in
+    /// scope.
+    fn definition(&self, _name: &str) -> Option<DefType> {
+        None
+    }
     /// The kind of the field reached by `path` — a column name followed by one
     /// or more field names — or `None` if any segment doesn't exist. The env
     /// only looks names up; that each intermediate segment is a `struct` is the
@@ -917,8 +936,11 @@ pub enum FindingSeverity {
 /// root cause yields a single diagnostic; `Unknown` is a column with no
 /// declared `type`, and is compatible with nothing — using it where a type
 /// matters is S23.
+///
+/// Public so a [`CheckEnv`] can report a definition's resolved type; treat it
+/// as opaque.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ty {
+pub enum Ty {
     Number,
     String,
     Bool,
@@ -1087,6 +1109,9 @@ pub enum Root {
     /// Any type will do. `data-dict translate --expr` uses this: translating
     /// `a + b` is a reasonable thing to ask for, and its type is reported.
     Any,
+    /// A definition may have any type, but a `COLUMNS(...)` appears only in a
+    /// filter, so the whole expression must be boolean when one is used.
+    Definition,
 }
 
 /// Check a parsed assertion against `env`, returning every finding in source
@@ -1098,29 +1123,56 @@ pub fn check(expr: &AssertExpr, env: &dyn CheckEnv) -> Vec<Finding> {
 
 /// [`check`], with the choice of whether the whole expression must be boolean.
 pub fn check_root(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> Vec<Finding> {
+    analyze(expr, env, root).2
+}
+
+/// [`check_root`], also returning the expression's inferred type and shape.
+/// A definition's caller needs both to resolve references to that definition
+/// from other definitions.
+pub fn analyze(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> (Ty, Shape, Vec<Finding>) {
     let mut cx = Checker {
         env,
         findings: Vec::new(),
         columns_spans: Vec::new(),
     };
     let ty = cx.infer(&expr.root);
-    cx.shape(&expr.root);
-    // The assertion as a whole must be boolean. A bare top-level COLUMNS(...)
-    // stands for each selected column, so every one of those must be boolean.
-    if root == Root::Boolean {
-        if let ExprKind::Columns(sel) = &expr.root.kind {
-            cx.require_columns(&expr.root, sel, &[Ty::Bool], "an assertion");
-        } else if ty == Ty::Unknown {
-            cx.report_unknown(&expr.root);
-        } else if !matches!(ty, Ty::Bool | Ty::Any) {
-            cx.report(
-                "S21",
-                format!("this assertion is {}, not a boolean", ty.noun()),
-                &expr.root,
-            );
+    let shape = cx.shape(&expr.root);
+    match root {
+        Root::Boolean => {
+            // The assertion as a whole must be boolean. A bare top-level
+            // COLUMNS(...) stands for each selected column, so every one of
+            // those must be boolean.
+            if let ExprKind::Columns(sel) = &expr.root.kind {
+                cx.require_columns(&expr.root, sel, &[Ty::Bool], "an assertion");
+            } else if ty == Ty::Unknown {
+                cx.report_unknown(&expr.root);
+            } else if !matches!(ty, Ty::Bool | Ty::Any) {
+                cx.report(
+                    "S21",
+                    format!("this assertion is {}, not a boolean", ty.noun()),
+                    &expr.root,
+                );
+            }
         }
-    } else if ty == Ty::Unknown {
-        cx.report_unknown(&expr.root);
+        Root::Any | Root::Definition => {
+            if ty == Ty::Unknown {
+                cx.report_unknown(&expr.root);
+            }
+            if root == Root::Definition && !cx.columns_spans.is_empty() {
+                if let ExprKind::Columns(sel) = &expr.root.kind {
+                    cx.require_columns(&expr.root, sel, &[Ty::Bool], "a filter");
+                } else if !matches!(ty, Ty::Bool | Ty::Any | Ty::Unknown) {
+                    cx.report(
+                        "S21",
+                        format!(
+                            "an expression using `COLUMNS(...)` must be a boolean filter, not {}",
+                            ty.noun()
+                        ),
+                        &expr.root,
+                    );
+                }
+            }
+        }
     }
     // At most one COLUMNS(...) may appear; flag every one past the first.
     if cx.columns_spans.len() > 1 {
@@ -1128,7 +1180,7 @@ pub fn check_root(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> Vec<Find
             cx.findings.push(Finding {
                 code: "S21",
                 severity: FindingSeverity::Error,
-                message: "an assertion may use at most one `COLUMNS(...)`".to_string(),
+                message: "an expression may use at most one `COLUMNS(...)`".to_string(),
                 start,
                 end,
             });
@@ -1138,7 +1190,74 @@ pub fn check_root(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> Vec<Find
     // A node can be visited twice — inferred, then required by its parent — so
     // the same fault can be recorded twice.
     cx.findings.dedup();
-    cx.findings
+    (ty, shape, cx.findings)
+}
+
+/// The first segment of every column path in `expr`: the names the expression
+/// resolves against the table's columns and definitions. Used to build the
+/// reference graph between a table's definitions.
+pub fn referenced_names(expr: &AssertExpr) -> Vec<String> {
+    fn walk(e: &Expr, names: &mut Vec<String>) {
+        match &e.kind {
+            ExprKind::Number(_)
+            | ExprKind::Str(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Now
+            | ExprKind::Columns(_) => {}
+            ExprKind::Column(path) => names.push(path[0].clone()),
+            ExprKind::Neg(inner) | ExprKind::Not(inner) => walk(inner, names),
+            ExprKind::IsNull { operand, .. } => walk(operand, names),
+            ExprKind::Interval { n, .. } => walk(n, names),
+            ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
+                walk(lhs, names);
+                walk(rhs, names);
+            }
+            ExprKind::And(l, r) | ExprKind::Or(l, r) => {
+                walk(l, names);
+                walk(r, names);
+            }
+            ExprKind::Like {
+                operand, pattern, ..
+            }
+            | ExprKind::SimilarTo {
+                operand, pattern, ..
+            } => {
+                walk(operand, names);
+                walk(pattern, names);
+            }
+            ExprKind::Between {
+                operand, lo, hi, ..
+            } => {
+                walk(operand, names);
+                walk(lo, names);
+                walk(hi, names);
+            }
+            ExprKind::In { operand, list, .. } => {
+                walk(operand, names);
+                for item in list {
+                    walk(item, names);
+                }
+            }
+            ExprKind::Call { args, .. } => {
+                for a in args {
+                    walk(a, names);
+                }
+            }
+            ExprKind::Case { whens, els } => {
+                for (cond, result) in whens {
+                    walk(cond, names);
+                    walk(result, names);
+                }
+                if let Some(els) = els {
+                    walk(els, names);
+                }
+            }
+        }
+    }
+    let mut names = Vec::new();
+    walk(&expr.root, &mut names);
+    names
 }
 
 struct Checker<'a> {
@@ -1350,8 +1469,16 @@ impl Checker<'_> {
         let mut kind = match self.env.column(&path[0]) {
             Some(kind) => kind,
             None => {
+                // Not a column: a bare name may be a definition, which stands
+                // for its own expression's type. A field path can't reach
+                // through a definition, so those fall through to S20.
+                if path.len() == 1
+                    && let Some(def) = self.env.definition(&path[0])
+                {
+                    return def.ty;
+                }
                 let name = &path[0];
-                self.report("S20", format!("column `{name}` is not on this table"), e);
+                self.report("S20", format!("column `{name}` not found"), e);
                 return Ty::Any;
             }
         };
@@ -1527,7 +1654,7 @@ impl Checker<'_> {
                         self.findings.push(Finding {
                             code: "S20",
                             severity: FindingSeverity::Error,
-                            message: format!("column `{}` is not on this table", n.name),
+                            message: format!("column `{}` not found", n.name),
                             start: n.start,
                             end: n.end,
                         });
@@ -1619,7 +1746,19 @@ impl Checker<'_> {
             | ExprKind::Bool(_)
             | ExprKind::Null
             | ExprKind::Now => Shape::Const,
-            ExprKind::Column(_) | ExprKind::Columns(_) => Shape::Row,
+            ExprKind::Column(path) => {
+                // A definition reference takes the referenced expression's
+                // shape, so a metric used inside an aggregate is S30, just
+                // like a literal nested aggregate call.
+                if path.len() == 1
+                    && self.env.column(&path[0]).is_none()
+                    && let Some(def) = self.env.definition(&path[0])
+                {
+                    return def.shape;
+                }
+                Shape::Row
+            }
+            ExprKind::Columns(_) => Shape::Row,
             ExprKind::Neg(inner) | ExprKind::Not(inner) => self.shape(inner),
             ExprKind::IsNull { operand, .. } => self.shape(operand),
             ExprKind::Interval { n, .. } => self.shape(n),

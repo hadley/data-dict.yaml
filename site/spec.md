@@ -34,6 +34,7 @@ The content keys all hold the actual information about the data:
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
+* `definitions`: a list of named expressions — metrics and filters — defined on this table (see [Definitions](#definitions)).
 * `todo`: work that remains on this table (see [Todo](#todo)).
 
 For example:
@@ -125,9 +126,9 @@ A column may also be listed with only its `name` and no `type`. This acknowledge
 
 #### Name, label, description & details
 
-`name`, `label`, `description`, and `details` document a dataset, table, or column, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
+`name`, `label`, `description`, and `details` document a dataset, table, column, or definition, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
 
-* `name` identifies the thing. For a table or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
+* `name` identifies the thing. For a table, definition, or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
 * `label` is a short, human-readable title, useful when the `name` is terse or technical (e.g. `FoodData Central ID` for `fdc_id`). Plain text (no markdown), typically a few words, it stands in for the `name` in user interfaces.
 * `description` contains the most important information about the item, like known limitations or a surprising derivation compared to its `name`.
 * `details` contains anything else that might be useful to know, e.g. assumptions about potential unknowns, or background on how the data was collected or constructed.
@@ -312,7 +313,7 @@ columns:
       - assert: LENGTH(postcode) <= 10
 ```
 
-Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
+Bare names in the expression refer to columns and definitions in the same table. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
 
 Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
 
@@ -334,7 +335,7 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns of the table.
+An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns or definitions in the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
@@ -352,6 +353,40 @@ constraints:
 ```
 
 [Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
+
+### Definitions
+
+A table's `definitions` property is a list of named expressions — the metrics, filters, and derivations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
+
+Each entry is a map with:
+
+* `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
+* `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
+* `label`, `description`, `details`: human-readable documentation for the definition; see [Name, label, description & details](#name-label-description--details).
+
+The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
+
+* A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
+* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows. 
+* Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
+
+```yaml
+tables:
+  - name: orders
+    definitions:
+      - name: net_revenue
+        description: Realized revenue excluding returned orders.
+        expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)
+      - name: is_enterprise
+        description: For historical reasons, the Enterprise segment also includes Mid-Market-3.
+        expr: tile_size IN ('Mid-Market-3', 'Enterprise-1', 'Enterprise-2', 'Enterprise-3')
+```
+
+A definition's expression may reference the table's columns and other definitions in the same table. References between definitions must not be circular: following the references from any definition must eventually reach only columns.
+
+A [`COLUMNS(...)`](expressions.md#selecting-multiple-columns) selection may appear only in a filter where each selected column is tested in turn and the results combined with `AND`, exactly as in a constraint.
+
+Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns and definitions — but the metadata and data levels never evaluate them.
 
 ## Relationships
 

@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: order_total
+        expr: SUM(order_total)
+────────────────────────────────────────
+error[S33]: Definition and column names can't overlap.
+  --> dict.yaml:10:15
+   |
+LL |   - name: orders
+LL |     columns:
+LL |       - name: order_total
+...
+LL |       - name: order_total
+   |               ^^^^^^^^^^^ `order_total` is both a column and a definition

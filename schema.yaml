@@ -147,6 +147,27 @@ object:
                     assert: string
                     description: string
 
+            # Named expressions (metrics, filters, derived values). Name
+            # uniqueness and the shared namespace with columns are semantic
+            # (S10, S33), as are expression checks (S19–S23, S30, S34).
+            definitions:
+              arrayOf:
+                object:
+                  closed: true
+                  required: [name, expr]
+                  properties:
+                    # `anyOf: [string, null]` lets an empty/null name through
+                    # to the semantic layer, where S11 reports it (see the
+                    # table `name` above).
+                    name:
+                      anyOf:
+                        - string
+                        - null
+                    expr: string
+                    label: string
+                    description: string
+                    details: string
+
     relationships:
       arrayOf:
         object:

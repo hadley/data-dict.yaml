@@ -1,0 +1,25 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: broken
+        expr: LENGTH(order_total)
+      - name: uses_broken
+        expr: broken + 1
+────────────────────────────────────────
+error[S21]: A definition must be a well-typed expression.
+  --> dict.yaml:11:22
+   |
+LL |   - name: orders
+...
+LL |       - name: broken
+LL |         expr: LENGTH(order_total)
+   |                      ^^^^^^^^^^^ `LENGTH` expects a string, found a number
