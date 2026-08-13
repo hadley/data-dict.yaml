@@ -98,7 +98,8 @@ The rendered page's CSS and JS live in
 [`crates/data-dict-cli/render/`](crates/data-dict-cli/render/) and are compiled
 into the binary. A debug build run from the repo reads them from that directory
 instead, so `cargo run -- render --live <dict>` reloads the browser when you
-edit them — no rebuild in between.
+edit them — no rebuild in between. A CSS-only edit doesn't even reload: the
+new stylesheet is swapped into the page in place.
 
 The website is a [Quarto](https://quarto.org) project in [`site/`](site/), published automatically to [data-dict.tidyverse.org](https://data-dict.tidyverse.org) on every push to `main`.
 

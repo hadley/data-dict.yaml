@@ -121,6 +121,12 @@
   const events = new EventSource("/events");
   events.addEventListener("reload", rebuilt);
   events.addEventListener("problems", report);
+  /* A CSS-only edit swaps the stylesheet in place: nothing on the page was
+     built from the CSS, so there is nothing to rebuild or reload. */
+  events.addEventListener("css", async () => {
+    const css = await (await fetch("/style.css", { cache: "no-store" })).text();
+    document.getElementById("dd-css").textContent = css;
+  });
   events.addEventListener("open", () => {
     if (dropped) location.reload();
   });
