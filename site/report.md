@@ -1,6 +1,6 @@
 # Report
 
-A **report** is one validation run's findings as JSON, so a program can act on them. Every check that has a code reports through this one document, and only those checks do: the `S##`, `M##`, and `D##` checks in [validation.md](validation.md), and the structural schema checks, which carry a `Q-1-##` code instead. The `data-dict` CLI writes one for any validation run it can get started.
+A **report** is one validation run's findings as JSON, so a program can act on them. Every check in [validation.md](validation.md) (`S##`, `M##`, or `D##`) reports through this one document, and only those checks do. The `data-dict` CLI writes one for any validation run it can get started.
 
 A report is a superset of the diagnostics rendered for a person: every position a diagnostic highlights is in it, and it names more offending rows.
 
@@ -127,7 +127,7 @@ Lines and columns count from 0, following the LSP convention. Diagnostics render
 
 | `kind` | `code` | Additional keys |
 |--------|--------|-----------------|
-| `schema` | `Q-1-##` | |
+| `schema` | `S60`–`S69` | |
 | `spec` | `S01`–`S31` | |
 | `type_mismatch` | `M01` | `declared`, `actual` |
 | `missing_in_data` | `M02` | |
@@ -147,7 +147,7 @@ Lines and columns count from 0, following the LSP convention. Diagnostics render
 
 : {tbl-colwidths="[30,10,60]"}
 
-A `schema` problem's code comes from the YAML schema validator rather than from `validation.md`, and is a `Q-1-##` naming the structural rule broken (`Q-1-18` for an unknown property, `Q-1-11` for a wrong type). A consumer that dispatches on `code` should treat the prefix as open and fall back on `kind`.
+`schema` and `spec` are the two halves of spec validation and are kept apart because a consumer treats them differently: a `schema` problem means the document could not be read as a data dictionary at all, so no `spec` problem could be looked for, while a `spec` problem is a finding about a document that was read successfully.
 
 A key that names one particular column is spelled for what it means, so it never collides with `columns`: `D02` and `D03` carry the key's columns in `columns` alone, `D05` and `D06` name their target in `references`, and `D08`'s `unreadable_column` is the one column of the assertion that can't be read as its declared type — absent when the obstacle isn't one column's type.
 

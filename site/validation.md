@@ -16,7 +16,7 @@ The metadata and data levels locate each table's data through its [`source`](spe
 
 Each level implies the ones before it: validating the metadata validates the spec first, and validating the data validates both the spec and the metadata first. Validating the spec and metadata are cheap, so they can be run continually while you edit the `data-dict.yaml`; validating the data adds a full scan and get more expensive as the size of the data increases.
 
-Each check has a code prefixed by its level: spec checks are `S01`, `S02`, …; metadata checks `M01`, …; data checks `D01`, …. Severity is independent of level — any level can raise errors or warnings.
+Each check has a code prefixed by its level: spec checks are `S01`, `S02`, …; metadata checks `M01`, …; data checks `D01`, …. Every code a validator reports is in this file: the codes are part of the interface, so a program can dispatch on them and they don't change with the tool's internals. Severity is independent of level — any level can raise errors or warnings.
 
 ## Errors vs warnings
 
@@ -26,7 +26,29 @@ A validator reports two severities of problem: **errors** and **warnings**. The 
 
 * A **warning** means the dictionary is usable but the data and dictionary may have drifted apart. Warnings will not cause a production pipeline to fail, but if you're actively working on the project you should make sure to fix them.
 
+## Structural spec checks
+
+Validating the spec starts by checking the document's shape: that every key the spec requires is present, that no key it doesn't define appears, and that each value has an allowed type. These checks are about the document as a data structure, so they say nothing about what it means — a `foreign_key` that points nowhere is a well-shaped document, and is caught by a `S01`–`S31` check below.
+
+Their codes are the `S60` block, reserved for structural checks:
+
+| Code | Name | Sev | Description |
+|------|------|-----|-------------|
+| S60 | Missing required key | E | A mapping is missing a key the spec requires, such as a table without `columns`. |
+| S61 | Wrong value type | E | A value's type is not one the spec allows there, such as a `description` given a list instead of a string. |
+| S62 | Value not allowed | E | A value is not among the fixed set the spec allows there, such as a `display` other than `default`, `hidden`, or `restricted`. |
+| S63 | Empty mapping | E | A mapping the spec requires at least one entry in is empty, such as a table with no columns. |
+| S64 | Unknown key | E | A mapping contains a key the spec doesn't define. A misspelled key reports this rather than the `S60` for the key it was meant to be, and the two are reported together when both apply. |
+| S65 | Duplicate key | E | The same key appears twice in one mapping. |
+| S69 | Structural violation | E | The document breaks a structural rule none of the above covers. A validator reports this only as a last resort; `expected` and `message` say what the rule was. |
+
+: {tbl-colwidths="[7,23,5,65]"}
+
+The document is checked whole, so every structural problem in it is reported at once, each at its own location. A structural error stops validation before the checks below run: they read the document as the typed model the spec describes, which a misshapen document can't be read as.
+
 ## Spec-validation checks
+
+These are the semantic checks: the document is shaped correctly, and they ask whether what it says is consistent.
 
 | Code | Name | Sev | Description |
 |------|------|-----|-------------|
