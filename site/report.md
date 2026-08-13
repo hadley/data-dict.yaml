@@ -159,23 +159,21 @@ Three keys describe how many rows broke a check and which ones:
 
 * `count` is the **exact** total number of offending rows. It is never capped.
 * `rows` are the offending row numbers, ascending, **capped** at the first so many. Row numbers are 1-based and absolute within the table's Parquet file, so they survive row-group boundaries and can be used to seek back into the data.
-* `values` are the offending values themselves, in one of two shapes, decided by the `kind`.
+* `values` are the offending values themselves, one **object** per offending row, keyed by column name.
 
-For `D04` and `D05` a value is a bare string, and the list is the **distinct** offending values in first-seen order. Because they are deduplicated, `values` is generally shorter than `rows` and its entries do not line up with it.
+A `values` entry holds just the columns the check is about — the enum column for `D04`, the referencing column for `D05`, the key's columns for `D02`, the columns the expression reads for `D07` — never the whole row. Entries line up with `rows`: one per row number, in the same order, and nothing is deduplicated, so a value that offends twice appears twice.
 
 ```jsonc
 "rows": [57, 812, 4310],
-"values": ["retired", "unknown"]
+"values": [{"status": "retired"}, {"status": "unknown"}, {"status": "retired"}]
 ```
-
-For `D02` and `D07` a value is an **object** keyed by column name, holding just the columns the check is about — the key's columns for `D02`, the columns the expression reads for `D07` — never the whole row. These line up: one entry per row in `rows`, in the same order, and nothing is deduplicated.
 
 ```jsonc
 "rows": [12, 91],
 "values": [{"weight": "-1.5", "length": "60"}, {"weight": "0", "length": "74"}]
 ```
 
-An offending value is always a **string**, in either shape, and never a JSON number or boolean. Each value renders the way the same value would be written as a `range` bound or an `examples` entry in the dictionary itself: a number in decimal at full precision, a date or datetime as ISO 8601, a boolean as `"true"` or `"false"`, a non-finite float as `"NaN"`, `"Infinity"`, or `"-Infinity"`.
+An offending value is always a **string**, and never a JSON number or boolean. Each value renders the way the same value would be written as a `range` bound or an `examples` entry in the dictionary itself: a number in decimal at full precision, a date or datetime as ISO 8601, a boolean as `"true"` or `"false"`, a non-finite float as `"NaN"`, `"Infinity"`, or `"-Infinity"`.
 
 A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. It can only appear in a `D07` entry — `D02`, `D04`, and `D05` all exempt nulls, so their `values` never contain one.
 
@@ -197,7 +195,7 @@ A column marked [`display: restricted`](spec.md#display) holds data that must no
 
 So a problem about a restricted column — or about an assertion that reads one — reports `count` and `rows` but no `values`, and sets `"redacted": true`. The rows are still there, so a consumer can still find the offending records in the data it is already entitled to read; only the values are withheld.
 
-Where `values` holds objects (`D02`, `D07`), redaction is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. If every column the entry would name is restricted — a restricted `unique` column, or an assertion that reads nothing else — there is nothing left to say, so `values` is omitted rather than given as a list of empty objects.
+Redaction is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. If every column the entry would name is restricted — a restricted `enum` or `unique` column, or an assertion that reads nothing else — there is nothing left to say, so `values` is omitted rather than given as a list of empty objects.
 
 `redacted` is always present on the kinds that can carry values, so `"redacted": false` positively states that nothing was withheld.
 
