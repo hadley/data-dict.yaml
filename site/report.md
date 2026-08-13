@@ -4,7 +4,7 @@ A **report** is one validation run's findings as JSON, so a program can act on t
 
 A report is a superset of the diagnostics rendered for a person: every position a diagnostic highlights is in it, and it names more offending rows.
 
-The [level](validation.md#three-levels-of-validation) validated determines which checks ran, not the shape of what they report: a data-level report carries `S##` and `M##` problems too, since each level implies the ones before it. If an earlier level finds an error, the run stops there and reports only what it got to. A run that finds nothing still produces a report, with an empty `problems` list.
+The [level](validation.md#three-levels-of-validation) validated determines which checks ran, not the shape of what they report: a data-level report carries `S##` and `M##` problems too, since each level implies the ones before it. `D##` problems do carry something the earlier levels have no use for: found by reading the data, they name the offending rows, not just the table and column the dictionary declares. If an earlier level finds an error, the run stops there and reports only what it got to. A run that finds nothing still produces a report, with an empty `problems` list.
 
 ## Output shape
 
@@ -45,7 +45,7 @@ Every step the level attempted is listed, including the ones it could not weigh.
   "suggestion?": { "title": "string", "replacement": "string",
                    "location": Location },
   "table?": "string",            // the table the problem is about
-  "column?": "string",           // the column, dotted for a struct field
+  "columns?": ["string"],        // the columns it is about, dotted for a struct field
   "location?": Location,         // the offending node itself
   "context?": [ Location ],      // the nodes enclosing it, outermost first
   ...                            // the keys of this `kind`, see below
@@ -54,11 +54,13 @@ Every step the level attempted is listed, including the ones it could not weigh.
 
 `expected` and `message` are two halves of one sentence: `expected` states the rule in general ("A range's minimum must be less than or equal to its maximum."), `message` reports the specific violation ("minimum `100` is greater than maximum `10`"). A problem always has a `message`; it has an `expected` whenever the rule can be stated in the abstract.
 
+`columns` is every column the problem is about, in dictionary order: one entry for a problem about a single column, several for a composite key or an assertion that reads more than one (`start_date < end_date` names both). It is absent for a problem about no column in particular — a table-level or document-level one. A consumer that groups by column lists such a problem under each of its columns.
+
 `code` is absent only for a pre-flight failure — one that stopped the run before any check could run, like an unreadable file.
 
 `suggestion` is a concrete edit: splice `replacement` into the source over the suggestion's own `location`, which is an insertion point when it is empty.
 
-`step` is absent for a problem no step accounts for: a pre-flight failure, a spec problem, and an undocumented column (`M03`). A step with a `fail` above zero always has at least one problem pointing back at it.
+`step` is absent for a problem no step accounts for: a pre-flight failure, a spec problem, and an undocumented column (`M03`). A step whose `outcome` is `fail` always has at least one problem pointing back at it.
 
 ### Step
 
@@ -67,16 +69,17 @@ Every step the level attempted is listed, including the ones it could not weigh.
   "id": 3,                       // 1-based, unique within this report
   "code": "D04",                 // the check's code in validation.md
   "table": "otters",             // the table the step checked
-  "column?": "status",           // the column, dotted for a struct field
-  "columns?": ["site", "day"],   // the key's columns, for a composite-key step
+  "columns?": ["site", "day"],   // the columns it checked, dotted for a struct field
   "assertion?": "weight > 0",    // the expression, for an assertion step
-  "evaluated": true,
-  "units?": 91043,               // test units the step weighed
-  "fail?": 2                     // units that failed; pass is units - fail
+  "outcome": "pass" | "fail" | "unevaluated",
+  "row_count?": 91043,           // rows of the table the step covered
+  "failed_row_count?": 2         // rows that failed; passed is the difference
 }
 ```
 
-Steps are in dictionary order: tables as `tables` declares them, then each table's columns in order, then that column's checks by code.
+`columns` follows the same rule as a problem's: every column the step checked, in dictionary order — one for a per-column check, the key's columns for a composite key, and every column the expression reads for an assertion. It is absent for a step about the table as a whole (`M04`).
+
+Steps are in dictionary order: tables as `tables` declares them, then each table's columns in order, then that column's checks by code. A step over several columns sorts by the first of them.
 
 A step's `code` is the code it reports when the thing it checks is plainly wrong. Several checks are alternative verdicts on one declared target — a column is either the wrong type (`M01`) or absent (`M02`), and a uniqueness check either finds duplicates (`D02`) or can't compare the values at all (`D03`) — so one step covers them and the problem carries the code that actually applied:
 
@@ -94,9 +97,13 @@ A step's `code` is the code it reports when the thing it checks is plainly wrong
 
 `M03` is the one check with nothing to declare it: the column exists only in the data, so no step covers it and its problem has no `step`.
 
-`units` is how many things the step weighed: the table's rows for a row-level data check, and `1` for a check with a single verdict — an aggregate assertion, or any metadata check. `fail` is how many of them failed, and is `0` for a step that passed. Both are absent when `evaluated` is false.
+`outcome` is the step's verdict, and the only thing a consumer should read it from: `pass` if the step found nothing, `fail` if at least one problem points back at it, `unevaluated` if it could not reach a verdict at all. Do not infer the verdict from the counts below — a step over an empty table fails with nothing to count.
 
-`evaluated` is false when the step could not reach a verdict: the values were not comparable (`D03`, `D06`), the expression could not be run (`D08`, `D09`), or the table's data could not be read, which leaves every step of that table unevaluated. A step that did not evaluate has not passed, and a consumer must not count it as one.
+`outcome` is `unevaluated` when the values were not comparable (`D03`, `D06`), the expression could not be run (`D08`, `D09`), or the table's data could not be read, which leaves every step of that table unevaluated. A step that did not evaluate has not passed, and a consumer must not count it as one.
+
+`row_count` is how many of the table's rows the step covered and `failed_row_count` how many of them failed, so every step of a table counts in the same unit against the same denominator. A check with a single verdict is all or nothing: a metadata step, or an aggregate assertion like `SUM(weight) > 0`, fails every row of the table or none of them. That is a coarse weighting so such a step can be counted alongside the row-level ones, not a claim about which rows are at fault — an aggregate assertion's own problem still blames no individual row.
+
+Both keys are absent when the step has no row count to report: when `outcome` is `unevaluated`, and when the failure is that the table's rows could never be counted in the first place (`M04`, `M05`).
 
 A step carries no values, only counts, so nothing on it is ever withheld for a [restricted](spec.md#display) column.
 
@@ -132,42 +139,44 @@ Lines and columns count from 0, following the LSP convention. Diagnostics render
 | `missing_source` | `M04` | |
 | `unreadable_source` | `M05` | |
 | `nulls_in_required` | `D01` | `count`, `rows` |
-| `duplicate_values` | `D02` | `columns`, `count`, `rows` |
-| `uniqueness_not_verified` | `D03` | `columns`, `reason` |
+| `duplicate_values` | `D02` | `count`, `rows` |
+| `uniqueness_not_verified` | `D03` | `reason` |
 | `values_outside_enum` | `D04` | `count`, `rows`, `values`, `redacted` |
-| `foreign_key_not_found` | `D05` | `column`, `references`, `count`, `rows`, `values`, `redacted` |
-| `referential_integrity_not_verified` | `D06` | `column`, `references`, `reason` |
-| `assertion_violated` | `D07` | `assertion`, `count`, `rows`, `samples`, `redacted` |
+| `foreign_key_not_found` | `D05` | `references`, `count`, `rows`, `values`, `redacted` |
+| `referential_integrity_not_verified` | `D06` | `references`, `reason` |
+| `assertion_violated` | `D07` | `assertion`, `count`, `rows`, `row_values`, `redacted` |
 | `assertion_false` | `D07` | `assertion` |
-| `assertion_not_checked` | `D08` | `assertion`, `column`, `reason` |
+| `assertion_not_checked` | `D08` | `assertion`, `unreadable_column`, `reason` |
 | `assertion_overflow` | `D09` | `assertion`, `row` |
 
 : {tbl-colwidths="[30,10,60]"}
 
-The four kinds with no code are pre-flight failures: the file couldn't be read (`io`), isn't YAML (`parse`), doesn't match the schema (`schema`), or a Parquet file failed mid-read (`parquet`). `spec` covers every semantic spec check, whose code varies per check.
+The five kinds with no code are pre-flight failures: the file couldn't be read (`io`), isn't YAML (`parse`), doesn't match the schema (`schema`), a Parquet file failed mid-read (`parquet`), or the table asked for isn't in the dictionary (`table_not_found`). `spec` covers every semantic spec check, whose code varies per check.
 
-`values_outside_enum` and `assertion_violated` also arise for a nested column: `column` is then the dotted path to the struct field, and its rows are the rows of the top-level column that holds it.
+A key that names one particular column is spelled for what it means, so it never collides with `columns`: `D02` and `D03` carry the key's columns in `columns` alone, `D05` and `D06` name their target in `references`, and `D08`'s `unreadable_column` is the one column of the assertion that can't be read as its declared type — absent when the obstacle isn't one column's type.
 
-## Counting and sampling
+`values_outside_enum` and `assertion_violated` also arise for a nested column: `columns` then holds the dotted path to the struct field, and its rows are the rows of the top-level column that holds it.
+
+## Counting and capping
 
 Three keys describe how many rows broke a check and which ones:
 
 * `count` is the **exact** total number of offending rows. It is never capped.
-* `rows` is a **sample** of the offending row numbers, ascending. Row numbers are 1-based and absolute within the table's Parquet file, so they survive row-group boundaries and can be used to seek back into the data.
+* `rows` are the offending row numbers, ascending, **capped** at the first so many. Row numbers are 1-based and absolute within the table's Parquet file, so they survive row-group boundaries and can be used to seek back into the data.
 * `values` (`D04`, `D05`) are the **distinct** offending values, in first-seen order. Because they are deduplicated, `values` is generally shorter than `rows` and its entries do not line up with it.
 
-`samples` (`D07`) is the exception that does line up: one entry per row in `rows`, in the same order, giving that row's relevant columns as an object keyed by column name.
+`row_values` (`D07`) is the exception that does line up: one entry per row in `rows`, in the same order, giving that row's relevant columns as an object keyed by column name.
 
 ```jsonc
 "rows": [12, 91],
-"samples": [{"weight": "-1.5", "length": "60"}, {"weight": "0", "length": "74"}]
+"row_values": [{"weight": "-1.5", "length": "60"}, {"weight": "0", "length": "74"}]
 ```
 
 An offending value is always a **string**, in both keys, and never a JSON number or boolean. Each value renders the way the same value would be written as a `range` bound or an `examples` entry in the dictionary itself: a number in decimal at full precision, a date or datetime as ISO 8601, a boolean as `"true"` or `"false"`, a non-finite float as `"NaN"`, `"Infinity"`, or `"-Infinity"`.
 
-A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. It can only appear in `samples` — `D04` and `D05` exempt nulls, so `values` never contains one.
+A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. It can only appear in `row_values` — `D04` and `D05` exempt nulls, so `values` never contains one.
 
-`rows`, `values`, and `samples` are each capped, at 1000 entries by default, so that a wholly broken column can't turn a report into megabytes of row numbers. A producer may offer a way to raise or lower that; `count` is never capped, so `count > rows.length` means the sample was truncated. The converse doesn't hold — some checks report a count with no rows at all.
+`rows`, `values`, and `row_values` are each capped, at 1000 entries by default, so that a wholly broken column can't turn a report into megabytes of row numbers. A cap truncates: what's reported is the first so many in the order the key defines, never a selection drawn from across the table. A producer may offer a way to raise or lower the cap; `count` is never capped, so `count > rows.length` means the list was truncated. The converse doesn't hold — some checks report a count with no rows at all.
 
 ### What each check can say
 
@@ -185,7 +194,7 @@ A column marked [`display: restricted`](spec.md#display) holds data that must no
 
 So a problem about a restricted column — or about an assertion that reads one — reports `count` and `rows` but no `values`, and sets `"redacted": true`. The rows are still there, so a consumer can still find the offending records in the data it is already entitled to read; only the values are withheld.
 
-Redaction in `samples` is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. If the assertion reads nothing but restricted columns there is nothing left to say, so `samples` is omitted rather than given as a list of empty objects.
+Redaction in `row_values` is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. If the assertion reads nothing but restricted columns there is nothing left to say, so `row_values` is omitted rather than given as a list of empty objects.
 
 `redacted` is always present on the kinds that can carry values, so `"redacted": false` positively states that nothing was withheld.
 
@@ -202,19 +211,19 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
   "steps": [
     // an M01 step per column also ran and passed; elided here
     {"id": 1, "code": "M04", "table": "otters",
-     "evaluated": true, "units": 1, "fail": 0},
-    {"id": 2, "code": "D01", "table": "otters", "column": "id",
-     "evaluated": true, "units": 91043, "fail": 0},
-    {"id": 3, "code": "D02", "table": "otters", "column": "id", "columns": ["id"],
-     "evaluated": true, "units": 91043, "fail": 3},
-    {"id": 4, "code": "D04", "table": "otters", "column": "carer_email",
-     "evaluated": true, "units": 91043, "fail": 2},
-    {"id": 5, "code": "D07", "table": "otters", "column": "weight", "assertion": "weight > 0",
-     "evaluated": true, "units": 91043, "fail": 2},
-    {"id": 6, "code": "M04", "table": "sightings",
-     "evaluated": true, "units": 1, "fail": 1},
-    // the source couldn't be read, so no step of `sightings` reached a verdict
-    {"id": 7, "code": "D01", "table": "sightings", "column": "otter_id", "evaluated": false}
+     "outcome": "pass", "row_count": 91043, "failed_row_count": 0},
+    {"id": 2, "code": "D01", "table": "otters", "columns": ["id"],
+     "outcome": "pass", "row_count": 91043, "failed_row_count": 0},
+    {"id": 3, "code": "D02", "table": "otters", "columns": ["id"],
+     "outcome": "fail", "row_count": 91043, "failed_row_count": 3},
+    {"id": 4, "code": "D04", "table": "otters", "columns": ["carer_email"],
+     "outcome": "fail", "row_count": 91043, "failed_row_count": 2},
+    {"id": 5, "code": "D07", "table": "otters", "columns": ["weight"], "assertion": "weight > 0",
+     "outcome": "fail", "row_count": 91043, "failed_row_count": 2},
+    // the source couldn't be read, so `sightings` has no row count either
+    {"id": 6, "code": "M04", "table": "sightings", "outcome": "fail"},
+    // and no step of `sightings` reached a verdict
+    {"id": 7, "code": "D01", "table": "sightings", "columns": ["otter_id"], "outcome": "unevaluated"}
   ],
   "problems": [
     {
@@ -237,7 +246,6 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
       "expected": "A unique column must not contain duplicate values.",
       "message": "has 3 repeated occurrences (rows: 118, 4092, 91043)",
       "table": "otters",
-      "column": "id",
       "columns": ["id"],
       "count": 3,
       "rows": [118, 4092, 91043],
@@ -254,7 +262,7 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
       "expected": "An enum column's values must all be among its declared `values`.",
       "message": "has 2 values outside the allowed set (values withheld; rows: 57, 812)",
       "table": "otters",
-      "column": "carer_email",
+      "columns": ["carer_email"],
       "count": 2,
       "rows": [57, 812],
       "redacted": true,
@@ -270,11 +278,11 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
       "expected": "An assertion must hold for every row.",
       "message": "is false for 2 rows: 12, 91 (weight=-1.5)",
       "table": "otters",
-      "column": "weight",
+      "columns": ["weight"],
       "assertion": "weight > 0",
       "count": 2,
       "rows": [12, 91],
-      "samples": [{"weight": "-1.5"}, {"weight": "0"}],
+      "row_values": [{"weight": "-1.5"}, {"weight": "0"}],
       "redacted": false,
       "location": {"start_line": 19, "start_column": 8, "end_line": 19, "end_column": 18},
       "context": [{"start_line": 3, "start_column": 4, "end_line": 3, "end_column": 10},
@@ -294,6 +302,7 @@ jq '.problems | group_by(.table)
 And a step-by-step table, one row per check with its pass and fail counts:
 
 ```bash
-jq '.steps | map({step: .id, code, table, column, units,
-                  pass: (if .evaluated then .units - .fail else null end), fail})' report.json
+jq '.steps | map({step: .id, code, table, columns, outcome, row_count,
+                  passed: (if .row_count then .row_count - .failed_row_count else null end),
+                  failed_row_count})' report.json
 ```
