@@ -434,6 +434,41 @@ function RelatedTablesBox({ table: t }) {
   </div>`;
 }
 
+/* The list of tables beside the one being read, so a neighbour is one click away
+   without going back to the index. It sits outside `TablePage` on purpose: that
+   page is keyed by table name and remounts on every navigation, which would clear
+   this filter with the very click that used it. */
+function TableNav({ current }) {
+  const [filter, setFilter] = useState("");
+  /* Starts closed so the list costs no vertical space on a phone; the toggle
+     is hidden on wide screens, where `open` is ignored. */
+  const [open, setOpen] = useState(false);
+  const ql = filter.trim().toLowerCase();
+  /* Alphabetical, not the dictionary's order: this is for finding a table by
+     name, which is what the filter above it is for too. */
+  const names = ALL_TABLES.map((t) => t.name).sort((a, b) => a.localeCompare(b));
+  const shown = names.filter((n) => !ql || n.toLowerCase().includes(ql));
+
+  return html`<nav class=${"tnav" + (open ? " open" : "")} aria-label="Tables">
+    <button class="tnav-toggle" type="button" aria-expanded=${open}
+      onClick=${() => setOpen(!open)}>
+      <span class="chev" aria-hidden="true">›</span>
+      Tables (${names.length})
+    </button>
+    <input class="tnav-filter" type="search" placeholder="Filter tables" autocomplete="off"
+      value=${filter} onInput=${(e) => setFilter(e.target.value)} />
+    ${shown.length
+      ? html`<ul class="tnav-list">
+          ${shown.map((n) => html`<li key=${n}>
+            <a class=${"tnav-item" + (n === current ? " on" : "")} href=${"#" + n}
+              aria-current=${n === current ? "page" : null}
+              onClick=${() => setOpen(false)}>${n}</a>
+          </li>`)}
+        </ul>`
+      : html`<p class="tnav-none">No tables match.</p>`}
+  </nav>`;
+}
+
 /* Mounted per table (keyed by name in App), so filter and sort state start
    fresh on every navigation. */
 function TablePage({ table: t, targetCol }) {
@@ -593,8 +628,11 @@ function App() {
       </section>
     </div>
     ${openTable &&
-      html`<${TablePage} key=${openTable.name} table=${openTable}
-        targetCol=${route.col} />`}
+      html`<div id="table-view">
+        <${TableNav} current=${openTable.name} />
+        <${TablePage} key=${openTable.name} table=${openTable}
+          targetCol=${route.col} />
+      </div>`}
     ${glossOpen && html`<${GlossaryModal} onClose=${() => setGlossOpen(false)} />`}`;
 }
 
