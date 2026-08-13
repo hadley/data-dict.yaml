@@ -36,6 +36,8 @@ website:
             text: Floating point
           - href: export.md
             text: Export
+          - href: report.md
+            text: Report
       - href: examples/index.qmd
         text: Examples
     right:

@@ -133,3 +133,11 @@ D08 and D09 are the two ways an assertion can fail to reach a verdict: its colum
 ### Enum membership {#enum-membership}
 
 An `enum` column's underlying data must be string-like: a Parquet string column, or a true Parquet enum. Any other underlying type is a type mismatch (M01). Its declared `values` are strings, and membership (D04) is plain string equality.
+
+## Reporting
+
+A validation warning or error can be reported in two ways: as a diagnostic rendered for a person, and as a record in a machine-readable [report document](report.md) for a program. Both are views of the same findings, so a pipeline can act on the report and a person can read the diagnostics without the two disagreeing.
+
+They differ only in how much they list. A finding always counts the offending rows exactly, but names only some of them: a report samples enough of them to filter the offending records back out of the data, a diagnostic only enough to see the shape of the problem.
+
+Some checks report the offending values themselves. Those values are withheld for a column marked [`display: restricted`](spec.md#display): the count and the row numbers are still reported, so the records stay findable by anyone already entitled to read them, but the validator never reports the values.
