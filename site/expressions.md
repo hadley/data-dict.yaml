@@ -465,7 +465,7 @@ constraints:
 
 Three rules bound the feature:
 
-* **At most one `COLUMNS(...)`** may appear in an expression, so there's no ambiguity about how two selections would combine.
+* **At most one `COLUMNS(...)`** may appear in an expression, so there's no ambiguity about how two selections would combine. A selection inside a referenced [definition](spec.md#definitions) counts toward the expression that references it, so an assertion can't pair its own `COLUMNS(...)` with a filter definition's.
 * **Every selected column must fit the way the expression uses it**, since the predicate is applied to each in turn. `LENGTH(COLUMNS('name_.*'))` requires that each matched column is a string, just as a bare column reference would.
 * **A regex that matches nothing is a warning.** It's almost always a typo, and the expression would otherwise hold vacuously. `COLUMNS(*)` and an explicit list can't trigger it — an empty list isn't expressible, and an unknown name in a list is an error rather than a warning.
 

@@ -2123,6 +2123,38 @@ fn an_assertion_that_holds_is_silent() {
     assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
 }
 
+// A definition reference becomes the definition's expression to evaluate —
+// the data has no such column — so the assertion is checked, not dropped.
+#[test]
+fn assertion_referencing_a_definition_is_evaluated() {
+    let constraints = format!(
+        "{}\n    definitions:\n      - name: doubled\n        expr: a * 2",
+        assertion("doubled > 0")
+    );
+    let yaml = build_asserted(&[1, 2, 3], &[None, None, None], &constraints);
+    assert_eq!(validate_data(&yaml, None).status(), Status::Ok);
+
+    let yaml = build_asserted(&[1, -2, 3], &[None, None, None], &constraints);
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "(a=-2)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition building on another definition expands transitively.
+#[test]
+fn assertion_referencing_a_nested_definition_is_evaluated() {
+    let constraints = format!(
+        "{}\n    definitions:\n      - name: neg\n        expr: a < 0\n      - name: not_neg\n        expr: NOT(neg)",
+        assertion("not_neg")
+    );
+    let yaml = build_asserted(&[1, -2, 3], &[None, None, None], &constraints);
+    let diagnostic = asserted(&yaml);
+    diagnostic.assert_contains(&["D07", "is false for 1 row", "(a=-2)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn a_null_operand_passes() {
     // Only `false` is a violation: a comparison against a null is null, which

@@ -1115,6 +1115,10 @@ fn s31_todo_at_every_level() {
                     type: string
                     examples: ['97201']
                     todo: Is this always 5 digits?
+            definitions:
+              - name: is_active
+                expr: status = 'active'
+                todo: Confirm the active status codes.
           - name: category
             columns:
               - name: id
@@ -2728,6 +2732,32 @@ fn definition_broken_reference_no_cascade() {
     assert_snapshot!(diagnostic);
 }
 
+// A definition whose expression doesn't parse is S19 at its own location;
+// definitions and assertions referencing it see the permissive `Any` type
+// rather than a cascading S20.
+#[test]
+fn definition_unparseable_reference_no_cascade() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: broken
+                expr: 1 +
+              - name: uses_broken
+                expr: broken + 1
+            constraints:
+              - assert: order_total <= uses_broken
+    "});
+    diagnostic.assert_contains(&["S19", "does not parse"]);
+    assert!(!diagnostic.rendered.contains("S20"));
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
 #[test]
 fn definition_cycle() {
     let diagnostic = failing_dict(indoc! {"
@@ -2833,6 +2863,126 @@ fn assertion_using_definitions_ok() {
                 expr: SUM(order_total) / row_count()
             constraints:
               - assert: order_total <= 2 * avg_order
+    "});
+}
+
+// A filter definition's COLUMNS(...) is the assertion's one allowed selection
+// once the reference is substituted in.
+#[test]
+fn assertion_using_columns_filter_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: all_present
+    "});
+}
+
+// The at-most-one COLUMNS(...) rule binds after definition references are
+// substituted in: the assertion's own selection and the filter's combine to
+// two, which evaluation couldn't resolve to a single selection.
+#[test]
+fn assertion_plus_filter_two_columns_selections() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: COLUMNS(*) IS NOT NULL AND all_present
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A selection that arrives through a reference still makes the definition a
+// filter: building a non-boolean value on one is S21.
+#[test]
+fn definition_non_filter_via_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: filt
+                expr: COLUMNS(*) > 0
+              - name: bad
+                expr: CASE WHEN filt THEN 1 ELSE 0 END
+    "});
+    diagnostic.assert_contains(&["S21", "must be a boolean filter", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition's own selection plus one brought in by a reference is two
+// selections: over the budget of one.
+#[test]
+fn definition_own_selection_plus_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: f1
+                expr: COLUMNS('q1') IS NOT NULL
+              - name: f2
+                expr: f1 AND COLUMNS('q2') IS NOT NULL
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A boolean definition building on a filter is itself a filter; the single
+// selection travels with it.
+#[test]
+fn definition_filter_via_reference_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+              - name: any_missing
+                expr: NOT(all_present)
     "});
 }
 

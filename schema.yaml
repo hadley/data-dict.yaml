@@ -42,8 +42,8 @@ object:
     origin: string
 
     # A note of work that remains to be done. Accepted at every describing
-    # level (dataset, table, column, field, relationship); each remaining
-    # note is reported by S31.
+    # level (dataset, table, column, field, relationship, definition); each
+    # remaining note is reported by S31.
     todo: string
 
     tables:
@@ -167,6 +167,7 @@ object:
                     label: string
                     description: string
                     details: string
+                    todo: string
 
     relationships:
       arrayOf:

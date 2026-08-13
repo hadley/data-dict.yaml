@@ -371,7 +371,7 @@ fn validate_column_assertions(
         defs,
     };
     for assertion in &col.assertions {
-        run_assertion_check(&env, assertion, &[&table.name, &col.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name, &col.name], out);
     }
 }
 
@@ -381,7 +381,7 @@ fn validate_table_assertions(table: &Table, defs: &HashMap<String, DefType>, out
         defs,
     };
     for assertion in &table.constraints {
-        run_assertion_check(&env, assertion, &[&table.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name], out);
     }
 }
 
@@ -414,6 +414,7 @@ const DEFINITION_WORDING: ExprWording = ExprWording {
 /// for a column assertion) shown as context before the offending token.
 fn run_assertion_check(
     env: &dyn CheckEnv,
+    table: &Table,
     assertion: &Assertion,
     enclosing: &[&Spanned<String>],
     out: &mut ProblemSet,
@@ -427,6 +428,85 @@ fn run_assertion_check(
         &ASSERTION_WORDING,
         out,
     );
+
+    check_expanded_selections(table, expr, None, &assertion.text, enclosing, out);
+}
+
+/// The `COLUMNS(...)` rules bind the expression as it evaluates, with
+/// definition references substituted in: a selection travels to whatever
+/// references the definition holding it. Report each reference that brings a
+/// selection in over the budget of one, and — for a definition (`ty` is
+/// `Some`), where a selection is meaningful only in a boolean filter — a
+/// reference that brings one into a non-boolean expression. Selections in the
+/// expression's own text were already checked by `analyze`.
+fn check_expanded_selections(
+    table: &Table,
+    expr: &assert_expr::AssertExpr,
+    ty: Option<assert_expr::Ty>,
+    text: &Spanned<String>,
+    enclosing: &[&Spanned<String>],
+    out: &mut ProblemSet,
+) {
+    let own = assert_expr::columns_selection_count(expr);
+    if own > 1 {
+        return;
+    }
+    let defs = definition_exprs(table);
+    let with_selection: std::collections::HashSet<&str> = defs
+        .iter()
+        .filter(|(_, e)| assert_expr::columns_selection_count(e) > 0)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let mut refs: Vec<(String, usize, usize)> = Vec::new();
+    assert_expr::visit(&expr.root, |e| {
+        if let assert_expr::ExprKind::Column(path) = &e.kind
+            && path.len() == 1
+            && with_selection.contains(path[0].as_str())
+        {
+            refs.push((path[0].clone(), e.start, e.end));
+        }
+    });
+    if refs.is_empty() {
+        return;
+    }
+    let report =
+        |out: &mut ProblemSet, start: usize, end: usize, expected: &str, message: String| {
+            let span = subspan(&text.span, start, end).unwrap_or_else(|| text.span.clone());
+            let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
+            spans.push(span);
+            out.push_spec_error("S21", expected, message, spans);
+        };
+
+    if let Some(ty) = ty
+        && own == 0
+        && !matches!(
+            ty,
+            assert_expr::Ty::Bool | assert_expr::Ty::Any | assert_expr::Ty::Unknown
+        )
+    {
+        let (name, start, end) = &refs[0];
+        report(
+            out,
+            *start,
+            *end,
+            "An expression using `COLUMNS(...)` must be a boolean filter.",
+            format!(
+                "`{name}` recursively includes `COLUMNS(...)` and the expression is not a boolean"
+            ),
+        );
+    }
+
+    // The first selection is the allowed one: the expression's own if it has
+    // one, else the first reference's.
+    for (_, start, end) in refs.iter().skip(1 - own) {
+        report(
+            out,
+            *start,
+            *end,
+            "An expression may use at most one `COLUMNS(...)`.",
+            "recursively includes `COLUMNS(...)`".to_string(),
+        );
+    }
 }
 
 /// Turn one expression's findings into located problems. `enclosing` are the
@@ -471,9 +551,18 @@ fn report_findings(
 
 /// A [`TableEnv`] plus the definitions resolved so far, so a definition's
 /// expression can reference other definitions.
-struct DefEnv<'a> {
+pub(crate) struct DefEnv<'a> {
     inner: TableEnv<'a>,
     defs: &'a HashMap<String, DefType>,
+}
+
+impl<'a> DefEnv<'a> {
+    pub(crate) fn new(table: &'a Table, defs: &'a HashMap<String, DefType>) -> DefEnv<'a> {
+        DefEnv {
+            inner: TableEnv::new(table),
+            defs,
+        }
+    }
 }
 
 impl CheckEnv for DefEnv<'_> {
@@ -557,19 +646,28 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
 
     // The definitions a reference may resolve to: the first of each non-empty
     // name, excluding names a column claims (references there resolve to the
-    // column; the collision is S33) and expressions that didn't parse (S19).
+    // column; the collision is S33).
     let mut referable: HashMap<&str, &Definition> = HashMap::new();
     for def in &table.definitions {
-        if !def.name.value.is_empty()
-            && table.column(&def.name.value).is_none()
-            && def.expr.is_some()
-        {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
             referable.entry(def.name.value.as_str()).or_insert(def);
         }
     }
     let def_refs = |def: &Definition| definition_refs(def, &referable);
 
+    // A definition whose expression didn't parse (S19, reported at lowering)
+    // resolves to the permissive `Ty::Any`, so its referencers don't cascade
+    // its error — the same treatment a failed check gets below.
     let mut resolved: HashMap<String, DefType> = HashMap::new();
+    for def in referable.values().filter(|d| d.expr.is_none()) {
+        resolved.insert(
+            def.name.value.clone(),
+            DefType {
+                ty: assert_expr::Ty::Any,
+                shape: assert_expr::Shape::Row,
+            },
+        );
+    }
     let mut pending: Vec<&Definition> = table
         .definitions
         .iter()
@@ -596,6 +694,14 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
                     &def.text,
                     &[&table.name, &def.name],
                     &DEFINITION_WORDING,
+                    out,
+                );
+                check_expanded_selections(
+                    table,
+                    expr,
+                    Some(ty),
+                    &def.text,
+                    &[&table.name, &def.name],
                     out,
                 );
                 let is_referable = referable
@@ -658,6 +764,121 @@ fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String
                 // a cycle), but don't loop forever if the reasoning is off.
                 break;
             }
+        }
+    }
+    resolved
+}
+
+/// Resolve every referable definition's type and shape in dependency order,
+/// discarding findings. For export, which runs only after spec validation
+/// has passed, so there is nothing to report; a definition that can't be
+/// resolved (a reference cycle, already reported as S33) maps to the
+/// permissive `Ty::Any`, as it does during validation.
+pub(crate) fn resolve_definitions(table: &Table) -> HashMap<String, DefType> {
+    use crate::assert_expr::FindingSeverity;
+
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    // A definition whose expression didn't parse resolves to `Ty::Any`, as in
+    // `check_definition_exprs`.
+    let mut resolved: HashMap<String, DefType> = HashMap::new();
+    let mut pending: Vec<&Definition> = Vec::new();
+    for def in referable.values() {
+        if def.expr.is_some() {
+            pending.push(def);
+        } else {
+            resolved.insert(
+                def.name.value.clone(),
+                DefType {
+                    ty: assert_expr::Ty::Any,
+                    shape: assert_expr::Shape::Row,
+                },
+            );
+        }
+    }
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let env = DefEnv::new(table, &resolved);
+                let expr = def.expr.as_ref().unwrap();
+                let (ty, shape, findings) = assert_expr::analyze(expr, &env, Root::Definition);
+                let failed = findings
+                    .iter()
+                    .any(|f| f.severity == FindingSeverity::Error);
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: if failed { assert_expr::Ty::Any } else { ty },
+                        shape,
+                    },
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            for def in pending.drain(..) {
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: assert_expr::Ty::Any,
+                        shape: assert_expr::Shape::Row,
+                    },
+                );
+            }
+        }
+    }
+    resolved
+}
+
+/// The table's referable definitions as name → expression, each with its own
+/// definition references already substituted, resolved in dependency order.
+/// For evaluation against data, where a definition reference must become the
+/// definition's expression. Runs only after spec validation has passed, so
+/// every expression parses and no cycle survives; anything unresolvable is
+/// omitted.
+pub(crate) fn definition_exprs(table: &Table) -> HashMap<String, assert_expr::AssertExpr> {
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty()
+            && table.column(&def.name.value).is_none()
+            && def.expr.is_some()
+        {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    let mut resolved: HashMap<String, assert_expr::AssertExpr> = HashMap::new();
+    let mut pending: Vec<&Definition> = referable.values().copied().collect();
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let expr = def.expr.as_ref().unwrap();
+                resolved.insert(
+                    def.name.value.clone(),
+                    assert_expr::substitute_definitions(expr, &resolved),
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            break;
         }
     }
     resolved
@@ -1895,12 +2116,16 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
 // --- S31 --------------------------------------------------------------
 
 /// Warn for every `todo` left anywhere in the dictionary: the dataset, each
-/// table, column, and struct field (recursively), and each relationship.
+/// table, column, struct field (recursively), and definition, and each
+/// relationship.
 fn validate_s31_todos(dict: &DataDict, out: &mut ProblemSet) {
     report_todo(&dict.todo, &[], out);
     for table in &dict.tables {
         report_todo(&table.todo, &[&table.name.span], out);
         report_column_todos(table, &table.columns, out);
+        for def in &table.definitions {
+            report_todo(&def.todo, &[&table.name.span, &def.name.span], out);
+        }
     }
     for rel in &dict.relationships {
         report_todo(&rel.todo, &[&rel.join_text.span], out);

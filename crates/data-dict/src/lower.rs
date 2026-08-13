@@ -398,6 +398,11 @@ fn lower_definition(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opt
         }
     };
 
+    let todo = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("todo"))
+        .and_then(|e| lower_todo(&e.value, e.value_span.clone()));
+
     Some(Definition {
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         text: Spanned::new(text.to_string(), span),
@@ -405,6 +410,7 @@ fn lower_definition(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opt
         label: string("label"),
         description: string("description"),
         details: string("details"),
+        todo,
     })
 }
 

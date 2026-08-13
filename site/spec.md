@@ -363,12 +363,15 @@ Each entry is a map with:
 * `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
 * `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
 * `label`, `description`, `details`: human-readable documentation for the definition; see [Name, label, description & details](#name-label-description--details).
+* `todo`: a note of work that remains before the definition is complete; see [Todo](#todo).
 
 The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
 
 * A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
-* A `agg`- or `const`-shape expression is a **metric**, a single value for a group of rows. 
+* A `agg`- or `const`-shape expression is a **metric**, a single value summarising the rows it's evaluated against.
 * Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
+
+The expression language has no grouping of its own: a metric is defined over whatever rows the consumer evaluates it against, and any grouping — SQL's `GROUP BY`, dplyr's `.by =`, a dashboard's drill-down — is up to the host environment to supply.
 
 ```yaml
 tables:
@@ -481,6 +484,6 @@ version:
     - Looks like an enum — confirm the full set of `values` and switch the `type`.
 ```
 
-`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, and a relationship. Put each note on the thing it's about, so the work travels with its subject.
+`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, a relationship, and a definition. Put each note on the thing it's about, so the work travels with its subject.
 
 Every remaining `todo` is reported when the spec is validated (see S31 in [validation](validation.md)), so a dictionary announces its own unfinished work each time it's checked. It's reported as a warning rather than an error, so an unfinished dictionary can still be validated against its data — but you should resolve every `todo` before you consider the dictionary finished.

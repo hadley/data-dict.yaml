@@ -116,6 +116,7 @@ pub struct Definition {
     pub label: Option<String>,
     pub description: Option<String>,
     pub details: Option<String>,
+    pub todo: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]

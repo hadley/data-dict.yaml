@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: broken
+        expr: 1 +
+      - name: uses_broken
+        expr: broken + 1
+    constraints:
+      - assert: order_total <= uses_broken
+────────────────────────────────────────
+error[S19]: 
+  --> dict.yaml:11:18
+   |
+LL |         expr: 1 +
+   |                  ^ definition expression does not parse: expected an expression

@@ -1193,71 +1193,200 @@ pub fn analyze(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> (Ty, Shape,
     (ty, shape, cx.findings)
 }
 
+/// `f` on each direct child expression of `e`.
+fn each_child(e: &Expr, mut f: impl FnMut(&Expr)) {
+    match &e.kind {
+        ExprKind::Number(_)
+        | ExprKind::Str(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Null
+        | ExprKind::Now
+        | ExprKind::Column(_)
+        | ExprKind::Columns(_) => {}
+        ExprKind::Neg(inner) | ExprKind::Not(inner) => f(inner),
+        ExprKind::IsNull { operand, .. } => f(operand),
+        ExprKind::Interval { n, .. } => f(n),
+        ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
+        }
+        ExprKind::And(l, r) | ExprKind::Or(l, r) => {
+            f(l);
+            f(r);
+        }
+        ExprKind::Like {
+            operand, pattern, ..
+        }
+        | ExprKind::SimilarTo {
+            operand, pattern, ..
+        } => {
+            f(operand);
+            f(pattern);
+        }
+        ExprKind::Between {
+            operand, lo, hi, ..
+        } => {
+            f(operand);
+            f(lo);
+            f(hi);
+        }
+        ExprKind::In { operand, list, .. } => {
+            f(operand);
+            for item in list {
+                f(item);
+            }
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Case { whens, els } => {
+            for (cond, result) in whens {
+                f(cond);
+                f(result);
+            }
+            if let Some(els) = els {
+                f(els);
+            }
+        }
+    }
+}
+
+/// `f` on each direct child expression of `e`, mutably.
+fn each_child_mut(e: &mut Expr, mut f: impl FnMut(&mut Expr)) {
+    match &mut e.kind {
+        ExprKind::Number(_)
+        | ExprKind::Str(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Null
+        | ExprKind::Now
+        | ExprKind::Column(_)
+        | ExprKind::Columns(_) => {}
+        ExprKind::Neg(inner) | ExprKind::Not(inner) => f(inner),
+        ExprKind::IsNull { operand, .. } => f(operand),
+        ExprKind::Interval { n, .. } => f(n),
+        ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
+        }
+        ExprKind::And(l, r) | ExprKind::Or(l, r) => {
+            f(l);
+            f(r);
+        }
+        ExprKind::Like {
+            operand, pattern, ..
+        }
+        | ExprKind::SimilarTo {
+            operand, pattern, ..
+        } => {
+            f(operand);
+            f(pattern);
+        }
+        ExprKind::Between {
+            operand, lo, hi, ..
+        } => {
+            f(operand);
+            f(lo);
+            f(hi);
+        }
+        ExprKind::In { operand, list, .. } => {
+            f(operand);
+            for item in list {
+                f(item);
+            }
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Case { whens, els } => {
+            for (cond, result) in whens {
+                f(cond);
+                f(result);
+            }
+            if let Some(els) = els {
+                f(els);
+            }
+        }
+    }
+}
+
+/// `f` on every node of the tree rooted at `e`, pre-order.
+pub fn visit(e: &Expr, mut f: impl FnMut(&Expr)) {
+    fn walk(e: &Expr, f: &mut impl FnMut(&Expr)) {
+        f(e);
+        each_child(e, |c| walk(c, f));
+    }
+    walk(e, &mut f);
+}
+
+/// `f` on every node of the tree rooted at `e`, pre-order. The children of a
+/// node `f` returns `true` for are not visited — for when `f` replaced the
+/// node wholesale.
+pub fn visit_mut(e: &mut Expr, mut f: impl FnMut(&mut Expr) -> bool) {
+    fn walk(e: &mut Expr, f: &mut impl FnMut(&mut Expr) -> bool) {
+        if f(e) {
+            return;
+        }
+        each_child_mut(e, |c| {
+            walk(c, f);
+        });
+    }
+    walk(e, &mut f);
+}
+
 /// The first segment of every column path in `expr`: the names the expression
 /// resolves against the table's columns and definitions. Used to build the
 /// reference graph between a table's definitions.
 pub fn referenced_names(expr: &AssertExpr) -> Vec<String> {
-    fn walk(e: &Expr, names: &mut Vec<String>) {
-        match &e.kind {
-            ExprKind::Number(_)
-            | ExprKind::Str(_)
-            | ExprKind::Bool(_)
-            | ExprKind::Null
-            | ExprKind::Now
-            | ExprKind::Columns(_) => {}
-            ExprKind::Column(path) => names.push(path[0].clone()),
-            ExprKind::Neg(inner) | ExprKind::Not(inner) => walk(inner, names),
-            ExprKind::IsNull { operand, .. } => walk(operand, names),
-            ExprKind::Interval { n, .. } => walk(n, names),
-            ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
-                walk(lhs, names);
-                walk(rhs, names);
-            }
-            ExprKind::And(l, r) | ExprKind::Or(l, r) => {
-                walk(l, names);
-                walk(r, names);
-            }
-            ExprKind::Like {
-                operand, pattern, ..
-            }
-            | ExprKind::SimilarTo {
-                operand, pattern, ..
-            } => {
-                walk(operand, names);
-                walk(pattern, names);
-            }
-            ExprKind::Between {
-                operand, lo, hi, ..
-            } => {
-                walk(operand, names);
-                walk(lo, names);
-                walk(hi, names);
-            }
-            ExprKind::In { operand, list, .. } => {
-                walk(operand, names);
-                for item in list {
-                    walk(item, names);
-                }
-            }
-            ExprKind::Call { args, .. } => {
-                for a in args {
-                    walk(a, names);
-                }
-            }
-            ExprKind::Case { whens, els } => {
-                for (cond, result) in whens {
-                    walk(cond, names);
-                    walk(result, names);
-                }
-                if let Some(els) = els {
-                    walk(els, names);
-                }
-            }
-        }
-    }
     let mut names = Vec::new();
-    walk(&expr.root, &mut names);
+    visit(&expr.root, |e| {
+        if let ExprKind::Column(path) = &e.kind {
+            names.push(path[0].clone());
+        }
+    });
     names
+}
+
+/// The number of `COLUMNS(...)` selections in `expr`. The checker allows at
+/// most one per expression, but a definition reference stands in for the
+/// definition's whole expression, so the count that matters for evaluation is
+/// taken after [`substitute_definitions`].
+pub fn columns_selection_count(expr: &AssertExpr) -> usize {
+    let mut count = 0;
+    visit(&expr.root, |e| {
+        if let ExprKind::Columns(_) = &e.kind {
+            count += 1;
+        }
+    });
+    count
+}
+
+/// `expr` with every reference to a definition in `defs` replaced by that
+/// definition's own expression. Only a bare name can reference a definition
+/// (a dotted path is a struct field), and `defs` holds only definitions whose
+/// names no column claims. For evaluation against data, where a referenced
+/// definition must become its expression; translation instead keeps the name
+/// for the consumer to substitute.
+pub fn substitute_definitions(
+    expr: &AssertExpr,
+    defs: &std::collections::HashMap<String, AssertExpr>,
+) -> AssertExpr {
+    let mut expr = expr.clone();
+    visit_mut(&mut expr.root, |e| {
+        if let ExprKind::Column(path) = &e.kind
+            && path.len() == 1
+            && let Some(def) = defs.get(&path[0])
+        {
+            // Already expanded, so its own references need no visit.
+            *e = def.root.clone();
+            return true;
+        }
+        false
+    });
+    expr
 }
 
 struct Checker<'a> {
