@@ -291,7 +291,9 @@ impl Target for R {
                 cx.push(&format!(", units = \"{}\")", units(*unit)));
             }
             NodeKind::Case { whens, els } => write_case(self.0, cx, whens, els)?,
-            NodeKind::Func { op, args } => write_func(self.0, cx, *op, args)?,
+            NodeKind::Func { op, args, filter } => {
+                write_func(self.0, cx, *op, args, filter.as_deref())?;
+            }
         }
         Ok(())
     }
@@ -554,8 +556,26 @@ fn write_case(
     Ok(())
 }
 
-fn write_func(d: Dialect, cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<(), Unsupported> {
+fn write_func(
+    d: Dialect,
+    cx: &mut Ctx,
+    op: Op,
+    args: &[TypedExpr],
+    filter: Option<&TypedExpr>,
+) -> Result<(), Unsupported> {
     let refs: Vec<&TypedExpr> = args.iter().collect();
+    // A filtered aggregate folds a subset of rows, so subset the argument by
+    // the condition. An NA in the condition subsets to an NA element, which
+    // the aggregate's own `na.rm` then drops — the row is excluded either way.
+    let folded = |cx: &mut Ctx, arg: &TypedExpr| -> Result<(), Unsupported> {
+        cx.child(p::ATOM, Side::Left, arg)?;
+        if let Some(filter) = filter {
+            cx.push("[");
+            cx.free(filter)?;
+            cx.push("]");
+        }
+        Ok(())
+    };
     match op {
         Op::Length => cx.call(
             if d == Dialect::Tidyverse {
@@ -643,13 +663,13 @@ fn write_func(d: Dialect, cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<()
             };
             cx.push(name);
             cx.push("(");
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push(", na.rm = TRUE)");
         }
         Op::Any | Op::All => {
             cx.fidelity(EMPTY_FOLD);
             cx.push(if op == Op::Any { "any(" } else { "all(" });
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push(", na.rm = TRUE)");
         }
         Op::Count => {
@@ -657,20 +677,29 @@ fn write_func(d: Dialect, cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<()
                 cx.fidelity(NAN_DROPPED);
             }
             cx.push("sum(!is.na(");
-            cx.free(&args[0])?;
+            folded(cx, &args[0])?;
             cx.push("))");
         }
-        Op::RowCount => match d {
-            Dialect::Tidyverse => cx.push("n()"),
-            Dialect::DataTable => cx.push(".N"),
-            // A bare predicate in base R has no row count to refer to.
-            Dialect::Base => {
-                return Err(Unsupported {
-                    what: "`ROW_COUNT()`",
-                    why: "a bare predicate has no row count in base R; \
-                          use `nrow(t)` where the predicate is applied",
-                });
+        Op::RowCount => match filter {
+            // `n()` and `.N` take no subset, so count the rows the
+            // condition keeps.
+            Some(filter) => {
+                cx.push("sum(");
+                cx.free(filter)?;
+                cx.push(", na.rm = TRUE)");
             }
+            None => match d {
+                Dialect::Tidyverse => cx.push("n()"),
+                Dialect::DataTable => cx.push(".N"),
+                // A bare predicate in base R has no row count to refer to.
+                Dialect::Base => {
+                    return Err(Unsupported {
+                        what: "`ROW_COUNT()`",
+                        why: "a bare predicate has no row count in base R; \
+                              use `nrow(t)` where the predicate is applied",
+                    });
+                }
+            },
         },
         Op::CountDistinct => {
             if super::over_numbers(&[&args[0]]) {
@@ -679,19 +708,19 @@ fn write_func(d: Dialect, cx: &mut Ctx, op: Op, args: &[TypedExpr]) -> Result<()
             match d {
                 Dialect::Tidyverse => {
                     cx.push("n_distinct(");
-                    cx.free(&args[0])?;
+                    folded(cx, &args[0])?;
                     cx.push(", na.rm = TRUE)");
                 }
                 Dialect::DataTable => {
                     cx.push("uniqueN(");
-                    cx.free(&args[0])?;
+                    folded(cx, &args[0])?;
                     cx.push(", na.rm = TRUE)");
                 }
                 Dialect::Base => {
                     cx.push("length(unique(");
-                    cx.free(&args[0])?;
+                    folded(cx, &args[0])?;
                     cx.push("[!is.na(");
-                    cx.free(&args[0])?;
+                    folded(cx, &args[0])?;
                     cx.push(")]))");
                 }
             }
@@ -1054,6 +1083,44 @@ mod tests {
         for target in [R_TIDYVERSE, R_BASE, R_DATA_TABLE] {
             let message = refused(target, "s LIKE LOWER(postcode)");
             assert!(message.contains("computed pattern"), "{message}");
+        }
+    }
+
+    #[test]
+    fn a_filtered_aggregate_subsets_its_argument() {
+        // Subsetting the argument is spelled the same in every dialect.
+        for code in [
+            tidy("SUM(qty) FILTER (WHERE flag) > 0"),
+            base("SUM(qty) FILTER (WHERE flag) > 0"),
+            dt("SUM(qty) FILTER (WHERE flag) > 0"),
+        ] {
+            assert_eq!(code, "sum(qty[flag], na.rm = TRUE) > 0L");
+        }
+        // A computed argument is parenthesised before it is subset.
+        assert_eq!(
+            tidy("SUM(qty * 2) FILTER (WHERE flag) > 0"),
+            "sum((qty * 2L)[flag], na.rm = TRUE) > 0L"
+        );
+        assert_eq!(
+            tidy("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
+            "n_distinct(s[flag], na.rm = TRUE)"
+        );
+        assert_eq!(
+            base("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
+            "length(unique(s[flag][!is.na(s[flag])]))"
+        );
+        assert_eq!(
+            dt("COUNT_DISTINCT(s) FILTER (WHERE flag)"),
+            "uniqueN(s[flag], na.rm = TRUE)"
+        );
+        // `n()` and `.N` can't be subset, so a filtered row count sums the
+        // condition.
+        for code in [
+            tidy("ROW_COUNT() FILTER (WHERE qty > 0)"),
+            base("ROW_COUNT() FILTER (WHERE qty > 0)"),
+            dt("ROW_COUNT() FILTER (WHERE qty > 0)"),
+        ] {
+            assert_eq!(code, "sum(qty > 0L, na.rm = TRUE)");
         }
     }
 

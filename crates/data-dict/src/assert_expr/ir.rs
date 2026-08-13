@@ -141,7 +141,11 @@ impl TypedExpr {
             NodeKind::SimilarTo {
                 operand, pattern, ..
             } => vec![operand, pattern],
-            NodeKind::Func { args, .. } => args.iter().collect(),
+            NodeKind::Func { args, filter, .. } => {
+                let mut out: Vec<&TypedExpr> = args.iter().collect();
+                out.extend(filter.as_deref());
+                out
+            }
             NodeKind::Interval { n, .. } => vec![n],
             NodeKind::Case { whens, els } => {
                 let mut out = Vec::new();
@@ -242,6 +246,10 @@ pub enum NodeKind {
     Func {
         op: Op,
         args: Vec<TypedExpr>,
+        /// The condition of a `FILTER (WHERE ...)` clause; only aggregates
+        /// carry one. It is evaluated per row, and a row it is null or false
+        /// for is not folded.
+        filter: Option<Box<TypedExpr>>,
     },
     Now,
     Interval {
@@ -628,7 +636,9 @@ impl Lowerer<'_> {
                     span,
                 }
             }
-            ExprKind::Call { name, args } => self.call(name, args, span)?,
+            ExprKind::Call { name, args, filter } => {
+                self.call(name, args, filter.as_deref(), span)?
+            }
             ExprKind::Case { whens, els } => {
                 let mut shape = Shape::Const;
                 let mut lowered = Vec::with_capacity(whens.len());
@@ -693,7 +703,13 @@ impl Lowerer<'_> {
         }
     }
 
-    fn call(&mut self, name: &str, args: &[Expr], span: (usize, usize)) -> Option<TypedExpr> {
+    fn call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        filter: Option<&Expr>,
+        span: (usize, usize),
+    ) -> Option<TypedExpr> {
         let lowered_name = name.to_ascii_lowercase();
         let op = Op::from_name(&lowered_name)?;
         let sig = signature(&lowered_name)?;
@@ -704,13 +720,21 @@ impl Lowerer<'_> {
             shape = shape.max(a.shape);
             lowered.push(a);
         }
+        let filter = match filter {
+            Some(f) => Some(self.boxed(f)?),
+            None => None,
+        };
         let ty = match sig.ret {
             super::Ret::Fixed(t) => to_type(t),
             // `MIN`/`MAX` return their argument's type.
             super::Ret::SameAsArg => lowered.first().map_or(Type::Any, |a| a.ty),
         };
         Some(TypedExpr {
-            kind: NodeKind::Func { op, args: lowered },
+            kind: NodeKind::Func {
+                op,
+                args: lowered,
+                filter,
+            },
             ty,
             shape: if sig.shape == SigShape::Aggregate {
                 Shape::Agg
@@ -918,9 +942,12 @@ mod tests {
                 render(operand),
                 render(pattern)
             ),
-            NodeKind::Func { op, args } => {
+            NodeKind::Func { op, args, filter } => {
                 let args: Vec<String> = args.iter().map(render).collect();
-                format!("{op:?}({})", args.join(", "))
+                let filter = filter
+                    .as_deref()
+                    .map_or(String::new(), |f| format!(" filter({})", render(f)));
+                format!("{op:?}({}){filter}", args.join(", "))
             }
             NodeKind::Now => "now".to_string(),
             NodeKind::Interval { n, unit } => format!("interval({}, {unit:?})", render(n)),
@@ -1022,6 +1049,19 @@ mod tests {
         // Mixed grain: a row-level operand widens the whole thing back to row.
         assert_eq!(ir("qty <= 2 * MIN(qty)").root.shape, Shape::Row);
         assert_eq!(ir("1 > 0").root.shape, Shape::Const);
+    }
+
+    #[test]
+    fn a_filter_lowers_with_the_aggregate() {
+        assert_eq!(
+            rendered("SUM(qty) FILTER (WHERE flag) > 0"),
+            "Gt(Sum(col(qty):number) filter(col(flag):bool):number, 0:number):bool"
+        );
+        // The filter's columns are read too.
+        let ir = ir("SUM(qty) FILTER (WHERE flag) > 0");
+        let columns = ir.columns();
+        let names: Vec<&str> = columns.iter().map(|c| c.path[0].as_str()).collect();
+        assert_eq!(names, ["qty", "flag"]);
     }
 
     #[test]

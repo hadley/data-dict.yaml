@@ -675,7 +675,7 @@ fn eval<'a>(cx: &Cx<'a>, e: &'a TypedExpr) -> Eval<'a> {
                 None => Value::Null,
             }
         }
-        NodeKind::Func { op, args } => func(cx, *op, args)?,
+        NodeKind::Func { op, args, .. } => func(cx, *op, args)?,
     })
 }
 
@@ -949,10 +949,21 @@ impl Accumulator {
     }
 
     fn observe(&mut self, cx: &Cx, node: &TypedExpr) {
-        let NodeKind::Func { op, args } = &node.kind else {
+        let NodeKind::Func { op, args, filter } = &node.kind else {
             return;
         };
         self.op = Some(*op);
+        if let Some(filter) = filter {
+            // A row the condition is null or false for is not folded.
+            match eval(cx, filter) {
+                Ok(v) if v.as_bool() == Some(true) => {}
+                Ok(_) => return,
+                Err(fault) => {
+                    self.fault.get_or_insert(fault);
+                    return;
+                }
+            }
+        }
         self.rows += 1;
         if *op == Op::RowCount {
             return;

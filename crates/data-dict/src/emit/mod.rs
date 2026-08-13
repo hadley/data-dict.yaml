@@ -312,6 +312,22 @@ mod tests {
     }
 
     #[test]
+    fn a_filtered_aggregate_carries_the_clause() {
+        assert_eq!(
+            sql("SUM(qty) FILTER (WHERE flag) > 0"),
+            r#"sum("qty") FILTER (WHERE "flag") > 0"#
+        );
+        assert_eq!(
+            sql("ROW_COUNT() FILTER (WHERE qty > 0) > 0"),
+            r#"count(*) FILTER (WHERE "qty" > 0) > 0"#
+        );
+        assert_eq!(
+            sql("COUNT_DISTINCT(s) FILTER (WHERE flag) > 0"),
+            r#"count(DISTINCT "s") FILTER (WHERE "flag") > 0"#
+        );
+    }
+
+    #[test]
     fn columns_are_quoted() {
         assert_eq!(sql("qty > 0"), r#""qty" > 0"#);
         // A struct field is a path, each segment quoted.

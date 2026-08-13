@@ -168,7 +168,15 @@ impl Target for DuckDb {
                 }
                 cx.push(" END");
             }
-            NodeKind::Func { op, args } => write_func(cx, *op, args)?,
+            NodeKind::Func { op, args, filter } => {
+                write_func(cx, *op, args)?;
+                // DuckDB spells the clause as the language does.
+                if let Some(filter) = filter {
+                    cx.push(" FILTER (WHERE ");
+                    cx.free(filter)?;
+                    cx.push(")");
+                }
+            }
         }
         Ok(())
     }

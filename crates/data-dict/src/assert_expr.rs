@@ -20,7 +20,7 @@
 //! primary     := literal | column | funcall | columns | case | "(" expr ")"
 //! cmp         := "=" | "!=" | "<>" | "<" | "<=" | ">" | ">="
 //! literal     := number | string | "TRUE" | "FALSE" | "NULL" | "INF" | "NAN"
-//! funcall     := IDENT "(" (expr ("," expr)*)? ")"   // incl. NOW(), interval(n, unit)
+//! funcall     := IDENT "(" (expr ("," expr)*)? ")" ("FILTER" "(" "WHERE" expr ")")?   // incl. NOW(), interval(n, unit)
 //! columns     := "COLUMNS" "(" ("*" | string | "[" column ("," column)* "]") ")"
 //! case        := "CASE" ("WHEN" expr "THEN" expr)+ ("ELSE" expr)? "END"
 //! column      := IDENT | QUOTED
@@ -112,10 +112,13 @@ pub enum ExprKind {
         negated: bool,
     },
     /// A named function call other than `NOW`/`interval`; the name is preserved
-    /// verbatim (classified case-insensitively during checking).
+    /// verbatim (classified case-insensitively during checking). `filter` is
+    /// the condition of a `FILTER (WHERE ...)` clause, which the grammar admits
+    /// on any call but only aggregates may carry (an S21, not a syntax error).
     Call {
         name: String,
         args: Vec<Expr>,
+        filter: Option<Box<Expr>>,
     },
     Now,
     Interval {
@@ -610,7 +613,15 @@ impl<'a> Parser<'a> {
                 if self.peek() == Some(b'(') {
                     self.pos += 1;
                     let args = self.parse_arg_list()?;
-                    Ok(self.node(ExprKind::Call { name: word, args }, start))
+                    let filter = self.parse_filter()?;
+                    Ok(self.node(
+                        ExprKind::Call {
+                            name: word,
+                            args,
+                            filter,
+                        },
+                        start,
+                    ))
                 } else {
                     self.pos = after;
                     let path = self.parse_field_segments(word)?;
@@ -638,6 +649,20 @@ impl<'a> Parser<'a> {
         self.skip_ws();
         self.expect_byte(b')')?;
         Ok(args)
+    }
+
+    /// The optional `FILTER (WHERE ...)` clause after a call's argument list.
+    fn parse_filter(&mut self) -> Result<Option<Box<Expr>>, ParseError> {
+        if !self.match_keyword("filter") {
+            return Ok(None);
+        }
+        self.skip_ws();
+        self.expect_byte(b'(')?;
+        self.expect_keyword("where")?;
+        let condition = self.parse_expr()?;
+        self.skip_ws();
+        self.expect_byte(b')')?;
+        Ok(Some(Box::new(condition)))
     }
 
     fn parse_interval(&mut self, start: usize) -> Result<Expr, ParseError> {
@@ -1141,6 +1166,54 @@ pub fn check_root(expr: &AssertExpr, env: &dyn CheckEnv, root: Root) -> Vec<Find
     cx.findings
 }
 
+/// Every direct subexpression of `e`, for a walk over the surface tree.
+fn expr_children(e: &Expr) -> Vec<&Expr> {
+    match &e.kind {
+        ExprKind::Number(_)
+        | ExprKind::Str(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Null
+        | ExprKind::Column(_)
+        | ExprKind::Now
+        | ExprKind::Columns(_) => Vec::new(),
+        ExprKind::Neg(inner) | ExprKind::Not(inner) => vec![inner],
+        ExprKind::Arith { lhs, rhs, .. } | ExprKind::Compare { lhs, rhs, .. } => {
+            vec![lhs, rhs]
+        }
+        ExprKind::And(l, r) | ExprKind::Or(l, r) => vec![l, r],
+        ExprKind::IsNull { operand, .. } => vec![operand],
+        ExprKind::Between {
+            operand, lo, hi, ..
+        } => vec![operand, lo, hi],
+        ExprKind::In { operand, list, .. } => {
+            let mut out = vec![operand.as_ref()];
+            out.extend(list.iter());
+            out
+        }
+        ExprKind::Like {
+            operand, pattern, ..
+        }
+        | ExprKind::SimilarTo {
+            operand, pattern, ..
+        } => vec![operand, pattern],
+        ExprKind::Call { args, filter, .. } => {
+            let mut out: Vec<&Expr> = args.iter().collect();
+            out.extend(filter.as_deref());
+            out
+        }
+        ExprKind::Interval { n, .. } => vec![n],
+        ExprKind::Case { whens, els } => {
+            let mut out = Vec::new();
+            for (cond, result) in whens {
+                out.push(cond);
+                out.push(result);
+            }
+            out.extend(els.as_deref());
+            out
+        }
+    }
+}
+
 struct Checker<'a> {
     env: &'a dyn CheckEnv,
     findings: Vec<Finding>,
@@ -1297,7 +1370,9 @@ impl Checker<'_> {
                 }
                 Ty::Interval
             }
-            ExprKind::Call { name, args } => self.infer_call(name, args, e),
+            ExprKind::Call { name, args, filter } => {
+                self.infer_call(name, args, filter.as_deref(), e)
+            }
             ExprKind::Case { whens, els } => self.infer_case(whens, els.as_deref()),
             ExprKind::Columns(sel) => {
                 self.columns_spans.push((e.start, e.end));
@@ -1559,15 +1634,31 @@ impl Checker<'_> {
         }
     }
 
-    fn infer_call(&mut self, name: &str, args: &[Expr], e: &Expr) -> Ty {
+    fn infer_call(&mut self, name: &str, args: &[Expr], filter: Option<&Expr>, e: &Expr) -> Ty {
         let lower = name.to_ascii_lowercase();
         let Some(sig) = signature(&lower) else {
             self.report("S21", format!("unknown function `{name}`"), e);
             for a in args {
                 self.infer(a);
             }
+            if let Some(filter) = filter {
+                self.infer(filter);
+            }
             return Ty::Any;
         };
+        if let Some(filter) = filter {
+            if sig.shape != SigShape::Aggregate {
+                self.report(
+                    "S21",
+                    format!(
+                        "`FILTER` must be used with aggregate functions, and `{}` isn't one",
+                        lower.to_uppercase()
+                    ),
+                    e,
+                );
+            }
+            self.require(filter, &[Ty::Bool], "a `FILTER` condition");
+        }
         if !sig.arities.contains(&args.len()) {
             let want = sig
                 .arities
@@ -1665,7 +1756,7 @@ impl Checker<'_> {
                 }
                 s
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call { name, args, filter } => {
                 let aggregate = signature(&name.to_ascii_lowercase())
                     .is_some_and(|sig| sig.shape == SigShape::Aggregate);
                 let mut widest = Shape::Const;
@@ -1683,8 +1774,37 @@ impl Checker<'_> {
                     }
                     widest = widest.max(s);
                 }
+                if let Some(filter) = filter {
+                    // The condition decides row by row whether the row counts,
+                    // so an aggregate in it has nothing to fold — even a
+                    // mixed-grain one, whose value isn't known until the whole
+                    // table has been read. Its shape doesn't widen the call's.
+                    self.reject_filter_aggregates(filter);
+                }
                 if aggregate { Shape::Agg } else { widest }
             }
+        }
+    }
+
+    /// Report an S30 for each topmost aggregate within a `FILTER` condition.
+    fn reject_filter_aggregates(&mut self, e: &Expr) {
+        if let ExprKind::Call { name, filter, .. } = &e.kind
+            && signature(&name.to_ascii_lowercase())
+                .is_some_and(|sig| sig.shape == SigShape::Aggregate)
+        {
+            self.report(
+                "S30",
+                "a `FILTER` condition is evaluated per row, so it can't contain an aggregate",
+                e,
+            );
+            // A filter of its own is still wrong, aggregate within or not.
+            if let Some(filter) = filter {
+                self.reject_filter_aggregates(filter);
+            }
+            return;
+        }
+        for child in expr_children(e) {
+            self.reject_filter_aggregates(child);
         }
     }
 
@@ -2026,6 +2146,21 @@ pub(crate) mod tests {
         };
         assert_eq!(&s[lhs.start..lhs.end], "qty");
         assert_eq!(&s[rhs.start..rhs.end], "0");
+    }
+
+    #[test]
+    fn filter_clause_parses_after_the_arguments() {
+        let src = "SUM(qty) FILTER (WHERE flag AND qty > 0)";
+        let e = parse(src);
+        let ExprKind::Call { name, args, filter } = &e.root.kind else {
+            panic!("expected a call")
+        };
+        assert_eq!(name, "SUM");
+        assert_eq!(args.len(), 1);
+        let filter = filter.as_ref().expect("a filter");
+        assert_eq!(&src[filter.start..filter.end], "flag AND qty > 0");
+        // The call's span covers the whole clause.
+        assert_eq!(&src[e.root.start..e.root.end], src);
     }
 
     #[test]
@@ -2476,6 +2611,67 @@ pub(crate) mod tests {
     fn mixing_row_and_aggregate_grains_is_allowed() {
         assert!(check_str("qty <= 2 * MIN(qty)").is_empty());
         assert!(check_str("n <= MAX(n)").is_empty());
+    }
+
+    #[test]
+    fn filtered_aggregates_are_clean() {
+        for s in [
+            "SUM(qty) FILTER (WHERE flag) > 0",
+            "COUNT(s) FILTER (WHERE qty > 0) <= ROW_COUNT()",
+            "ROW_COUNT() FILTER (WHERE d >= '2000-01-01') > 0",
+            "AVG(qty) FILTER (WHERE s LIKE 'a%') BETWEEN 0 AND 100",
+            "sum(qty) filter (where flag) > 0",
+        ] {
+            assert!(check_str(s).is_empty(), "{s}: {:?}", check_str(s));
+        }
+    }
+
+    #[test]
+    fn filter_on_a_non_aggregate_is_s21() {
+        let f = check_str("LENGTH(s) FILTER (WHERE flag) > 0");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].code, "S21");
+        assert!(
+            f[0].message.contains("`LENGTH` isn't one"),
+            "{:?}",
+            f[0].message
+        );
+    }
+
+    #[test]
+    fn filter_condition_must_be_boolean() {
+        let f = check_str("SUM(qty) FILTER (WHERE qty) > 0");
+        assert!(
+            f.iter().any(|f| f.code == "S21"
+                && f.message
+                    .contains("a `FILTER` condition expects a boolean, found a number")),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn filter_condition_is_checked_against_the_table() {
+        let f = check_str("SUM(qty) FILTER (WHERE missing > 0) > 0");
+        assert!(f.iter().any(|f| f.code == "S20"), "{f:?}");
+    }
+
+    #[test]
+    fn an_aggregate_in_a_filter_condition_is_s30() {
+        let src = "SUM(qty) FILTER (WHERE AVG(qty) > 0) > 0";
+        let f = check_str(src);
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].code, "S30");
+        // The span points at the aggregate, not the whole condition.
+        assert_eq!(&src[f[0].start..f[0].end], "AVG(qty)");
+    }
+
+    #[test]
+    fn a_mixed_grain_filter_condition_is_still_s30() {
+        // Row-shaped overall, but the aggregate's value isn't known until the
+        // whole table is read, so it can't decide row by row.
+        let f = check_str("SUM(qty) FILTER (WHERE qty > AVG(qty)) > 0");
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(f[0].code, "S30");
     }
 
     #[test]

@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    columns:
+      - name: qty
+        type: number
+        examples: [1, 2]
+    constraints:
+      - assert: SUM(qty) FILTER (WHERE qty > AVG(qty)) > 0
+────────────────────────────────────────
+error[S30]: An aggregate can't be nested inside another aggregate.
+  --> dict.yaml:10:46
+   |
+LL |   - name: t
+...
+LL |       - assert: SUM(qty) FILTER (WHERE qty > AVG(qty)) > 0
+   |                                              ^^^^^^^^ a `FILTER` condition is evaluated per row, so it can't contain an aggregate

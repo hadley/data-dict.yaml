@@ -846,9 +846,12 @@ fn collect_columns(e: &Expr, table: &Table, out: &mut Vec<String>) {
             collect_columns(operand, table, out);
             collect_columns(pattern, table, out);
         }
-        ExprKind::Call { args, .. } => {
+        ExprKind::Call { args, filter, .. } => {
             for arg in args {
                 collect_columns(arg, table, out);
+            }
+            if let Some(filter) = filter {
+                collect_columns(filter, table, out);
             }
         }
         ExprKind::Interval { n, .. } => collect_columns(n, table, out),
