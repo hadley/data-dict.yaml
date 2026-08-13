@@ -324,7 +324,18 @@
 
 #diagram-search { width: 232px; }
 
+/* Minimal mode: a table is its heading only, and one wire carries each
+   relationship, so the column rows and their scroll fades come off the box. */
+#canvas.minimal .node .rows { display: none; }
+#canvas.minimal .node::after { display: none; }
+/* The size moves to a second line, keeping the name line short so the boxes —
+   and the gaps the wires cross — stay small. */
+#canvas.minimal .node > h2 { flex-wrap: wrap; row-gap: 0; }
+#canvas.minimal .node > h2 .count { flex-basis: 100%; margin-left: 0; order: 3; }
+#canvas.minimal .node > h2 .eye { order: 2; margin-left: auto; }
+
 #tidy,
+#minimal,
 #showall {
   padding: 6px 10px;
   font: inherit;
@@ -338,7 +349,9 @@
   white-space: nowrap;
 }
 #tidy:hover,
+#minimal:hover,
 #showall:hover { border-color: var(--accent1); }
+#minimal[aria-pressed="true"] { color: var(--accent1); border-color: var(--accent1-soft); }
 /* nothing has been dragged, so there is nothing to tidy */
 #tidy[disabled] { opacity: 0.45; cursor: default; }
 #tidy[disabled]:hover { border-color: var(--rule); }

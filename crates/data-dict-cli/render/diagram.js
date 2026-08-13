@@ -33,6 +33,11 @@ window.DIAGRAM_INIT = () => {
 
 const MAX_ROWS_H = 300; // fixed maximum height of a table's scroll area
 
+// Minimal mode: tables are names only, each relationship is one wire anchored
+// to the box centres, and the layout skips its row-aware ordering pass (its
+// whole job is ordering tables for wires that land on rows).
+let minimal = false;
+
 const canvas = document.getElementById("canvas");
 const stage = document.getElementById("stage");
 const wires = document.getElementById("wires");
@@ -302,6 +307,55 @@ const SIDE_PAIRS = [
   [1, 1], // both right, for boxes level with or overlapping each other
   [0, 0], // both left
 ];
+
+// Minimal mode anchors a wire to the 3×3 grid of compass points on each box
+// — corners and edge midpoints — and picks the pair with the shortest
+// distance between them. Aligned boxes get facing edge midpoints (a straight
+// horizontal or vertical wire), offset boxes get facing corners, with no
+// angle threshold to tune. The curve's handles leave along each anchor's
+// outward direction, so a vertical wire doesn't bend sideways the way a
+// left/right-anchored one would.
+const COMPASS = [
+  [1, 0.5], [1, 1], [0.5, 1], [0, 1],
+  [0, 0.5], [0, 0], [0.5, 0], [1, 0],
+];
+function compassPair(from, to) {
+  let best = null;
+  for (const [fx, fy] of COMPASS) {
+    for (const [gx, gy] of COMPASS) {
+      const a = {
+        x: from.x + fx * from.width,
+        y: from.y + fy * from.height,
+        dx: fx * 2 - 1,
+        dy: fy * 2 - 1,
+      };
+      const b = {
+        x: to.x + gx * to.width,
+        y: to.y + gy * to.height,
+        dx: gx * 2 - 1,
+        dy: gy * 2 - 1,
+      };
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (!best || d < best.d) best = { a, b, d };
+    }
+  }
+  return best;
+}
+
+// The wire between the nearest anchor pair is nearly straight: each anchor
+// is a point of its box nearest the other box, so the segment can't clip
+// either box. Short handles along the anchors' outward directions take the
+// edge off without the S-bend that long handles gave mismatched anchors.
+function compassWire(from, to) {
+  const { a, b, d } = compassPair(from, to);
+  const k = Math.min(d * 0.08, 18);
+  return {
+    points: [a, b],
+    d:
+      `M${a.x},${a.y} ` +
+      `C${a.x + k * a.dx},${a.y + k * a.dy} ${b.x + k * b.dx},${b.y + k * b.dy} ${b.x},${b.y}`,
+  };
+}
 
 function bestWire(from, to, fromY, toY, nodes, ends) {
   const boxes = Object.entries(nodes)
@@ -1037,9 +1091,13 @@ function writeLayout(record) {
   } catch {}
 }
 
+// Tidying discards the arrangement but not the mode: minimal/regular is a
+// viewing choice, not part of how the tables were arranged.
 function forgetLayout() {
   try {
+    const { minimal } = readLayout() ?? {};
     localStorage.removeItem(LAYOUT_KEY);
+    if (minimal !== undefined) writeLayout({ minimal });
   } catch {}
 }
 
@@ -1189,8 +1247,10 @@ async function draw(was = null) {
     markerLayer.appendChild(markerGroup);
 
     // A join on more than one column is one relationship drawn as several
-    // parallel wires, hovered and highlighted together.
-    const strands = columnPairs(edge.rel).map((pair) => {
+    // parallel wires, hovered and highlighted together. Minimal mode draws a
+    // single wire for the relationship instead.
+    const pairs = columnPairs(edge.rel);
+    const strands = (minimal ? pairs.slice(0, 1) : pairs).map((pair) => {
       const hit = make("path", { class: "hit" }); // fat transparent path, easier to hover
       const path = make("path", { class: "wire" });
       wireGroup.append(hit, path);
@@ -1263,17 +1323,23 @@ async function draw(was = null) {
         // anywhere relative to its partner.
         const fromAt = layout.nodes[pair.from.table];
         const toAt = layout.nodes[pair.to.table];
-        const points = bestWire(
-          fromAt,
-          toAt,
-          fromAt.y + anchorY(fromBox, pair.from.column),
-          toAt.y + anchorY(toBox, pair.to.column),
-          layout.nodes,
-          [pair.from.table, pair.to.table]
-        );
+        // A self-join has no direction to face, so it keeps the router's
+        // doubling-back loop.
+        const direct = minimal && pair.from.table !== pair.to.table;
+        const compass = direct ? compassWire(fromAt, toAt) : null;
+        const points = direct
+          ? compass.points
+          : bestWire(
+              fromAt,
+              toAt,
+              minimal ? fromAt.y + fromAt.height / 2 : fromAt.y + anchorY(fromBox, pair.from.column),
+              minimal ? toAt.y + toAt.height / 2 : toAt.y + anchorY(toBox, pair.to.column),
+              layout.nodes,
+              [pair.from.table, pair.to.table]
+            );
         strand.final = points;
 
-        const route = wirePath(points);
+        const route = direct ? compass.d : wirePath(points);
         path.setAttribute("d", route);
         hit.setAttribute("d", route);
 
@@ -1345,6 +1411,23 @@ function countCrossings(drawn) {
 // Tidy only offers itself once a table has been dragged, or once a saved
 // arrangement has been put back: until then the layout is already tidy. Tidying
 // discards the saved arrangement, so it doesn't return on the next visit.
+const minimalBtn = document.getElementById("minimal");
+const setMinimal = (on) => {
+  minimal = on;
+  window.MINIMAL = on; // the layout script reads this
+  canvas.classList.toggle("minimal", on);
+  minimalBtn.setAttribute("aria-pressed", String(on));
+};
+minimalBtn.addEventListener("click", () => {
+  setMinimal(!minimal);
+  writeLayout({ ...readLayout(), minimal });
+  draw(placed?.nodes);
+});
+// The mode is part of the saved layout record, so a reload comes back the
+// way the board was left. Applied before the first draw, which then lays out
+// for the restored mode straight away.
+setMinimal(!!readLayout()?.minimal);
+
 const tidyBtn = document.getElementById("tidy");
 tidyBtn.addEventListener("click", () => {
   for (const box of nodeEls.values()) box.style.zIndex = "";
