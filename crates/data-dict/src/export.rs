@@ -905,7 +905,7 @@ fn translate_expression(
 /// `COLUMNS(...)` selection expands to the table columns it matches,
 /// mirroring the S21/S22 checker — restricted to typed columns, since
 /// untyped ones are omitted from the export.
-fn collect_columns(
+pub(crate) fn collect_columns(
     e: &Expr,
     table: &Table,
     defs: &HashMap<String, DefType>,
