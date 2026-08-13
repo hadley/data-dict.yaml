@@ -1,0 +1,13 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: 99.0.0
+tables: []
+────────────────────────────────────────
+error[S32]: This document conforms to a newer version of the data-dict spec than this validator supports.
+  --> dict.yaml:1:11
+   |
+LL | $version: 99.0.0
+   |           ^^^^^^ `$version` is `99.0.0`, but this version of data-dict supports up to `0.1.0`
+   |
+   = help: Upgrade data-dict to the latest version.
