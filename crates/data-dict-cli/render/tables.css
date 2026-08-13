@@ -143,6 +143,42 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
    the card's padding leaves them just inside its border. */
 .tpage-list { padding: 0 14px; }
 
+/* ---- the table list beside a table ---- */
+
+#table-view { display: flex; align-items: flex-start; gap: 16px; }
+#table-view #table-page { flex: 1 1 auto; min-width: 0; }
+
+/* The same card as the blocks it sits beside. It follows the page down, since a
+   column list runs long and the point of the list is to leave from anywhere; the
+   names scroll inside it when there are more than the window holds. */
+.tnav {
+  flex: none; width: 232px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  position: sticky; top: 14px;
+  max-height: calc(100vh - 28px);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.tnav-filter {
+  flex: none; min-width: 0; padding: 7px 11px;
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
+}
+.tnav-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.tnav-item {
+  display: block; padding: 5px 8px; border-radius: 6px;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--ink); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tnav-item:hover { background: var(--chip); }
+.tnav-item:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+/* the table being read, wearing the same fill as a held key badge */
+.tnav-item.on { background: var(--accent1); color: var(--on-accent1); font-weight: 650; }
+.tnav-none { margin: 0; padding: 4px 8px; color: var(--ink-faint); font-size: var(--text-sm); }
+
 /* The name, its stats and the description on the left; the related-tables box
    set against the card's right edge, its top level with the name. */
 .tpage-top {
