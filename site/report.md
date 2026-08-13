@@ -8,9 +8,9 @@ The [level](validation.md#three-levels-of-validation) validated determines which
 
 ## Output shape
 
-A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably.
+A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably.
 
-The report is one flat list. It is deliberately not also grouped by check, by table, or by row: everything needed to build those views is on each problem, and a consumer that wants them can group the list itself rather than reconcile several copies of the same finding.
+The problems are one flat list. They are deliberately not also grouped by check, by table, or by row: everything needed to build those views is on each problem, and a consumer that wants them can group the list itself rather than reconcile several copies of the same finding.
 
 ### Top level
 
@@ -18,17 +18,25 @@ The report is one flat list. It is deliberately not also grouped by check, by ta
 {
   "$version": "0.1.0",           // version of the report document format itself
   "status": "ok" | "warning" | "error",
+  "steps": [ Step ],
   "problems": [ Problem ]
 }
 ```
 
 `status` is the worst severity present: `error` if any problem is an error, `warning` if there are only warnings, `ok` if there are none.
 
+`steps` is what the run checked, `problems` is what it found. A step is one check applied to one target: a column, a set of key columns, an assertion, or a table. Every step the run reached is listed whether it passed or failed, so a consumer can report a pass rate and not just a failure list.
+
+Which steps exist follows from the dictionary: a `required` column gets a `D01` step, a `unique` one a `D02` step, each `assert` a `D07` step, and a column with no constraint gets none. A spec check (`S##`) reads the document as a whole rather than one declared target, so it is reported through `problems` alone, and `steps` is empty for a spec-level run.
+
+Every step the level attempted is listed, including the ones it could not weigh. A step is missing only when its level never ran at all: a spec error stops the run, so the metadata and data steps that would have followed are absent rather than listed unevaluated.
+
 ### Problem
 
 ```jsonc
 {
   "code?": "D04",                // the check's code in validation.md
+  "step?": 3,                    // the `id` of the step that found it
   "severity": "error" | "warning",
   "kind": "values_outside_enum", // the finding's shape, see below
   "message": "string",           // what was found, a lowercase fragment
@@ -49,6 +57,50 @@ The report is one flat list. It is deliberately not also grouped by check, by ta
 `code` is absent only for a pre-flight failure — one that stopped the run before any check could run, like an unreadable file.
 
 `suggestion` is a concrete edit: splice `replacement` into the source over the suggestion's own `location`, which is an insertion point when it is empty.
+
+`step` is absent for a problem no step accounts for: a pre-flight failure, a spec problem, and an undocumented column (`M03`). A step with a `fail` above zero always has at least one problem pointing back at it.
+
+### Step
+
+```jsonc
+{
+  "id": 3,                       // 1-based, unique within this report
+  "code": "D04",                 // the check's code in validation.md
+  "table": "otters",             // the table the step checked
+  "column?": "status",           // the column, dotted for a struct field
+  "columns?": ["site", "day"],   // the key's columns, for a composite-key step
+  "assertion?": "weight > 0",    // the expression, for an assertion step
+  "evaluated": true,
+  "units?": 91043,               // test units the step weighed
+  "fail?": 2                     // units that failed; pass is units - fail
+}
+```
+
+Steps are in dictionary order: tables as `tables` declares them, then each table's columns in order, then that column's checks by code.
+
+A step's `code` is the code it reports when the thing it checks is plainly wrong. Several checks are alternative verdicts on one declared target — a column is either the wrong type (`M01`) or absent (`M02`), and a uniqueness check either finds duplicates (`D02`) or can't compare the values at all (`D03`) — so one step covers them and the problem carries the code that actually applied:
+
+| Step `code` | One step per | Problem codes it can report |
+|-------------|--------------|-----------------------------|
+| `M01` | column the dictionary declares | `M01`, `M02` |
+| `M04` | table validated against data | `M04`, `M05` |
+| `D01` | `required` or `primary_key` column | `D01` |
+| `D02` | `unique` column, and the primary key as a whole | `D02`, `D03` |
+| `D04` | `enum` column, including a nested one | `D04` |
+| `D05` | single-column `foreign_key` | `D05`, `D06` |
+| `D07` | `assert` expression | `D07`, `D08`, `D09` |
+
+: {tbl-colwidths="[15,40,45]"}
+
+`M03` is the one check with nothing to declare it: the column exists only in the data, so no step covers it and its problem has no `step`.
+
+`units` is how many things the step weighed: the table's rows for a row-level data check, and `1` for a check with a single verdict — an aggregate assertion, or any metadata check. `fail` is how many of them failed, and is `0` for a step that passed. Both are absent when `evaluated` is false.
+
+`evaluated` is false when the step could not reach a verdict: the values were not comparable (`D03`, `D06`), the expression could not be run (`D08`, `D09`), or the table's data could not be read, which leaves every step of that table unevaluated. A step that did not evaluate has not passed, and a consumer must not count it as one.
+
+A step carries no values, only counts, so nothing on it is ever withheld for a [restricted](spec.md#display) column.
+
+Nothing is duplicated between the two lists: a step says how much was checked and how much failed, and its problems say what failed and where. A step-by-step report table is `steps` joined to `problems` on `id`, and that join is the consumer's to make, for the same reason `problems` is not also grouped by table or by code.
 
 ### Location
 
@@ -147,9 +199,27 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
 {
   "$version": "0.1.0",
   "status": "error",
+  "steps": [
+    // an M01 step per column also ran and passed; elided here
+    {"id": 1, "code": "M04", "table": "otters",
+     "evaluated": true, "units": 1, "fail": 0},
+    {"id": 2, "code": "D01", "table": "otters", "column": "id",
+     "evaluated": true, "units": 91043, "fail": 0},
+    {"id": 3, "code": "D02", "table": "otters", "column": "id", "columns": ["id"],
+     "evaluated": true, "units": 91043, "fail": 3},
+    {"id": 4, "code": "D04", "table": "otters", "column": "carer_email",
+     "evaluated": true, "units": 91043, "fail": 2},
+    {"id": 5, "code": "D07", "table": "otters", "column": "weight", "assertion": "weight > 0",
+     "evaluated": true, "units": 91043, "fail": 2},
+    {"id": 6, "code": "M04", "table": "sightings",
+     "evaluated": true, "units": 1, "fail": 1},
+    // the source couldn't be read, so no step of `sightings` reached a verdict
+    {"id": 7, "code": "D01", "table": "sightings", "column": "otter_id", "evaluated": false}
+  ],
   "problems": [
     {
       "code": "M05",
+      "step": 6,
       "severity": "error",
       "kind": "unreadable_source",
       "expected": "A table's `source` must point at a readable Parquet file.",
@@ -161,6 +231,7 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
     },
     {
       "code": "D02",
+      "step": 3,
       "severity": "error",
       "kind": "duplicate_values",
       "expected": "A unique column must not contain duplicate values.",
@@ -177,6 +248,7 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
     },
     {
       "code": "D04",
+      "step": 4,
       "severity": "error",
       "kind": "values_outside_enum",
       "expected": "An enum column's values must all be among its declared `values`.",
@@ -192,6 +264,7 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
     },
     {
       "code": "D07",
+      "step": 5,
       "severity": "error",
       "kind": "assertion_violated",
       "expected": "An assertion must hold for every row.",
@@ -216,4 +289,11 @@ Grouping that list by `table`, by `column`, or by `code` is a one-liner in any l
 ```bash
 jq '.problems | group_by(.table)
    | map({table: .[0].table, rows: (map(.rows // []) | add | unique)})' report.json
+```
+
+And a step-by-step table, one row per check with its pass and fail counts:
+
+```bash
+jq '.steps | map({step: .id, code, table, column, units,
+                  pass: (if .evaluated then .units - .fail else null end), fail})' report.json
 ```
