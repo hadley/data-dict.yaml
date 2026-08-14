@@ -163,6 +163,8 @@ An `enum` column's underlying data must be string-like: a Parquet string column,
 
 A validation warning or error can be reported in two ways: as a diagnostic rendered for a person, and as a record in a machine-readable [report document](report.md) for a program. Both are views of the same findings, so a pipeline can act on the report and a person can read the diagnostics without the two disagreeing.
 
+The CLI writes the report document with `--json`, and the same report as a self-contained HTML page with `--html`. The page is a rendering of that document and adds nothing to it: what a report withholds, the page withholds.
+
 They differ only in how much they list. A finding always counts the offending rows exactly, but names only the first so many: a report lists enough of them to filter the offending records back out of the data, a diagnostic only enough to see the shape of the problem.
 
 Some checks report the offending values themselves. Those values are withheld for a column marked [`display: restricted`](spec.md#display): the count and the row numbers are still reported, so the records stay findable by anyone already entitled to read them, but the validator never reports the values.
