@@ -138,18 +138,18 @@ Lines and columns count from 0, following the LSP convention. Diagnostics render
 | `duplicate_values` | `D02` | `count`, `rows`, `values`, `redacted` |
 | `uniqueness_not_verified` | `D03` | `reason` |
 | `values_outside_enum` | `D04` | `count`, `rows`, `values`, `redacted` |
-| `foreign_key_not_found` | `D05` | `references`, `count`, `rows`, `values`, `redacted` |
-| `referential_integrity_not_verified` | `D06` | `references`, `reason` |
+| `foreign_key_not_found` | `D05` | `column`, `references`, `count`, `rows`, `values`, `redacted` |
+| `referential_integrity_not_verified` | `D06` | `column`, `references`, `reason` |
 | `assertion_violated` | `D07` | `assertion`, `count`, `rows`, `values`, `redacted` |
 | `assertion_false` | `D07` | `assertion` |
-| `assertion_not_checked` | `D08` | `assertion`, `unreadable_column`, `reason` |
+| `assertion_not_checked` | `D08` | `assertion`, `column`, `reason` |
 | `assertion_overflow` | `D09` | `assertion`, `row` |
 
 : {tbl-colwidths="[30,10,60]"}
 
 `schema` and `spec` are the two halves of spec validation and are kept apart because a consumer treats them differently: a `schema` problem means the document could not be read as a data dictionary at all, so no `spec` problem could be looked for, while a `spec` problem is a finding about a document that was read successfully.
 
-A key that names one particular column is spelled for what it means, so it never collides with `columns`: `D02` and `D03` carry the key's columns in `columns` alone, `D05` and `D06` name their target in `references`, and `D08`'s `unreadable_column` is the one column of the assertion that can't be read as its declared type — absent when the obstacle isn't one column's type.
+`column`, singular, is the one column a kind singles out, as against the list in `columns`: `D05` and `D06` put the referencing column there and name the target they compare it against in `references`, and `D08`'s is the one column of the assertion that can't be read as its declared type — absent when the obstacle isn't one column's type. `D02` and `D03` single out no column, and carry the key's columns in `columns` alone.
 
 `values_outside_enum` and `assertion_violated` also arise for a nested column: `columns` then holds the dotted path to the struct field, and its rows are the rows of the top-level column that holds it.
 
@@ -177,14 +177,14 @@ An offending value is always a **string**, and never a JSON number or boolean. E
 
 A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. It can only appear in a `D07` entry — `D02`, `D04`, and `D05` all exempt nulls, so their `values` never contain one.
 
-`rows` and `values` are each capped, at 1000 entries by default, so that a wholly broken column can't turn a report into megabytes of row numbers. A cap truncates: what's reported is the first so many in the order the key defines, never a selection drawn from across the table. A producer may offer a way to raise or lower the cap; `count` is never capped, so `count > rows.length` means the list was truncated. The converse doesn't hold — some checks report a count with no rows at all.
+`rows` and `values` are each capped, so that a wholly broken column can't turn a report into megabytes of row numbers. The cap is the producer's to choose — the `data-dict` CLI reports the first 5 — and a producer may offer a way to raise or lower it. A cap truncates: what's reported is the first so many in the order the key defines, never a selection drawn from across the table. `count` is never capped, so `count > rows.length` means the list was truncated. The converse doesn't hold — some checks report a count with no rows at all.
 
 ### What each check can say
 
 A check reports what its evidence supports, and the evidence differs. These are properties of the checks themselves, not gaps to be worked around:
 
 * `D01` and `D02` can sometimes be settled from Parquet footer statistics alone, without reading a single value. That path proves how many rows offend but not which, so `count` is present and `rows` and `values` are empty.
-* `D02`'s `rows` are the rows of the **repeat** occurrences — the row that first held a value is not the one reported as a duplicate — and its `values` follow them, so a key duplicated twice appears twice.
+* `D02`'s `rows` are the rows of the **repeat** occurrences — the row that first held a value is not the one reported as a duplicate — and its `values` follow them, so a key duplicated twice appears twice. A reported value is the key **as stored**, not the form the comparison normalizes it to, so `-0.0` reads as it was written even though it duplicates `0.0`, and two `values` entries that duplicate each other can read differently.
 * `D07` on an aggregate assertion (`SUM(x) > 0`) reports `assertion_false`, with no `count` and no `rows`. An aggregate is a single verdict about the whole table, so no row is to blame.
 * `D09` reports a single `row`: evaluation stops at the first overflow, since everything after it is computed from a value that already went wrong.
 * `D03`, `D06`, and `D08` report that a check *didn't run*, and carry a `reason` naming the barrier rather than any row.
