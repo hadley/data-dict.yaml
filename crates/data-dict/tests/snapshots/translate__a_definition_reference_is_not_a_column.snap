@@ -1,0 +1,47 @@
+---
+source: crates/data-dict/tests/translate.rs
+expression: "translate_json(indoc!\n{r#\"\n        description: Each row is an order.\n        tables:\n          - name: orders\n            columns:\n              - name: tile_size\n                type: string\n                examples: [\"Enterprise-1\"]\n              - name: order_total\n                type: number(quantity)\n                units: usd\n                range: [0, .inf]\n            constraints:\n              - assert: is_enterprise AND order_total > 0\n            definitions:\n              - name: is_enterprise\n                expr: tile_size IN ('Enterprise-1')\n    \"#})"
+---
+[
+  {
+    "expr": "is_enterprise AND order_total > 0",
+    "table": "orders",
+    "type": "boolean",
+    "columns": [
+      "order_total"
+    ],
+    "definitions": [
+      "is_enterprise"
+    ],
+    "translations": [
+      {
+        "target": "SQL(duckdb)",
+        "code": "\"is_enterprise\" AND \"order_total\" > 0",
+        "notes": [
+          "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there."
+        ]
+      },
+      {
+        "target": "R(tidyverse)",
+        "code": "is_enterprise & order_total > 0L",
+        "notes": [
+          "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+        ]
+      },
+      {
+        "target": "R(base)",
+        "code": "is_enterprise & order_total > 0L",
+        "notes": [
+          "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+        ]
+      },
+      {
+        "target": "R(data.table)",
+        "code": "is_enterprise & order_total > 0L",
+        "notes": [
+          "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+        ]
+      }
+    ]
+  }
+]

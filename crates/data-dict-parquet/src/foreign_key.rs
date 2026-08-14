@@ -17,7 +17,7 @@ use arrow_schema::{DataType, TimeUnit};
 use rayon::prelude::*;
 
 use crate::ParquetError;
-use crate::display::Values;
+use crate::display::{Values, display_form};
 use crate::keys::{KeyColumn, KeySet, canonicalize};
 use crate::metadata::Comparability;
 use crate::reader::FileContext;
@@ -44,8 +44,8 @@ pub enum ForeignKeyResult {
 }
 
 /// Values found in the child column that are absent from the parent column.
-/// `orphan_rows`/`orphan_values` sample the first few (1-based rows, distinct
-/// values); `orphan_count` is the total.
+/// `orphan_rows` samples the first few (1-based) and `orphan_values` the value
+/// each of those rows held; `orphan_count` is the total.
 #[derive(Default)]
 pub struct ForeignKeyStats {
     pub orphan_count: usize,
@@ -121,8 +121,8 @@ fn check_foreign_key(
     let mut row_offset = 0usize;
     for batch in child.reader([child_leaf])? {
         let batch = batch?;
-        let original = batch.column(0);
-        let casted = canonicalize(&cast(original, &target)?);
+        let original = display_form(batch.column(0));
+        let casted = canonicalize(&cast(&original, &target)?);
         let keys = KeyColumn::new(&casted)?;
         let seen = seen.get_or_insert_with(|| KeySet::for_column(&keys, 0));
         let mut values: Option<Values> = None;
@@ -175,18 +175,13 @@ fn orphan_all(
 
 impl ForeignKeyStats {
     /// Record the orphan at 0-based `row`, sampling its 1-based row number and
-    /// distinct rendered value up to `sample_limit`. `value` is only rendered
-    /// while the value sample can still grow.
+    /// rendered value up to `sample_limit`. `value` is only rendered while the
+    /// sample can still grow.
     fn orphan(&mut self, row: usize, value: impl FnOnce() -> String, sample_limit: usize) {
         self.orphan_count += 1;
         if self.orphan_rows.len() < sample_limit {
             self.orphan_rows.push(row + 1);
-        }
-        if self.orphan_values.len() < sample_limit {
-            let value = value();
-            if !self.orphan_values.contains(&value) {
-                self.orphan_values.push(value);
-            }
+            self.orphan_values.push(value());
         }
     }
 }

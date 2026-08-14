@@ -11,8 +11,8 @@ use quarto_yaml::YamlWithSourceInfo;
 use crate::assert_expr::AssertExpr;
 use crate::join_expr::JoinExpr;
 use crate::model::{
-    Alias, Assertion, Cardinality, Column, Constraint, DataDict, GlossaryEntry, Relationship,
-    Representation, Scalar, Source, Spanned, Table, Version,
+    Alias, Assertion, Cardinality, Column, Constraint, DataDict, Definition, GlossaryEntry,
+    Relationship, Representation, Scalar, Source, Spanned, Table, Version,
 };
 use crate::problem::{Problem, ProblemSet, Severity, subspan};
 
@@ -141,6 +141,16 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
             }
         }
     }
+    let mut definitions = Vec::new();
+    if let Some(d_node) = node.get_hash_value("definitions")
+        && let Some(items) = d_node.as_array()
+    {
+        for item in items {
+            if let Some(d) = lower_definition(item, problems) {
+                definitions.push(d);
+            }
+        }
+    }
     let source = node.get_hash_value("source").and_then(|n| {
         let parquet = n.get_hash_value("parquet")?;
         let path = parquet.yaml.as_str()?;
@@ -174,6 +184,7 @@ fn lower_table(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<T
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         columns,
         constraints,
+        definitions,
         source,
         label: keyed_string("label"),
         description: keyed_string("description"),
@@ -342,6 +353,64 @@ fn lower_assertion(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opti
         text: Spanned::new(text.to_string(), span),
         expr,
         description,
+    })
+}
+
+/// Lower a single `definitions` entry into a [`Definition`], parsing its
+/// expression. A parse failure is reported as S19 (pointing at the failing
+/// token within the `expr` string) and leaves `expr` as `None`, mirroring
+/// [`lower_assertion`]. Returns `None` for a node without a string `expr`
+/// value, which the schema rejects upstream.
+fn lower_definition(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Option<Definition> {
+    let entries = node.as_hash()?;
+    let name_entry = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("name"))?;
+    // An empty/null name is kept (as "") so S11 can report it; the parser
+    // collapses an empty name to null.
+    let name = name_entry.value.yaml.as_str().unwrap_or("");
+    let expr_entry = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("expr"))?;
+    let text = expr_entry.value.yaml.as_str()?;
+    let span = expr_entry.value_span.clone();
+
+    let string = |key: &str| {
+        entries
+            .iter()
+            .find(|e| e.key.yaml.as_str() == Some(key))
+            .and_then(|e| e.value.yaml.as_str())
+            .map(str::to_string)
+    };
+
+    let expr = match AssertExpr::parse(text) {
+        Ok(expr) => Some(expr),
+        Err(err) => {
+            let at = err.at.min(text.len());
+            let sub = subspan(&span, at, at).unwrap_or_else(|| span.clone());
+            problems.push(Problem::spec(
+                "S19",
+                Severity::Error,
+                format!("definition expression does not parse: {}", err.message),
+                sub,
+            ));
+            None
+        }
+    };
+
+    let todo = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("todo"))
+        .and_then(|e| lower_todo(&e.value, e.value_span.clone()));
+
+    Some(Definition {
+        name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
+        text: Spanned::new(text.to_string(), span),
+        expr,
+        label: string("label"),
+        description: string("description"),
+        details: string("details"),
+        todo,
     })
 }
 

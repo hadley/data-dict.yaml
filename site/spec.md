@@ -34,6 +34,7 @@ The content keys all hold the actual information about the data:
 * `origin`: a link to the code or pipeline that produced this table's data; see [Origin](#origin).
 * `columns` (required): an ordered list of column metadata.
 * `constraints`: a list of table-level assertions (see [Table constraints](#table-constraints)).
+* `definitions`: a list of named expressions — metrics and filters — defined on this table (see [Definitions](#definitions)).
 * `todo`: work that remains on this table (see [Todo](#todo)).
 
 For example:
@@ -125,9 +126,9 @@ A column may also be listed with only its `name` and no `type`. This acknowledge
 
 #### Name, label, description & details
 
-`name`, `label`, `description`, and `details` document a dataset, table, or column, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
+`name`, `label`, `description`, and `details` document a dataset, table, column, or definition, from terse to expansive. `name` is the only required field; all others are optional. They mean the same thing at every level:
 
-* `name` identifies the thing. For a table or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
+* `name` identifies the thing. For a table, definition, or column it's an identifier matched against the underlying data, so it must be non-empty and unique (a table within the dictionary, a column within its table). For the dataset it's just a short, machine-friendly id (e.g. `foodbank`) with no constraints.
 * `label` is a short, human-readable title, useful when the `name` is terse or technical (e.g. `FoodData Central ID` for `fdc_id`). Plain text (no markdown), typically a few words, it stands in for the `name` in user interfaces.
 * `description` contains the most important information about the item, like known limitations or a surprising derivation compared to its `name`.
 * `details` contains anything else that might be useful to know, e.g. assumptions about potential unknowns, or background on how the data was collected or constructed.
@@ -261,7 +262,7 @@ A numeric or temporal column may give both `range` and `examples`, since the two
 * `range`: a two-element list `[min, max]` giving the inclusive minimum and maximum *observed* in the column. Like `examples`, it describes the data rather than constraining it: nothing is validated against it, and a value outside it is not an error. To constrain a column, write an [`assert`](expressions.md). Required for the ordered numeric and temporal types: `number(ordinal)`, `number(quantity)`, `date`, and `datetime`. Optional on the other numeric types, `number` and `number(id)`, where it may accompany their `examples`. Both elements must match the column's type, and the minimum must not exceed the maximum.
 
     Either bound may be left open with negative infinity (`-.inf`) for the minimum or positive infinity (`.inf`) for the maximum. An open bound says the true extent is unknown or constantly moving, as in a daily export whose date column always runs up to the present. If you leave a bound open, make sure to describe the range in prose in the column's `description`. `.inf` here means the bound is *open*, not that the column was observed to contain an infinity — a column really can hold one, but a range is descriptive, so the two readings are not worth distinguishing. `.nan` is not a bound at all, and is rejected in `examples` too (S12).
-* `examples`: a list of ~5 representative values from the column. Required for all other types: `string`, `number`, and `number(id)`. Optional on the ordered numeric and temporal types, where it may accompany their `range`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Example values are evocative rather than exhaustive, and tools that draft a dictionary from data may truncate long values (e.g. to around 70 characters, ending in `…`) so a single long value can't overwhelm the dictionary.
+* `examples`: a list of ~5 representative values from the column. Required for all other types: `string`, `number`, and `number(id)`. Optional on the ordered numeric and temporal types, where it may accompany their `range`. Each example must match the column's type, so a `string` column's examples need quoting whenever they read as numbers (`['02134', '94110']`). A handful of concrete examples helps LLMs understand the column far better than a description alone. For instance, knowing that an id column holds `[1, 2, 3, 4, 5]` versus `[10000, 1235452, 234234]` tells a very different story. A good baseline is to select 5 evenly spaced values along the sorted unique values, and then add any particularly surprising values as you encounter them. Example values are evocative rather than exhaustive; long values will be truncated and restricted values will have plausible, but fake data.
 
 `boolean` columns are the exception to this rule because they can only contain `true`, `false`, and (if not required) `null`.
 
@@ -312,7 +313,7 @@ columns:
       - assert: LENGTH(postcode) <= 10
 ```
 
-Bare column names in the expression refer to columns of the same table, so a column assertion may relate its column to any sibling. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
+Bare names in the expression refer to columns and definitions in the same table. A field of a `struct` column is referenced with a dot (`address.zip`). See [Assertions](#assertions) below for a summary, and [Expressions](expressions.md) for the full language.
 
 Note that `values` and `range` (see [Types](#types)) already express membership and bounds constraints — `values` restricts an `enum` to its listed set, and `range` bounds an ordered column — so you don't need an assertion to repeat them.
 
@@ -334,7 +335,7 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns of the table.
+An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns or definitions in the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
@@ -352,6 +353,43 @@ constraints:
 ```
 
 [Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
+
+### Definitions
+
+A table's `definitions` property is a list of named expressions — the metrics, filters, and derivations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
+
+Each entry is a map with:
+
+* `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
+* `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
+* `label`, `description`, `details`: human-readable documentation for the definition; see [Name, label, description & details](#name-label-description--details).
+* `todo`: a note of work that remains before the definition is complete; see [Todo](#todo).
+
+The kind of a definition is read off the expression's type and [shape](expressions.md#shapes):
+
+* A boolean, `row`-shape expression is a **filter**, a named segment of the table's rows.
+* A `agg`- or `const`-shape expression is a **metric**, a single value summarising the rows it's evaluated against.
+* Any other `row`-shape expression is a **derived** value, with one value for each row, which can be used to generate a column. A filter is also a derived value.
+
+The expression language has no grouping of its own: a metric is defined over whatever rows the consumer evaluates it against, and any grouping — SQL's `GROUP BY`, dplyr's `.by =`, a dashboard's drill-down — is up to the host environment to supply.
+
+```yaml
+tables:
+  - name: orders
+    definitions:
+      - name: net_revenue
+        description: Realized revenue excluding returned orders.
+        expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)
+      - name: is_enterprise
+        description: For historical reasons, the Enterprise segment also includes Mid-Market-3.
+        expr: tile_size IN ('Mid-Market-3', 'Enterprise-1', 'Enterprise-2', 'Enterprise-3')
+```
+
+A definition's expression may reference the table's columns and other definitions in the same table. References between definitions must not be circular: following the references from any definition must eventually reach only columns.
+
+A [`COLUMNS(...)`](expressions.md#selecting-multiple-columns) selection may appear only in a filter where each selected column is tested in turn and the results combined with `AND`, exactly as in a constraint.
+
+Definitions are checked when the spec is validated — the expression must parse, type-check, and reference only the table's columns and definitions — but the metadata and data levels never evaluate them.
 
 ## Relationships
 
@@ -446,6 +484,6 @@ version:
     - Looks like an enum — confirm the full set of `values` and switch the `type`.
 ```
 
-`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, and a relationship. Put each note on the thing it's about, so the work travels with its subject.
+`todo` may appear at every level that describes something: the top level (the dataset), a table, a column, a struct field, a relationship, and a definition. Put each note on the thing it's about, so the work travels with its subject.
 
 Every remaining `todo` is reported when the spec is validated (see S31 in [validation](validation.md)), so a dictionary announces its own unfinished work each time it's checked. It's reported as a warning rather than an error, so an unfinished dictionary can still be validated against its data — but you should resolve every `todo` before you consider the dictionary finished.

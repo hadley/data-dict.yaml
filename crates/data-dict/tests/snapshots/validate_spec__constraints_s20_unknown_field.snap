@@ -15,7 +15,7 @@ tables:
     constraints:
       - assert: LENGTH(addr.zpi) = 5
 ────────────────────────────────────────
-error[S20]: An assertion may only reference columns of its table.
+error[S20]: An assertion may only reference columns/definitions from its table.
   --> dict.yaml:13:24
    |
 LL |   - name: t

@@ -1,0 +1,28 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: survey
+    columns:
+      - name: q1
+        type: number(ordinal)
+        range: [1, 5]
+      - name: q2
+        type: number(ordinal)
+        range: [1, 5]
+    definitions:
+      - name: filt
+        expr: COLUMNS(*) > 0
+      - name: bad
+        expr: CASE WHEN filt THEN 1 ELSE 0 END
+────────────────────────────────────────
+error[S21]: An expression using `COLUMNS(...)` must be a boolean filter.
+  --> dict.yaml:16:25
+   |
+LL |   - name: survey
+...
+LL |       - name: bad
+LL |         expr: CASE WHEN filt THEN 1 ELSE 0 END
+   |                         ^^^^ `filt` recursively includes `COLUMNS(...)` and the expression is not a boolean

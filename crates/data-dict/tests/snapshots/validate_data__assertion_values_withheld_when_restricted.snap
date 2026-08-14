@@ -1,0 +1,27 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    constraints:
+      - assert: a > 0
+    columns:
+      - name: a
+        type: number(quantity)
+        range: [-1000000, 1000000]
+        display: restricted
+      - name: b
+        type: number(quantity)
+        range: [-1000000, 1000000]
+────────────────────────────────────────
+error[D07]: An assertion must hold for every row.
+  --> dict.yaml:8:17
+   |
+LL |   - name: t
+...
+LL |       - assert: a > 0
+   |                 ^^^^^ is false for 1 row: 2 (values restricted)

@@ -23,6 +23,10 @@ tables:
             type: string
             examples: ['97201']
             todo: Is this always 5 digits?
+    definitions:
+      - name: is_active
+        expr: status = 'active'
+        todo: Confirm the active status codes.
   - name: category
     columns:
       - name: id
@@ -68,7 +72,16 @@ LL |           - name: zip
 LL |             todo: Is this always 5 digits?
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
 warning[S31]: Every `todo` must be resolved.
-  --> dict.yaml:36:11
+  --> dict.yaml:26:15
+   |
+LL |   - name: food
+...
+LL |       - name: is_active
+LL |         expr: status = 'active'
+LL |         todo: Confirm the active status codes.
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unresolved todo
+warning[S31]: Every `todo` must be resolved.
+  --> dict.yaml:40:11
    |
 LL |   - join: category.food_id = food.id
 LL |     cardinality: many-to-one

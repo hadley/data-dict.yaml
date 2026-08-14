@@ -336,6 +336,30 @@ fn missing_version() {
 }
 
 #[test]
+fn newer_spec_version() {
+    let diagnostic = failing_raw("$version: 99.0.0\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "newer", "Upgrade data-dict"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn older_spec_version() {
+    let diagnostic = failing_raw("$version: 0.0.9\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "starts at `0.1.0`", "not a valid spec version"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn malformed_spec_version() {
+    let diagnostic = failing_raw("$version: latest\ntables: []\n");
+    diagnostic.assert_contains(&["S32", "`latest` is not a valid version number"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
 fn unknown_top_level_key() {
     let diagnostic = failing_dict("bogus: 1\n");
     diagnostic.assert_contains(&["Unknown property 'bogus'"]);
@@ -1091,6 +1115,10 @@ fn s31_todo_at_every_level() {
                     type: string
                     examples: ['97201']
                     todo: Is this always 5 digits?
+            definitions:
+              - name: is_active
+                expr: status = 'active'
+                todo: Confirm the active status codes.
           - name: category
             columns:
               - name: id
@@ -1938,7 +1966,7 @@ fn constraints_s20_unknown_column() {
             constraints:
               - assert: a > b
     "});
-    diagnostic.assert_contains(&["S20", "`b`", "not on this table"]);
+    diagnostic.assert_contains(&["S20", "`b`", "not found"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
 }
@@ -2058,7 +2086,7 @@ fn constraints_s20_unknown_quoted_column() {
             constraints:
               - assert: '`no such column` IS NOT NULL'
     "});
-    diagnostic.assert_contains(&["S20", "`no such column`", "not on this table"]);
+    diagnostic.assert_contains(&["S20", "`no such column`", "not found"]);
 }
 
 // S19: a backtick left unclosed is a syntax error like any other.
@@ -2470,4 +2498,511 @@ fn validate_spec_str_reports_located_schema_error() {
         .find(|p| p.code.is_some())
         .expect("expected a coded schema problem");
     assert!(schema_error.location(&problems.source).is_some());
+}
+
+// --- definitions ---------------------------------------------------------
+//
+// Definitions are checked inline (they fit in a few lines of YAML), against a
+// small orders table with one numeric and one coded column.
+
+// A filter, a metric, and a derived value with their full documentation, the
+// metric and derived value building on the filter.
+#[test]
+fn definitions_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+              - name: status_cd
+                type: number(id)
+                examples: [10, 90]
+            definitions:
+              - name: is_returned
+                label: Returned orders
+                description: Orders that came back.
+                details: Status 90 is the legacy return code.
+                expr: status_cd = 90
+              - name: net_revenue
+                expr: SUM(CASE WHEN is_returned THEN 0 ELSE order_total END)
+              - name: avg_order
+                expr: net_revenue / row_count()
+    "});
+}
+
+// A filter written with COLUMNS(...) over several columns.
+#[test]
+fn definition_columns_filter_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+    "});
+}
+
+#[test]
+fn definition_duplicate_name() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total
+                expr: SUM(order_total)
+              - name: total
+                expr: SUM(order_total) * 2
+    "});
+    diagnostic.assert_contains(&["S10", "Definition names must be unique"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn definition_empty_name() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name:
+                expr: SUM(order_total)
+    "});
+    diagnostic.assert_contains(&["S11", "the `name` is empty"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn definition_shadows_column() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: order_total
+                expr: SUM(order_total)
+    "});
+    diagnostic.assert_contains(&["S33", "can't overlap", "order_total"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// The generic expression checks (S19–S22) apply to definitions unchanged;
+// one minimal test each pins that they're wired up, with the assertion-side
+// snapshots covering the exact rendering.
+#[test]
+fn definition_unparseable() {
+    assert_invalid_dict(
+        indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total
+                expr: 1 +
+    "},
+        &["S19", "does not parse"],
+    );
+}
+
+#[test]
+fn definition_unknown_name() {
+    assert_invalid_dict(
+        indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total
+                expr: SUM(order_totals)
+    "},
+        &["S20", "order_totals", "columns/definitions"],
+    );
+}
+
+#[test]
+fn definition_ill_typed() {
+    assert_invalid_dict(
+        indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total_len
+                expr: LENGTH(order_total)
+    "},
+        &["S21", "LENGTH"],
+    );
+}
+
+// COLUMNS(...) is only meaningful in a filter: a metric over a selection has
+// one value per selected column, not one per group.
+#[test]
+fn definition_columns_not_filter() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: total
+                expr: SUM(COLUMNS('q[1-2]'))
+    "});
+    diagnostic.assert_contains(&["S21", "must be a boolean filter"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A metric referenced inside an aggregate is a nested aggregate (S30), just
+// like a literal SUM(SUM(x)).
+#[test]
+fn definition_metric_in_aggregate() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total
+                expr: SUM(order_total)
+              - name: double_counted
+                expr: SUM(total)
+    "});
+    diagnostic.assert_contains(&["S30", "already an aggregate"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition referencing a broken definition inherits the permissive `Any`
+// type, so the root cause is reported once, at the broken definition.
+#[test]
+fn definition_broken_reference_no_cascade() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: broken
+                expr: LENGTH(order_total)
+              - name: uses_broken
+                expr: broken + 1
+    "});
+    diagnostic.assert_contains(&["S21", "LENGTH"]);
+    assert_eq!(diagnostic.rendered.matches("S21").count(), 1);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition whose expression doesn't parse is S19 at its own location;
+// definitions and assertions referencing it see the permissive `Any` type
+// rather than a cascading S20.
+#[test]
+fn definition_unparseable_reference_no_cascade() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: broken
+                expr: 1 +
+              - name: uses_broken
+                expr: broken + 1
+            constraints:
+              - assert: order_total <= uses_broken
+    "});
+    diagnostic.assert_contains(&["S19", "does not parse"]);
+    assert!(!diagnostic.rendered.contains("S20"));
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn definition_cycle() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: a
+                expr: b + 1
+              - name: b
+                expr: a + 1
+    "});
+    diagnostic.assert_contains(&["S34", "cycle"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+#[test]
+fn definition_self_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: c
+                expr: c + 1
+    "});
+    diagnostic.assert_contains(&["S34", "c → c"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition may depend on a definition that depends on a cycle: the cycle
+// is reported, and the downstream definition still checks cleanly.
+#[test]
+fn definition_downstream_of_cycle() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: a
+                expr: b + 1
+              - name: b
+                expr: a + 1
+              - name: downstream
+                expr: a * 2
+    "});
+    diagnostic.assert_contains(&["S34"]);
+    assert!(!diagnostic.rendered.contains("downstream"));
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A COLUMNS(...) regex matching nothing is a warning in a definition too.
+#[test]
+fn definition_empty_column_selection() {
+    warning_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('zzz') IS NOT NULL
+    "})
+    .assert_contains(&["S22", "matches no columns"]);
+}
+
+// --- assertions referencing definitions ------------------------------------
+
+// A column and a table assertion building on a named filter and a named
+// metric.
+#[test]
+fn assertion_using_definitions_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+              - name: status_cd
+                type: number(id)
+                examples: [10, 90]
+                constraints:
+                  - assert: NOT(is_returned) OR order_total > 0
+            definitions:
+              - name: is_returned
+                expr: status_cd = 90
+              - name: avg_order
+                expr: SUM(order_total) / row_count()
+            constraints:
+              - assert: order_total <= 2 * avg_order
+    "});
+}
+
+// A filter definition's COLUMNS(...) is the assertion's one allowed selection
+// once the reference is substituted in.
+#[test]
+fn assertion_using_columns_filter_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: all_present
+    "});
+}
+
+// The at-most-one COLUMNS(...) rule binds after definition references are
+// substituted in: the assertion's own selection and the filter's combine to
+// two, which evaluation couldn't resolve to a single selection.
+#[test]
+fn assertion_plus_filter_two_columns_selections() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+            constraints:
+              - assert: COLUMNS(*) IS NOT NULL AND all_present
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A selection that arrives through a reference still makes the definition a
+// filter: building a non-boolean value on one is S21.
+#[test]
+fn definition_non_filter_via_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: filt
+                expr: COLUMNS(*) > 0
+              - name: bad
+                expr: CASE WHEN filt THEN 1 ELSE 0 END
+    "});
+    diagnostic.assert_contains(&["S21", "must be a boolean filter", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A definition's own selection plus one brought in by a reference is two
+// selections: over the budget of one.
+#[test]
+fn definition_own_selection_plus_reference() {
+    let diagnostic = failing_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: f1
+                expr: COLUMNS('q1') IS NOT NULL
+              - name: f2
+                expr: f1 AND COLUMNS('q2') IS NOT NULL
+    "});
+    diagnostic.assert_contains(&["S21", "at most one `COLUMNS(...)`", "recursively includes"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+// A boolean definition building on a filter is itself a filter; the single
+// selection travels with it.
+#[test]
+fn definition_filter_via_reference_ok() {
+    assert_clean_dict(indoc! {"
+        tables:
+          - name: survey
+            columns:
+              - name: q1
+                type: number(ordinal)
+                range: [1, 5]
+              - name: q2
+                type: number(ordinal)
+                range: [1, 5]
+            definitions:
+              - name: all_present
+                expr: COLUMNS('q[1-2]') IS NOT NULL
+              - name: any_missing
+                expr: NOT(all_present)
+    "});
+}
+
+// An assertion referencing a name that is neither a column nor a definition.
+#[test]
+fn assertion_unknown_name_with_definitions() {
+    assert_invalid_dict(
+        indoc! {"
+        tables:
+          - name: orders
+            columns:
+              - name: order_total
+                type: number(quantity)
+                range: [0, 10000]
+            definitions:
+              - name: total
+                expr: SUM(order_total)
+            constraints:
+              - assert: order_total <= 2 * totl
+    "},
+        &["S20", "totl", "columns/definitions"],
+    );
 }

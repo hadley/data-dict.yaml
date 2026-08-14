@@ -6,15 +6,20 @@
 //!
 //! Output is JSON because this is mostly read by other programs; the `columns`
 //! list is what makes it composable, since a caller can tell which columns to
-//! load without parsing the code it was given.
+//! load without parsing the code it was given. A reference to a definition is
+//! not a loadable column, so those are listed separately under `definitions`
+//! — substituting the definition's own translation is the caller's job, as
+//! `site/export.md` specifies.
 
+use std::collections::HashMap;
 use std::path::Path;
 
-use crate::assert_expr::{self, AssertExpr, ColumnRef, Root, TypedAssertion};
+use crate::assert_expr::{self, AssertExpr, DefType, Root, TypedAssertion};
 use crate::emit::{self, DuckDb, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
+use crate::export::collect_columns;
 use crate::model::{DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet};
-use crate::validate_spec::TableEnv;
+use crate::validate_spec::{DefEnv, resolve_definitions};
 
 /// Every target that can be emitted today, in a stable order.
 pub(crate) fn registry() -> Vec<Box<dyn Target>> {
@@ -85,15 +90,12 @@ pub struct Translation {
     /// The expression's own type; `boolean` for an assertion.
     #[serde(rename = "type")]
     pub ty: &'static str,
-    /// The columns the expression reads, qualified by table.
-    pub columns: Vec<ColumnUse>,
+    /// The columns the expression reads, in first-appearance order.
+    pub columns: Vec<String>,
+    /// The definitions of the same table it references.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub definitions: Vec<String>,
     pub translations: Vec<TargetOutput>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct ColumnUse {
-    pub table: String,
-    pub column: String,
 }
 
 /// One target's answer: either code, or the reason it refused.
@@ -197,7 +199,8 @@ fn translate_one(
     table: &Table,
     targets: &[Box<dyn Target>],
 ) -> Result<Translation, String> {
-    let env = TableEnv::new(table);
+    let defs = resolve_definitions(table);
+    let env = DefEnv::new(table, &defs);
     let expr = AssertExpr::parse(source)
         .map_err(|e| format!("expression does not parse: {}", e.message))?;
     // An ad-hoc expression need not be a rule, so it need not be boolean.
@@ -210,7 +213,7 @@ fn translate_one(
     }
     let ir = assert_expr::lower(&expr, &env)
         .ok_or("expression could not be resolved against this table")?;
-    Ok(render(source, &table.name.value, &ir, targets))
+    Ok(render(source, &expr, table, &defs, &ir, targets))
 }
 
 fn translate_assertions(
@@ -224,7 +227,8 @@ fn translate_assertions(
         .iter()
         .filter(|t| only.is_none_or(|name| t.name.value == name))
     {
-        let env = TableEnv::new(table);
+        let defs = resolve_definitions(table);
+        let env = DefEnv::new(table, &defs);
         let assertions = table
             .constraints
             .iter()
@@ -238,7 +242,9 @@ fn translate_assertions(
             };
             out.push(render(
                 &assertion.text.value,
-                &table.name.value,
+                expr,
+                table,
+                &defs,
                 &ir,
                 targets,
             ));
@@ -249,22 +255,21 @@ fn translate_assertions(
 
 fn render(
     source: &str,
-    table: &str,
+    expr: &AssertExpr,
+    table: &Table,
+    defs: &HashMap<String, DefType>,
     ir: &TypedAssertion,
     targets: &[Box<dyn Target>],
 ) -> Translation {
+    let mut columns = Vec::new();
+    let mut definitions = Vec::new();
+    collect_columns(&expr.root, table, defs, &mut columns, &mut definitions);
     Translation {
         expr: source.to_string(),
-        table: table.to_string(),
+        table: table.name.value.clone(),
         ty: ir.root.ty.name(),
-        columns: ir
-            .columns()
-            .iter()
-            .map(|c: &ColumnRef| ColumnUse {
-                table: table.to_string(),
-                column: c.path.join("."),
-            })
-            .collect(),
+        columns,
+        definitions,
         // A target that refuses says so and the rest still translate.
         translations: targets
             .iter()

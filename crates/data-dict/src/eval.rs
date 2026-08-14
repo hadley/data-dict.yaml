@@ -26,6 +26,7 @@ use crate::assert_expr::{
     ArithOp, CmpOp, ColumnRef, DatetimeConst, LikePattern, NodeKind, Op, Shape, Type,
     TypedAssertion, TypedExpr,
 };
+use crate::problem::ValueRow;
 
 /// Days from the epoch to a date, the form dates are compared in.
 const MICROS_PER_DAY: i64 = 86_400_000_000;
@@ -133,7 +134,7 @@ pub(crate) enum Outcome {
     Rows {
         count: usize,
         rows: Vec<usize>,
-        samples: Vec<String>,
+        values: Vec<ValueRow>,
     },
     /// An aggregate or constant assertion: one verdict for the table.
     Table { holds: bool },
@@ -315,7 +316,7 @@ impl<'a> Plan<'a> {
 
         let mut count = 0usize;
         let mut rows = Vec::new();
-        let mut samples = Vec::new();
+        let mut values = Vec::new();
 
         for batch in read_typed(path, requests)? {
             let batch = batch?;
@@ -344,7 +345,7 @@ impl<'a> Plan<'a> {
                             count += 1;
                             if rows.len() < sample_limit {
                                 rows.push(absolute);
-                                samples.push(self.sample(&cx));
+                                values.push(self.sample(&cx));
                             }
                             // One row breaks the assertion once, however many
                             // selected columns break it.
@@ -359,7 +360,7 @@ impl<'a> Plan<'a> {
         Ok(Outcome::Rows {
             count,
             rows,
-            samples,
+            values,
         })
     }
 
@@ -391,13 +392,17 @@ impl<'a> Plan<'a> {
     }
 
     /// The values of the columns the expression reads, for a violating row.
-    fn sample(&self, cx: &Cx) -> String {
-        let mut parts = Vec::new();
-        for (i, column) in self.columns.iter().enumerate() {
-            let value = cx.column(i).map_or(Value::Null, |v| v);
-            parts.push(format!("{}={}", column.path.join("."), value.render()));
-        }
-        parts.join(", ")
+    /// A column the row has no value for is missing rather than rendered, so it
+    /// stays distinct from a string column holding `"null"`.
+    fn sample(&self, cx: &Cx) -> ValueRow {
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(i, column)| {
+                let value = cx.column(i).map(|value| value.render());
+                (column.path.join("."), value)
+            })
+            .collect()
     }
 }
 

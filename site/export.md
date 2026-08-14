@@ -1,6 +1,6 @@
 # Export
 
-`data-dict` can render a `data-dict.yaml` file to JSON, resolving everything the validator already computes internally — parsed types, constraint flags, joins, assertions — so downstream tools don't need to re-implement any of the spec's parsing or inference rules.
+`data-dict` can render a `data-dict.yaml` file to JSON, resolving everything the validator already computes internally — parsed types, constraint flags, joins, assertions, definitions — so downstream tools don't need to re-implement any of the spec's parsing or inference rules.
 
 ## Two levels
 
@@ -55,7 +55,8 @@ Prose fields — every `description`, `details`, and `todo`, and each glossary `
   "rows?": 123,                  // the source data's row count; export-data only,
                                  // absent when the table's source wasn't profiled
   "columns": [ Column ],
-  "constraints?": [ Assertion ]  // table-level `assert` entries
+  "constraints?": [ Assertion ], // table-level `assert` entries
+  "definitions?": [ Definition ] // the table's `definitions`, resolved
 }
 ```
 
@@ -104,6 +105,7 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
   "expression": "string",         // original `assert` text
   "description?": "string",
   "columns": ["string", ...],     // every column (and struct field, dotted) the expression references
+  "definitions?": ["string", ...], // every definition of the same table it references
   "translations?": [ Translation ]
 }
 ```
@@ -112,7 +114,7 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 
 ### Translation
 
-A `Translation` is the assertion's expression rendered as a bare predicate in one target language — the same translation `translate` produces, so a consumer can embed the check directly in that language's pipeline rather than re-parsing `expression`. One entry per target the exporter can produce; a target that can't express the assertion still appears, carrying the reason instead of code:
+A `Translation` is the expression rendered as a bare expression in one target language — the same translation `translate` produces, so a consumer can embed it directly in that language's pipeline rather than re-parsing `expression`. For an assertion the rendering is a predicate; for a definition it computes the definition's value, so a metric's translation is an aggregate expression, embeddable only where the target aggregates (a `SELECT` list, a `summarise()`). A reference to another definition renders as a bare name, as if it were a column — substituting the referenced definition's own translation (named by `definitions`) is the consumer's job. One entry per target the exporter can produce; a target that can't express the expression still appears, carrying the reason instead of code:
 
 ```jsonc
 {
@@ -123,6 +125,31 @@ A `Translation` is the assertion's expression rendered as a bare predicate in on
                                   // expression's own semantics; absent when it agrees exactly
 }
 ```
+
+### Definition
+
+A `Definition` is one of a table's [`definitions`](spec.md#definitions) — a named metric, filter, or derived value — with its expression's kind, value type, and references resolved:
+
+```jsonc
+{
+  "name": "string",
+  "label?": "string",
+  "description?": "string",
+  "details?": "string",
+  "expression": "string",          // original `expr` text
+  "kind": "filter" | "metric" | "derived",
+  // read off the expression's type and shape, as the spec defines: a boolean
+  // row-level expression is a filter, an aggregate or constant a metric,
+  // anything else a derived value
+  "type?": "string",               // the expression's value type:
+                                   // "number" | "string" | "boolean" | "date" | "datetime" | "interval"
+  "columns": ["string", ...],      // every column (and struct field, dotted) the expression reads
+  "definitions?": ["string", ...], // other definitions of the same table it builds on
+  "translations?": [ Translation ]
+}
+```
+
+`columns` and `definitions` list direct references only, in first-appearance order — a definition that builds on another definition names it under `definitions`, and the columns that definition reads appear on its own entry.
 
 ### Relationship
 
@@ -192,6 +219,8 @@ String, boolean, and enum columns summarize by value:
 `sample_values` are up to 20 representative values, spread along the column's sorted distinct values rather than drawn from its start, and reported exactly — never rounded, since how much precision a value carries is part of what it tells you. They are omitted for a column that declares its `values`: that declaration is exhaustive, so it already gives the reader every value the column can hold, in full rather than as a sample.
 
 A `list` column reports only its containers — `{ "missing": 4 }`, the null-list count — never its elements.
+
+A `display: restricted` column's profile carries **counts only** — `missing` and `distinct` — never a value the data held: `sample_values`, `common_values`, `range`, and `histogram` are always omitted, so consumers can safely embed the export in user-facing output. (The column's declared `examples` and `range` still appear; the spec requires those to be plausible fakes, written by the author rather than read from the data.)
 
 Each histogram bin's `closed` says which of its boundary values it includes: every bin is `"right"` (`(min, max]`) except the first, which is `"both"` (`[min, max]`) so the column minimum has a home; bins are otherwise contiguous.
 

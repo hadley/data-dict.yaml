@@ -20,11 +20,11 @@ use quarto_yaml::YamlWithSourceInfo;
 use quarto_yaml_validation::error::ValidationErrorKind;
 use quarto_yaml_validation::{Schema, SchemaRegistry, ValidationDiagnostic, ValidationError};
 
-use crate::assert_expr::{self, CheckEnv, ColumnKind, DatetimeConst};
+use crate::assert_expr::{self, CheckEnv, ColumnKind, DatetimeConst, DefType, Root};
 use crate::join_expr::{JoinExpr, QCol};
 use crate::model::{
-    Assertion, Cardinality, Column, Constraint, DataDict, Relationship, Representation, Scalar,
-    Spanned, Table,
+    Assertion, Cardinality, Column, Constraint, DataDict, Definition, Relationship, Representation,
+    Scalar, Spanned, Table,
 };
 use crate::problem::{Problem, ProblemKind, ProblemSet, Suggestion, subspan};
 use crate::{SourceContext, lower};
@@ -34,6 +34,10 @@ pub const LEARN_MORE_URL: &str = "https://data-dict.tidyverse.org/";
 
 /// The spec version this validator implements, suggested for a missing `$version`.
 pub const SPEC_VERSION: &str = "0.1.0";
+
+/// The first spec version ever released. A `$version` below this is invalid
+/// outright; anything from here up to [`SPEC_VERSION`] is accepted.
+const FIRST_SPEC_VERSION: &str = "0.1.0";
 
 const SCHEMA_YAML: &str = include_str!("../../../schema.yaml");
 const FIELD_SCHEMA_YAML: &str = include_str!("../../../schema-field.yaml");
@@ -201,6 +205,7 @@ pub(crate) fn validate_and_lower(
     validate_s09_learn_more(doc, out);
     validate_s17_version(doc, out);
     validate_s18_version_present(doc, out);
+    validate_s32_spec_version(doc, out);
     out.sort();
 
     if out.status().failed() {
@@ -236,8 +241,11 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
         if validate_s11_table_name(table, out) {
             validate_s10_unique_table_name(table, &mut seen_tables, out);
         }
-        validate_table_assertions(table, out);
-        check_columns(dict, table, &table.columns, false, out);
+        // Definitions first: assertions (and other definitions) may reference
+        // them, so their resolved types and shapes must be known.
+        let defs = validate_definitions(table, out);
+        validate_table_assertions(table, &defs, out);
+        check_columns(dict, table, &table.columns, &defs, false, out);
     }
 }
 
@@ -249,6 +257,7 @@ fn check_columns(
     dict: &DataDict,
     table: &Table,
     columns: &[Column],
+    defs: &HashMap<String, DefType>,
     in_struct: bool,
     out: &mut ProblemSet,
 ) {
@@ -256,7 +265,7 @@ fn check_columns(
     for col in columns {
         if !in_struct {
             validate_s01_foreign_key(dict, table, col, out);
-            validate_column_assertions(table, col, out);
+            validate_column_assertions(table, col, defs, out);
             validate_s29_key_constraints(table, col, out);
         }
         validate_s08_units(table, col, out);
@@ -274,7 +283,7 @@ fn check_columns(
         }
         // Recurse into struct fields (covers both `struct` and `list(struct)`).
         if let Some(fields) = &col.fields {
-            check_columns(dict, table, fields, true, out);
+            check_columns(dict, table, fields, defs, true, out);
         }
     }
 }
@@ -351,43 +360,181 @@ impl CheckEnv for TableEnv<'_> {
     }
 }
 
-fn validate_column_assertions(table: &Table, col: &Column, out: &mut ProblemSet) {
-    let env = TableEnv { table };
+fn validate_column_assertions(
+    table: &Table,
+    col: &Column,
+    defs: &HashMap<String, DefType>,
+    out: &mut ProblemSet,
+) {
+    let env = DefEnv {
+        inner: TableEnv { table },
+        defs,
+    };
     for assertion in &col.assertions {
-        run_assertion_check(&env, assertion, &[&table.name, &col.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name, &col.name], out);
     }
 }
 
-fn validate_table_assertions(table: &Table, out: &mut ProblemSet) {
-    let env = TableEnv { table };
+fn validate_table_assertions(table: &Table, defs: &HashMap<String, DefType>, out: &mut ProblemSet) {
+    let env = DefEnv {
+        inner: TableEnv { table },
+        defs,
+    };
     for assertion in &table.constraints {
-        run_assertion_check(&env, assertion, &[&table.name], out);
+        run_assertion_check(&env, table, assertion, &[&table.name], out);
     }
 }
+
+/// How the two expression contexts word their diagnostics: an assertion states
+/// a rule over columns, a definition computes something and may build on other
+/// definitions.
+struct ExprWording {
+    /// The expected line's subject: "An assertion" / "A definition".
+    subject: &'static str,
+    /// What the expression may reference.
+    refs: &'static str,
+    /// The fallback expected line for a generally ill-typed expression.
+    well_typed: &'static str,
+}
+
+const ASSERTION_WORDING: ExprWording = ExprWording {
+    subject: "An assertion",
+    refs: "columns/definitions from its table",
+    well_typed: "An assertion must be a well-typed boolean expression.",
+};
+
+const DEFINITION_WORDING: ExprWording = ExprWording {
+    subject: "A definition",
+    refs: "columns/definitions from its table",
+    well_typed: "A definition must be a well-typed expression.",
+};
 
 /// Run the S20/S21/S22 checks for one parsed assertion, turning each finding
 /// into a located problem. `enclosing` are the outer nodes (table, and column
 /// for a column assertion) shown as context before the offending token.
 fn run_assertion_check(
     env: &dyn CheckEnv,
+    table: &Table,
     assertion: &Assertion,
     enclosing: &[&Spanned<String>],
     out: &mut ProblemSet,
 ) {
+    let Some(expr) = &assertion.expr else { return };
+    let findings = assert_expr::check(expr, env);
+    report_findings(
+        findings,
+        &assertion.text,
+        enclosing,
+        &ASSERTION_WORDING,
+        out,
+    );
+
+    check_expanded_selections(table, expr, None, &assertion.text, enclosing, out);
+}
+
+/// The `COLUMNS(...)` rules bind the expression as it evaluates, with
+/// definition references substituted in: a selection travels to whatever
+/// references the definition holding it. Report each reference that brings a
+/// selection in over the budget of one, and — for a definition (`ty` is
+/// `Some`), where a selection is meaningful only in a boolean filter — a
+/// reference that brings one into a non-boolean expression. Selections in the
+/// expression's own text were already checked by `analyze`.
+fn check_expanded_selections(
+    table: &Table,
+    expr: &assert_expr::AssertExpr,
+    ty: Option<assert_expr::Ty>,
+    text: &Spanned<String>,
+    enclosing: &[&Spanned<String>],
+    out: &mut ProblemSet,
+) {
+    let own = assert_expr::columns_selection_count(expr);
+    if own > 1 {
+        return;
+    }
+    let defs = definition_exprs(table);
+    let with_selection: std::collections::HashSet<&str> = defs
+        .iter()
+        .filter(|(_, e)| assert_expr::columns_selection_count(e) > 0)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let mut refs: Vec<(String, usize, usize)> = Vec::new();
+    assert_expr::visit(&expr.root, |e| {
+        if let assert_expr::ExprKind::Column(path) = &e.kind
+            && path.len() == 1
+            && with_selection.contains(path[0].as_str())
+        {
+            refs.push((path[0].clone(), e.start, e.end));
+        }
+    });
+    if refs.is_empty() {
+        return;
+    }
+    let report =
+        |out: &mut ProblemSet, start: usize, end: usize, expected: &str, message: String| {
+            let span = subspan(&text.span, start, end).unwrap_or_else(|| text.span.clone());
+            let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
+            spans.push(span);
+            out.push_spec_error("S21", expected, message, spans);
+        };
+
+    if let Some(ty) = ty
+        && own == 0
+        && !matches!(
+            ty,
+            assert_expr::Ty::Bool | assert_expr::Ty::Any | assert_expr::Ty::Unknown
+        )
+    {
+        let (name, start, end) = &refs[0];
+        report(
+            out,
+            *start,
+            *end,
+            "An expression using `COLUMNS(...)` must be a boolean filter.",
+            format!(
+                "`{name}` recursively includes `COLUMNS(...)` and the expression is not a boolean"
+            ),
+        );
+    }
+
+    // The first selection is the allowed one: the expression's own if it has
+    // one, else the first reference's.
+    for (_, start, end) in refs.iter().skip(1 - own) {
+        report(
+            out,
+            *start,
+            *end,
+            "An expression may use at most one `COLUMNS(...)`.",
+            "recursively includes `COLUMNS(...)`".to_string(),
+        );
+    }
+}
+
+/// Turn one expression's findings into located problems. `enclosing` are the
+/// outer nodes (table, and column for a column assertion) shown as context
+/// before the offending token.
+fn report_findings(
+    findings: Vec<assert_expr::Finding>,
+    text: &Spanned<String>,
+    enclosing: &[&Spanned<String>],
+    wording: &ExprWording,
+    out: &mut ProblemSet,
+) {
     use crate::assert_expr::FindingSeverity;
 
-    let Some(expr) = &assertion.expr else { return };
-    for finding in assert_expr::check(expr, env) {
-        let span = subspan(&assertion.text.span, finding.start, finding.end)
-            .unwrap_or_else(|| assertion.text.span.clone());
+    for finding in findings {
+        let span =
+            subspan(&text.span, finding.start, finding.end).unwrap_or_else(|| text.span.clone());
         let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
         spans.push(span);
         let expected = match finding.code {
-            "S20" => "An assertion may only reference columns of its table.",
-            "S22" => "A `COLUMNS(...)` selection should match at least one column.",
-            "S23" => "An assertion may only use columns with a declared `type`.",
-            "S30" => "An aggregate can't be nested inside another aggregate.",
-            _ => "An assertion must be a well-typed boolean expression.",
+            "S20" => format!("{} may only reference {}.", wording.subject, wording.refs),
+            "S22" => "A `COLUMNS(...)` selection should match at least one column.".to_string(),
+            "S23" => format!(
+                "{} may only use columns with a declared `type`.",
+                wording.subject
+            ),
+            "S30" => "An aggregate can't be nested inside another aggregate.".to_string(),
+            _ => wording.well_typed.to_string(),
         };
         match finding.severity {
             FindingSeverity::Error => {
@@ -398,6 +545,391 @@ fn run_assertion_check(
             }
         }
     }
+}
+
+// --- definitions (S10, S11, S33, S34 + expression checks) -----------------
+
+/// A [`TableEnv`] plus the definitions resolved so far, so a definition's
+/// expression can reference other definitions.
+pub(crate) struct DefEnv<'a> {
+    inner: TableEnv<'a>,
+    defs: &'a HashMap<String, DefType>,
+}
+
+impl<'a> DefEnv<'a> {
+    pub(crate) fn new(table: &'a Table, defs: &'a HashMap<String, DefType>) -> DefEnv<'a> {
+        DefEnv {
+            inner: TableEnv::new(table),
+            defs,
+        }
+    }
+}
+
+impl CheckEnv for DefEnv<'_> {
+    fn column(&self, name: &str) -> Option<ColumnKind> {
+        self.inner.column(name)
+    }
+
+    fn field(&self, path: &[String]) -> Option<ColumnKind> {
+        self.inner.field(path)
+    }
+
+    fn columns(&self) -> Vec<(String, ColumnKind)> {
+        self.inner.columns()
+    }
+
+    fn definition(&self, name: &str) -> Option<DefType> {
+        self.defs.get(name).copied()
+    }
+
+    fn as_date(&self, s: &str) -> Option<NaiveDate> {
+        self.inner.as_date(s)
+    }
+
+    fn as_datetime(&self, s: &str) -> Option<DatetimeConst> {
+        self.inner.as_datetime(s)
+    }
+}
+
+/// Validate a table's definitions, returning the resolved type and shape of
+/// each referable definition so assertions (checked after) can reference them.
+fn validate_definitions(table: &Table, out: &mut ProblemSet) -> HashMap<String, DefType> {
+    let mut seen: HashMap<String, SourceInfo> = HashMap::new();
+    for def in &table.definitions {
+        if def.name.value.is_empty() {
+            out.push_spec_error(
+                "S11",
+                "Every definition must have a non-empty `name`.",
+                "the `name` is empty",
+                [table.name.span.clone(), def.name.span.clone()],
+            );
+            continue;
+        }
+        match seen.get(&def.name.value) {
+            Some(first) => out.push_spec_error(
+                "S10",
+                "Definition names must be unique within a table.",
+                "is duplicated",
+                [
+                    table.name.span.clone(),
+                    first.clone(),
+                    def.name.span.clone(),
+                ],
+            ),
+            None => {
+                seen.insert(def.name.value.clone(), def.name.span.clone());
+            }
+        }
+        if let Some(col) = table.column(&def.name.value) {
+            out.push_spec_error(
+                "S33",
+                "Definition and column names can't overlap.",
+                format!("`{}` is both a column and a definition", def.name.value),
+                [
+                    table.name.span.clone(),
+                    col.name.span.clone(),
+                    def.name.span.clone(),
+                ],
+            );
+        }
+    }
+    check_definition_exprs(table, out)
+}
+
+/// Check each definition's expression against the table's columns and the
+/// other definitions, resolving references in dependency order. A definition
+/// whose expression fails is registered as the permissive `Ty::Any`, so its
+/// referencers don't cascade its error; a definition on a reference cycle is
+/// S34 and registers the same way. Returns the resolved definitions.
+fn check_definition_exprs(table: &Table, out: &mut ProblemSet) -> HashMap<String, DefType> {
+    use crate::assert_expr::FindingSeverity;
+
+    // The definitions a reference may resolve to: the first of each non-empty
+    // name, excluding names a column claims (references there resolve to the
+    // column; the collision is S33).
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+    let def_refs = |def: &Definition| definition_refs(def, &referable);
+
+    // A definition whose expression didn't parse (S19, reported at lowering)
+    // resolves to the permissive `Ty::Any`, so its referencers don't cascade
+    // its error — the same treatment a failed check gets below.
+    let mut resolved: HashMap<String, DefType> = HashMap::new();
+    for def in referable.values().filter(|d| d.expr.is_none()) {
+        resolved.insert(
+            def.name.value.clone(),
+            DefType {
+                ty: assert_expr::Ty::Any,
+                shape: assert_expr::Shape::Row,
+            },
+        );
+    }
+    let mut pending: Vec<&Definition> = table
+        .definitions
+        .iter()
+        .filter(|d| d.expr.is_some())
+        .collect();
+    while !pending.is_empty() {
+        let mut progressed = false;
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = def_refs(def);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let env = DefEnv {
+                    inner: TableEnv::new(table),
+                    defs: &resolved,
+                };
+                let expr = def.expr.as_ref().unwrap();
+                let (ty, shape, findings) = assert_expr::analyze(expr, &env, Root::Definition);
+                let failed = findings
+                    .iter()
+                    .any(|f| f.severity == FindingSeverity::Error);
+                report_findings(
+                    findings,
+                    &def.text,
+                    &[&table.name, &def.name],
+                    &DEFINITION_WORDING,
+                    out,
+                );
+                check_expanded_selections(
+                    table,
+                    expr,
+                    Some(ty),
+                    &def.text,
+                    &[&table.name, &def.name],
+                    out,
+                );
+                let is_referable = referable
+                    .get(def.name.value.as_str())
+                    .is_some_and(|d| std::ptr::eq(*d, def));
+                if is_referable {
+                    resolved.insert(
+                        def.name.value.clone(),
+                        DefType {
+                            ty: if failed { assert_expr::Ty::Any } else { ty },
+                            shape,
+                        },
+                    );
+                }
+                pending.remove(i);
+                progressed = true;
+            } else {
+                i += 1;
+            }
+        }
+        if pending.is_empty() {
+            break;
+        }
+        if !progressed {
+            // No pending definition's references all resolve: some are on a
+            // reference cycle. Report each one and register it as resolved so
+            // definitions that merely depend on a cycle can still be checked.
+            let pending_names: std::collections::HashSet<&str> = pending
+                .iter()
+                .filter_map(|d| referable.get_key_value(d.name.value.as_str()))
+                .map(|(k, _)| *k)
+                .collect();
+            let mut cycle_found = false;
+            let mut i = 0;
+            while i < pending.len() {
+                let def = pending[i];
+                let name = def.name.value.as_str();
+                if let Some(path) = cycle_path(name, &pending_names, &referable) {
+                    out.push_spec_error(
+                        "S34",
+                        "Definitions must not reference each other in a cycle.",
+                        format!("expression forms a cycle ({})", path.join(" → ")),
+                        [table.name.span.clone(), def.name.span.clone()],
+                    );
+                    resolved.insert(
+                        def.name.value.clone(),
+                        DefType {
+                            ty: assert_expr::Ty::Any,
+                            shape: assert_expr::Shape::Row,
+                        },
+                    );
+                    pending.remove(i);
+                    cycle_found = true;
+                } else {
+                    i += 1;
+                }
+            }
+            if !cycle_found {
+                // Unreachable (a finite graph with no resolvable node contains
+                // a cycle), but don't loop forever if the reasoning is off.
+                break;
+            }
+        }
+    }
+    resolved
+}
+
+/// Resolve every referable definition's type and shape in dependency order,
+/// discarding findings. For export, which runs only after spec validation
+/// has passed, so there is nothing to report; a definition that can't be
+/// resolved (a reference cycle, already reported as S33) maps to the
+/// permissive `Ty::Any`, as it does during validation.
+pub(crate) fn resolve_definitions(table: &Table) -> HashMap<String, DefType> {
+    use crate::assert_expr::FindingSeverity;
+
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty() && table.column(&def.name.value).is_none() {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    // A definition whose expression didn't parse resolves to `Ty::Any`, as in
+    // `check_definition_exprs`.
+    let mut resolved: HashMap<String, DefType> = HashMap::new();
+    let mut pending: Vec<&Definition> = Vec::new();
+    for def in referable.values() {
+        if def.expr.is_some() {
+            pending.push(def);
+        } else {
+            resolved.insert(
+                def.name.value.clone(),
+                DefType {
+                    ty: assert_expr::Ty::Any,
+                    shape: assert_expr::Shape::Row,
+                },
+            );
+        }
+    }
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let env = DefEnv::new(table, &resolved);
+                let expr = def.expr.as_ref().unwrap();
+                let (ty, shape, findings) = assert_expr::analyze(expr, &env, Root::Definition);
+                let failed = findings
+                    .iter()
+                    .any(|f| f.severity == FindingSeverity::Error);
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: if failed { assert_expr::Ty::Any } else { ty },
+                        shape,
+                    },
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            for def in pending.drain(..) {
+                resolved.insert(
+                    def.name.value.clone(),
+                    DefType {
+                        ty: assert_expr::Ty::Any,
+                        shape: assert_expr::Shape::Row,
+                    },
+                );
+            }
+        }
+    }
+    resolved
+}
+
+/// The table's referable definitions as name → expression, each with its own
+/// definition references already substituted, resolved in dependency order.
+/// For evaluation against data, where a definition reference must become the
+/// definition's expression. Runs only after spec validation has passed, so
+/// every expression parses and no cycle survives; anything unresolvable is
+/// omitted.
+pub(crate) fn definition_exprs(table: &Table) -> HashMap<String, assert_expr::AssertExpr> {
+    let mut referable: HashMap<&str, &Definition> = HashMap::new();
+    for def in &table.definitions {
+        if !def.name.value.is_empty()
+            && table.column(&def.name.value).is_none()
+            && def.expr.is_some()
+        {
+            referable.entry(def.name.value.as_str()).or_insert(def);
+        }
+    }
+
+    let mut resolved: HashMap<String, assert_expr::AssertExpr> = HashMap::new();
+    let mut pending: Vec<&Definition> = referable.values().copied().collect();
+    while !pending.is_empty() {
+        let before = pending.len();
+        let mut i = 0;
+        while i < pending.len() {
+            let def = pending[i];
+            let deps = definition_refs(def, &referable);
+            if deps.iter().all(|d| resolved.contains_key(*d)) {
+                let expr = def.expr.as_ref().unwrap();
+                resolved.insert(
+                    def.name.value.clone(),
+                    assert_expr::substitute_definitions(expr, &resolved),
+                );
+                pending.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if pending.len() == before {
+            break;
+        }
+    }
+    resolved
+}
+
+/// The names of other referable definitions `def`'s expression references.
+fn definition_refs<'a>(
+    def: &Definition,
+    referable: &HashMap<&'a str, &Definition>,
+) -> Vec<&'a str> {
+    let Some(expr) = &def.expr else {
+        return Vec::new();
+    };
+    assert_expr::referenced_names(expr)
+        .into_iter()
+        .filter_map(|r| referable.get_key_value(r.as_str()).map(|(k, _)| *k))
+        .collect()
+}
+
+/// If `start` can reach itself through the references among `pending`, the
+/// cycle as a path of names beginning and ending at `start`. `referable` both
+/// maps a name to its definition and limits the walk to definitions a
+/// reference can actually resolve to.
+fn cycle_path<'a>(
+    start: &'a str,
+    pending: &std::collections::HashSet<&'a str>,
+    referable: &HashMap<&'a str, &Definition>,
+) -> Option<Vec<String>> {
+    let mut stack: Vec<(&str, Vec<&str>)> = vec![(start, vec![start])];
+    let mut visited = std::collections::HashSet::new();
+    while let Some((name, path)) = stack.pop() {
+        let Some(def) = referable.get(name) else {
+            continue;
+        };
+        for next in definition_refs(def, referable).into_iter().rev() {
+            if !pending.contains(next) {
+                continue;
+            }
+            if next == start && !path.is_empty() {
+                let mut cycle = path.clone();
+                cycle.push(start);
+                return Some(cycle.into_iter().map(str::to_string).collect());
+            }
+            if visited.insert(next) {
+                let mut p = path.clone();
+                p.push(next);
+                stack.push((next, p));
+            }
+        }
+    }
+    None
 }
 
 // --- S02 --------------------------------------------------------------
@@ -1584,12 +2116,16 @@ fn fmt_backtick_list(keys: &[&str]) -> String {
 // --- S31 --------------------------------------------------------------
 
 /// Warn for every `todo` left anywhere in the dictionary: the dataset, each
-/// table, column, and struct field (recursively), and each relationship.
+/// table, column, struct field (recursively), and definition, and each
+/// relationship.
 fn validate_s31_todos(dict: &DataDict, out: &mut ProblemSet) {
     report_todo(&dict.todo, &[], out);
     for table in &dict.tables {
         report_todo(&table.todo, &[&table.name.span], out);
         report_column_todos(table, &table.columns, out);
+        for def in &table.definitions {
+            report_todo(&def.todo, &[&table.name.span, &def.name.span], out);
+        }
     }
     for rel in &dict.relationships {
         report_todo(&rel.todo, &[&rel.join_text.span], out);
@@ -1736,8 +2272,7 @@ fn validate_s17_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
 // --- S18 --------------------------------------------------------------
 
 /// Error when the document omits the required top-level `$version` key. The
-/// schema leaves this key optional so its absence lands here with a patch
-/// (a present-but-wrong value is still an enum error at the schema level).
+/// schema leaves this key optional so its absence lands here with a patch.
 /// Like S09, the missing key has no location of its own, so the error is
 /// anchored at the document's first character.
 fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
@@ -1764,6 +2299,81 @@ fn validate_s18_version_present(root: &YamlWithSourceInfo, out: &mut ProblemSet)
         replacement: format!("$version: {SPEC_VERSION}\n"),
         span: insert_at,
     });
+}
+
+// --- S32 --------------------------------------------------------------
+
+/// Error when the document's `$version` names a spec version this validator
+/// doesn't support. The schema admits any string so the comparison lands here
+/// with a clear message: a version above [`SPEC_VERSION`] means the tool is
+/// older than the document, so the hint points at upgrading data-dict; one
+/// below [`FIRST_SPEC_VERSION`] is invalid outright, since spec numbering
+/// starts there. Anything in between is accepted. Comparison uses the numeric
+/// core, ignoring any pre-release/build suffix.
+fn validate_s32_spec_version(root: &YamlWithSourceInfo, out: &mut ProblemSet) {
+    let Some(entries) = root.as_hash() else {
+        return;
+    };
+    let Some(version) = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("$version"))
+    else {
+        return;
+    };
+
+    let text = version.value.yaml.as_str();
+    let spans = [version.key_span.clone(), version.value_span.clone()];
+    let supported =
+        parse_version_core(SPEC_VERSION).expect("SPEC_VERSION is a valid version number");
+    let first =
+        parse_version_core(FIRST_SPEC_VERSION).expect("FIRST_SPEC_VERSION is a valid version");
+    match text.and_then(|t| parse_version_core(t).map(|core| (t, core))) {
+        Some((t, core)) if core > supported => {
+            out.push_spec_error(
+                "S32",
+                "This document conforms to a newer version of the data-dict spec than this validator supports.",
+                format!(
+                    "`$version` is `{t}`, but this version of data-dict supports up to `{SPEC_VERSION}`"
+                ),
+                spans,
+            );
+            out.hint_last("Upgrade data-dict to the latest version.");
+        }
+        Some((t, core)) if core < first => {
+            out.push_spec_error(
+                "S32",
+                format!("Spec version numbering starts at `{FIRST_SPEC_VERSION}`."),
+                format!("`$version` is `{t}`, which is not a valid spec version"),
+                spans,
+            );
+        }
+        Some(_) => {}
+        None => {
+            out.push_spec_error(
+                "S32",
+                "A `$version` must have three dot-separated numeric components, with an optional pre-release/build suffix.",
+                match text {
+                    Some(t) => format!("`{t}` is not a valid version number"),
+                    None => "is not a valid version number".to_string(),
+                },
+                spans,
+            );
+        }
+    }
+}
+
+/// The numeric `MAJOR.MINOR.PATCH` core of a version number, ignoring any
+/// pre-release/build suffix; `None` when `s` is not a valid version number.
+fn parse_version_core(s: &str) -> Option<(u64, u64, u64)> {
+    if !is_version_number(s) {
+        return None;
+    }
+    let mut parts = s.split(['+', '-']).next()?.split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
 }
 
 /// A version `number` per the spec: three dot-separated numeric components

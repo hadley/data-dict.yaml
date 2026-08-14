@@ -12,10 +12,10 @@ tables:
     constraints:
       - assert: a > b
 ────────────────────────────────────────
-error[S20]: An assertion may only reference columns of its table.
+error[S20]: An assertion may only reference columns/definitions from its table.
   --> dict.yaml:10:21
    |
 LL |   - name: t
 ...
 LL |       - assert: a > b
-   |                     ^ column `b` is not on this table
+   |                     ^ column `b` not found

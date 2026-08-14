@@ -1,0 +1,26 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: orders
+    columns:
+      - name: order_total
+        type: number(quantity)
+        range: [0, 10000]
+    definitions:
+      - name: total
+        expr: SUM(order_total)
+      - name: total
+        expr: SUM(order_total) * 2
+────────────────────────────────────────
+error[S10]: Definition names must be unique within a table.
+  --> dict.yaml:12:15
+   |
+LL |   - name: orders
+...
+LL |       - name: total
+LL |         expr: SUM(order_total)
+LL |       - name: total
+   |               ^^^^^ is duplicated

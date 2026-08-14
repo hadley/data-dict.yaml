@@ -21,11 +21,9 @@ object:
 
     # Required, but its absence is checked by S18 (in validate_spec.rs) rather
     # than the schema, so the omission carries a patch suggesting `$version`.
-    # A present-but-wrong value is still rejected here by the enum.
-    "$version":
-      enum: [0.1.0]
-      description: >
-        Version of the data-dict.yaml spec this document conforms to.
+    # The version of the data-dict.yaml spec the document conforms to.
+    # Checked against the version that library supports.
+    "$version": string
 
     # Optional in the schema (its absence is a warning, not an error — see
     # S09 in validate_spec.rs); a URL where readers can learn about the format.
@@ -44,8 +42,8 @@ object:
     origin: string
 
     # A note of work that remains to be done. Accepted at every describing
-    # level (dataset, table, column, field, relationship); each remaining
-    # note is reported by S31.
+    # level (dataset, table, column, field, relationship, definition); each
+    # remaining note is reported by S31.
     todo: string
 
     tables:
@@ -148,6 +146,28 @@ object:
                   properties:
                     assert: string
                     description: string
+
+            # Named expressions (metrics, filters, derived values). Name
+            # uniqueness and the shared namespace with columns are semantic
+            # (S10, S33), as are expression checks (S19–S23, S30, S34).
+            definitions:
+              arrayOf:
+                object:
+                  closed: true
+                  required: [name, expr]
+                  properties:
+                    # `anyOf: [string, null]` lets an empty/null name through
+                    # to the semantic layer, where S11 reports it (see the
+                    # table `name` above).
+                    name:
+                      anyOf:
+                        - string
+                        - null
+                    expr: string
+                    label: string
+                    description: string
+                    details: string
+                    todo: string
 
     relationships:
       arrayOf:

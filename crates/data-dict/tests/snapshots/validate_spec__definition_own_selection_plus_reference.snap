@@ -1,0 +1,28 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: survey
+    columns:
+      - name: q1
+        type: number(ordinal)
+        range: [1, 5]
+      - name: q2
+        type: number(ordinal)
+        range: [1, 5]
+    definitions:
+      - name: f1
+        expr: COLUMNS('q1') IS NOT NULL
+      - name: f2
+        expr: f1 AND COLUMNS('q2') IS NOT NULL
+────────────────────────────────────────
+error[S21]: An expression may use at most one `COLUMNS(...)`.
+  --> dict.yaml:16:15
+   |
+LL |   - name: survey
+...
+LL |       - name: f2
+LL |         expr: f1 AND COLUMNS('q2') IS NOT NULL
+   |               ^^ recursively includes `COLUMNS(...)`

@@ -1,0 +1,31 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    columns:
+      - name: a
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+      - name: b
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1, 2]
+        display: restricted
+────────────────────────────────────────
+error[D02]: The primary key must uniquely identify every row.
+  --> dict.yaml:14:23
+   |
+LL |   - name: t
+...
+LL |       - name: a
+...
+LL |       - name: b
+LL |         type: number(id)
+LL |         constraints: [primary_key]
+   |                       ^^^^^^^^^^^ has 1 repeated occurrence (`1.0`; row: 2)

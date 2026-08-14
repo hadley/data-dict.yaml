@@ -431,6 +431,54 @@ fn export_data_profiles_each_column() {
     insta::assert_snapshot!(serde_json::to_string_pretty(&export.unwrap()).unwrap());
 }
 
+/// A `display: restricted` column's profile carries counts only — never a
+/// value the data held (no samples, common values, observed range, or
+/// histogram).
+#[test]
+fn export_data_restricts_profiles_of_restricted_columns() {
+    let dir = temp_dir();
+    write_profiled_parquet(&dir.join("data.parquet"));
+    let dict = write_dict(
+        &dir,
+        indoc! {"
+            tables:
+              - name: animals
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    display: restricted
+                    examples: [1]
+                  - name: name
+                    type: string
+                    display: restricted
+                    examples: [otter]
+        "},
+    );
+    let (problems, export) = export_data(&dict);
+    assert_eq!(
+        problems.status(),
+        Status::Ok,
+        "{}",
+        problems.render(common::SNAPSHOT_STYLE).join("\n")
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&export.unwrap()).unwrap()).unwrap();
+    let columns = &json["tables"][0]["columns"];
+
+    let id = &columns[0]["profile"];
+    assert_eq!(id["distinct"]["count"], 3);
+    assert!(id["range"].is_null());
+    assert!(id["sample_values"].is_null());
+    assert!(id["histogram"].is_null());
+
+    let name = &columns[1]["profile"];
+    assert_eq!(name["distinct"]["count"], 2);
+    assert!(name["sample_values"].is_null());
+    assert!(name["common_values"].is_null());
+}
+
 #[test]
 fn export_data_profiles_struct_fields_and_list_containers() {
     let dir = temp_dir();
@@ -643,4 +691,132 @@ fn export_data_skips_columns_absent_from_the_data() {
     let columns = &json["tables"][0]["columns"];
     assert_eq!(columns[0]["profile"]["distinct"]["count"], 3);
     assert!(columns[1]["profile"].is_null(), "no data, no profile");
+}
+
+/// Definitions export with their kind, value type, and references resolved:
+/// a filter, a metric, a derived value, one definition building on another,
+/// and an assertion that references a definition.
+#[test]
+fn definitions_export_resolved() {
+    let json = export_json(indoc! {r#"
+        $version: "0.1.0"
+        tables:
+          - name: orders
+            columns:
+              - name: status_cd
+                type: number(id)
+                examples: [90]
+              - name: order_total
+                type: number(quantity)
+                units: usd
+                range: [0, .inf]
+              - name: tile_size
+                type: string
+                examples: ["Enterprise-1"]
+            constraints:
+              - assert: is_enterprise
+            definitions:
+              - name: net_revenue
+                description: Realized revenue excluding returned orders.
+                expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)
+              - name: is_enterprise
+                label: Enterprise segment
+                expr: tile_size IN ('Mid-Market-3', 'Enterprise-1')
+              - name: enterprise_revenue
+                expr: SUM(CASE WHEN is_enterprise THEN order_total ELSE 0 END)
+              - name: list_price
+                expr: order_total * 1.2
+    "#});
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let defs = &json["tables"][0]["definitions"];
+
+    assert_eq!(defs[0]["name"], "net_revenue");
+    assert_eq!(defs[0]["kind"], "metric");
+    assert_eq!(defs[0]["type"], "number");
+    assert_eq!(
+        defs[0]["description"],
+        "<p>Realized revenue excluding returned orders.</p>"
+    );
+    assert_eq!(
+        defs[0]["columns"],
+        serde_json::json!(["status_cd", "order_total"])
+    );
+    assert!(defs[0].get("definitions").is_none());
+
+    assert_eq!(defs[1]["kind"], "filter");
+    assert_eq!(defs[1]["type"], "boolean");
+    assert_eq!(defs[1]["label"], "Enterprise segment");
+    assert_eq!(defs[1]["columns"], serde_json::json!(["tile_size"]));
+
+    // A definition building on another names it under `definitions`; the
+    // columns that definition reads stay on its own entry.
+    assert_eq!(defs[2]["kind"], "metric");
+    assert_eq!(defs[2]["definitions"], serde_json::json!(["is_enterprise"]));
+    assert_eq!(defs[2]["columns"], serde_json::json!(["order_total"]));
+
+    assert_eq!(defs[3]["kind"], "derived");
+    assert_eq!(defs[3]["type"], "number");
+
+    // An assertion referencing a definition lists it separately from columns.
+    let assertion = &json["tables"][0]["constraints"][0];
+    assert_eq!(
+        assertion["definitions"],
+        serde_json::json!(["is_enterprise"])
+    );
+    assert_eq!(assertion["columns"], serde_json::json!([]));
+
+    // Definitions carry translations. A reference to another definition
+    // renders as a bare name, as if it were a column — the client
+    // substitutes the referenced definition's own translation.
+    let filter_sql = &defs[1]["translations"][0];
+    assert_eq!(filter_sql["target"], "SQL(duckdb)");
+    assert!(filter_sql["code"].as_str().unwrap().contains("tile_size"));
+
+    let metric_sql = defs[2]["translations"][0]["code"].as_str().unwrap();
+    assert!(
+        metric_sql.contains("\"is_enterprise\""),
+        "reference rendered as a name: {metric_sql}"
+    );
+    assert!(metric_sql.contains("order_total"));
+
+    // So does an assertion that references a definition.
+    let assertion_sql = assertion["translations"][0]["code"].as_str().unwrap();
+    assert!(
+        assertion_sql.contains("\"is_enterprise\""),
+        "reference rendered as a name: {assertion_sql}"
+    );
+}
+
+/// The full export of a dictionary with definitions, so the shape is reviewable.
+#[test]
+fn definitions_export_snapshot() {
+    insta::assert_snapshot!(export_json(indoc! {r#"
+        $version: "0.1.0"
+        tables:
+          - name: orders
+            columns:
+              - name: status_cd
+                type: number(id)
+                examples: [90]
+              - name: order_total
+                type: number(quantity)
+                units: usd
+                range: [0, .inf]
+              - name: tile_size
+                type: string
+                examples: ["Enterprise-1"]
+            constraints:
+              - assert: is_enterprise
+            definitions:
+              - name: net_revenue
+                description: Realized revenue excluding returned orders.
+                expr: SUM(CASE WHEN status_cd = 90 THEN 0 ELSE order_total END)
+              - name: is_enterprise
+                label: Enterprise segment
+                expr: tile_size IN ('Mid-Market-3', 'Enterprise-1')
+              - name: enterprise_revenue
+                expr: SUM(CASE WHEN is_enterprise THEN order_total ELSE 0 END)
+              - name: list_price
+                expr: order_total * 1.2
+    "#}));
 }

@@ -55,8 +55,7 @@ pub struct ColumnStats {
     /// 1-based row numbers of outside values, capped by the caller's limit.
     /// A value inside a list or struct is attributed to the row holding it.
     pub outside_rows: Vec<usize>,
-    /// Distinct offending values, capped by the caller's limit, in first-seen
-    /// order.
+    /// The value each sampled row in `outside_rows` held, in the same order.
     pub outside_values: Vec<String>,
 }
 
@@ -190,9 +189,10 @@ fn row_of(offsets: &[OffsetBuffer<i32>], mut index: usize) -> usize {
     index
 }
 
-/// Test each non-null value's membership in `allowed`, recording the outsiders.
-/// Values are UTF-8 bytes; one that isn't valid UTF-8 can't be in the set (the
-/// set holds strings) and is rendered as hex for the sample.
+/// Test each non-null value's membership in `allowed`, recording the outsiders
+/// row by row, so a value that offends twice is recorded twice. Values are
+/// UTF-8 bytes; one that isn't valid UTF-8 can't be in the set (the set holds
+/// strings) and is rendered as hex for the sample.
 fn check_membership<'a>(
     values: impl Iterator<Item = Option<&'a [u8]>>,
     allowed: &HashSet<String>,
@@ -212,15 +212,10 @@ fn check_membership<'a>(
         stat.outside_count += 1;
         if stat.outside_rows.len() < limit {
             stat.outside_rows.push(row_offset + row_of(index) + 1);
-        }
-        if stat.outside_values.len() < limit {
-            let rendered = match value {
+            stat.outside_values.push(match value {
                 Some(value) => value.to_string(),
                 None => bytes.iter().map(|b| format!("{b:02x}")).collect(),
-            };
-            if !stat.outside_values.contains(&rendered) {
-                stat.outside_values.push(rendered);
-            }
+            });
         }
     }
 }
