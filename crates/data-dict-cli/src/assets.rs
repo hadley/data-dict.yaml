@@ -46,6 +46,7 @@ const PARTS: &[(&str, &str, &str)] = &[
         "shared.js",
         include_str!("../render/shared.js"),
     ),
+    ("{{DICT_JS}}", "dict.js", include_str!("../render/dict.js")),
     (
         "{{COMPONENTS_JS}}",
         "components.js",
@@ -57,6 +58,11 @@ const PARTS: &[(&str, &str, &str)] = &[
         include_str!("../render/diagram.js"),
     ),
     ("{{APP_JS}}", "app.js", include_str!("../render/app.js")),
+    (
+        "{{DIAGNOSTIC_JS}}",
+        "diagnostic.js",
+        include_str!("../render/diagnostic.js"),
+    ),
     (
         "{{REPORT_CSS}}",
         "report.css",
@@ -111,6 +117,7 @@ const DICT_PAGE: Page = Page {
         "layout-dagre.js",
         "preact.js",
         "shared.js",
+        "dict.js",
         "components.js",
         "diagram.js",
         "app.js",
@@ -125,8 +132,17 @@ const DICT_PAGE: Page = Page {
 const REPORT_PAGE: Page = Page {
     file: "report.html",
     embedded: include_str!("../render/report.html"),
-    parts: &["app.css", "report.css", "preact.js", "report.js"],
-    docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}"],
+    parts: &[
+        "app.css",
+        "tables.css",
+        "report.css",
+        "preact.js",
+        "shared.js",
+        "components.js",
+        "diagnostic.js",
+        "report.js",
+    ],
+    docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}", "{{CHECKS_JSON}}"],
     live: false,
 };
 
@@ -209,9 +225,11 @@ impl Assets {
     }
 
     /// Build the validation report page around a report and the dictionary text
-    /// its spans are measured against, both already escaped for embedding.
+    /// its spans are measured against, both already escaped for embedding. The
+    /// page carries the check catalogue too, so it can name a code offline.
     pub fn render_report_page(&self, report_json: &str, source_json: &str) -> io::Result<String> {
-        self.build(&REPORT_PAGE, &[report_json, source_json], false)
+        let checks = embed_json(&data_dict::checks());
+        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], false)
     }
 
     /// `docs` are the page's documents in the order [`Page::docs`] names their

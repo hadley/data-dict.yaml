@@ -16,6 +16,10 @@ const ICONS = {
      mark reads at the small size it is drawn beside a name */
   todo: '<svg fill="currentColor" fill-rule="evenodd" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8.72,1.7l6.62,11.47c.33,.57-.08,1.28-.74,1.28H1.4c-.66,0-1.07-.71-.74-1.28L7.28,1.7c.33-.57,1.11-.57,1.44,0ZM7.25,5.3h1.5v4.4h-1.5V5.3ZM8,10.6c.55,0,1,.45,1,1s-.45,1-1,1-1-.45-1-1,.45-1,1-1Z"/></svg>',
   back: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.06,8c0-.13.02-.26.07-.37s.13-.22.23-.33L10.39,1.4c.18-.17.39-.26.63-.26.17,0,.32.04.46.12s.25.19.33.32.12.29.12.46c0,.24-.1.46-.29.65l-5.43,5.3,5.43,5.3c.19.19.29.41.29.66,0,.17-.04.32-.12.45s-.19.25-.33.33-.29.12-.46.12c-.25,0-.46-.09-.63-.26l-6.03-5.9c-.1-.1-.18-.21-.23-.33s-.07-.24-.07-.37Z"/></svg>',
+  /* a validation verdict. A warning has no mark of its own: it reuses `todo`,
+     which is already the page's exclamation triangle. */
+  pass: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8,1C4.13,1,1,4.13,1,8s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM7.28,11.31l-3.04-3.04,1.06-1.06,1.98,1.98,4.42-4.42,1.06,1.06-5.48,5.48Z"/></svg>',
+  fail: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8,1C4.13,1,1,4.13,1,8s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM11.18,10.12l-1.06,1.06-2.12-2.12-2.12,2.12-1.06-1.06,2.12-2.12-2.12-2.12,1.06-1.06,2.12,2.12,2.12-2.12,1.06,1.06-2.12,2.12,2.12,2.12Z"/></svg>',
   oneToOne: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-17 -8 34 16" aria-hidden="true"><line x1="-16" y1="0" x2="16" y2="0" stroke="currentColor" stroke-width="1.6"/><rect x="-7.5" y="-5.5" width="15" height="11" rx="5.5" fill="currentColor"/></svg>',
   /* the two orientations of the many marker: widening towards the table the
      chip names, or back towards the one whose page you are on */

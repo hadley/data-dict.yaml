@@ -12,6 +12,7 @@ try {
 </script>
 <style id="dd-css">
 {{APP_CSS}}
+{{TABLES_CSS}}
 {{REPORT_CSS}}
 </style>
 </head>
@@ -20,8 +21,15 @@ try {
 
 <script type="application/json" id="report">{{REPORT_JSON}}</script>
 <script type="application/json" id="source">{{SOURCE_JSON}}</script>
+<script type="application/json" id="checks">{{CHECKS_JSON}}</script>
 <script>
 {{PREACT_JS}}</script>
+<script>
+{{SHARED_JS}}</script>
+<script>
+{{COMPONENTS_JS}}</script>
+<script>
+{{DIAGNOSTIC_JS}}</script>
 <script>
 {{REPORT_JS}}</script>
 </body>

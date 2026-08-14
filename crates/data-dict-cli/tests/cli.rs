@@ -789,3 +789,20 @@ fn a_page_that_cannot_be_written_fails_the_run() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains(&page.display().to_string()), "{stderr}");
 }
+
+/// The page carries the check catalogue, so it can name a code offline rather
+/// than showing a bare `D04`.
+#[test]
+fn the_page_carries_the_check_catalogue() {
+    let dir = temp_dir("html-checks");
+    write_render_dict(&dir, "One row per pup.");
+    let page = dir.join("report.html");
+
+    let output = run_in(&dir, &["validate-spec", "--html", page.to_str().unwrap()]);
+    assert!(output.status.success());
+    let html = std::fs::read_to_string(&page).unwrap();
+    assert!(html.contains(r#"<script type="application/json" id="checks">"#));
+    // The name comes from validation.md's own table, so this pins the parse.
+    assert!(html.contains("Duplicate values"), "D02's name is missing");
+    assert!(html.contains("Value outside enum"), "D04's name is missing");
+}
