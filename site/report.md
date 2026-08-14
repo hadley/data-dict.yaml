@@ -1,6 +1,6 @@
 # Report
 
-A **report** is one validation run's findings as JSON, so a program can act on them. Every check in [validation.md](validation.md) (`S##`, `M##`, or `D##`) reports through this one document, and only those checks do. The `data-dict` CLI writes one for any validation run it can get started.
+A **report** is one validation run's findings as JSON, so a program can act on them. Every check in [validation.md](validation.md) (`S##`, `M##`, or `D##`) reports through this one document, and only those checks do. The `data-dict` CLI writes one for any validation run it can get started: `validate-spec`, `validate-meta` and `validate-data` all write it with `--json`, and `--html` writes the same report as a self-contained page for a person to read.
 
 A report is a superset of the diagnostics rendered for a person: every position a diagnostic highlights is in it, and it names more offending rows.
 
@@ -10,7 +10,7 @@ A failure that stops the run before any check can be applied is not a finding ab
 
 ## Output shape
 
-A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably. The rule is about a problem's and a step's own keys; the four top-level keys are always present, `steps` and `problems` as empty lists when there is nothing to list.
+A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably. The rule is about a problem's and a step's own keys; the five top-level keys are always present, `steps` and `problems` as empty lists when there is nothing to list.
 
 The problems are one flat list. They are deliberately not also grouped by check, by table, or by row: everything needed to build those views is on each problem, and a consumer that wants them can group the list itself rather than reconcile several copies of the same finding.
 
@@ -19,11 +19,14 @@ The problems are one flat list. They are deliberately not also grouped by check,
 ```jsonc
 {
   "$version": "0.1.0",           // version of the report document format itself
+  "run": Run,                    // what was validated, and by what
   "status": "ok" | "warning" | "error",
   "steps": [ Step ],
   "problems": [ Problem ]
 }
 ```
+
+`run` is what the run was: which dictionary, at which level, when, and by what.
 
 `status` is the worst severity present: `error` if any problem is an error, `warning` if there are only warnings, `ok` if there are none.
 
@@ -34,6 +37,31 @@ Which steps exist follows from the dictionary: a `required` column gets a `D01` 
 Every step the level attempted is listed, including the ones it could not weigh. A step is missing only when its level never ran at all: a spec error stops the run, so the metadata and data steps that would have followed are absent rather than listed unevaluated. The level also decides which steps exist at all: a metadata run lists its `M##` steps alone, since the `D##` checks never ran.
 
 The problems are in no promised order beyond this: a spec problem sits at its position in the document, and a metadata or data problem in the order the run found it. A consumer that wants another order sorts the list itself.
+
+### Run
+
+```jsonc
+{
+  "dictionary": "data-dict.yaml",           // the file the run validated
+  "level": "spec" | "meta" | "data",        // the level that ran
+  "table?": "otters",                       // the one table the run covered
+  "generated_at": "2026-08-14T09:31:02Z",   // when the run finished, UTC
+  "tool": { "name": "data-dict",            // what produced the report
+            "version?": "0.4.2" }
+}
+```
+
+`dictionary` is the file the run read, as the producer resolved it: a relative path stays relative rather than being made absolute, so an archived report doesn't record where the machine that made it kept its files. It names the file every [`Location`](#location) in the report is a span of. It is not a promise that the file is still there, or that it can be found from wherever the report ends up.
+
+`level` is the [level](validation.md#three-levels-of-validation) that ran, and so what decides which checks the report could carry. It can't be inferred from the findings: a data-level run that found nothing in the data reports what a spec-level run reports.
+
+`table` is present only for a run over a single table, and names it; a whole-dictionary run omits it. This can't be inferred either — a one-table dictionary and a single-table run over a larger one list the same steps.
+
+`generated_at` is when the run finished, in UTC to the second, as an ISO 8601 timestamp with a `Z` offset.
+
+`tool` is what produced the report, so a report found on its own says where it came from. `version` is that producer's own version and is absent for a producer that has none; it is not the version of this format, which is `$version`.
+
+A report carries no copy of the dictionary's text. A consumer that wants to draw the annotated excerpt a diagnostic shows reads the file `dictionary` names and takes the spans from there.
 
 ### Problem
 
@@ -117,13 +145,13 @@ Nothing is duplicated between the two lists: a step says how much was checked an
 
 ### Location
 
-A `Location` is a span of the `data-dict.yaml` file — never of the data. Even a `D##` problem locates itself in the dictionary, at the place where the dictionary makes the claim the data broke; the data side is reported as row numbers instead.
+A `Location` is a span of the dictionary the run read — the file [`run.dictionary`](#run) names — and never of the data. Even a `D##` problem locates itself in the dictionary, at the place where the dictionary makes the claim the data broke; the data side is reported as row numbers instead.
 
 ```jsonc
 { "start_line": 0, "start_column": 2, "end_line": 0, "end_column": 9 }
 ```
 
-Lines and columns count from 0, following the LSP convention. Diagnostics rendered for a person show the same positions 1-based.
+Lines and columns count from 0. A column counts Unicode characters, not bytes and not UTF-16 code units, so a span is measured the way the text reads. Diagnostics rendered for a person show the same positions 1-based.
 
 `location` is the offending node itself, and `context` the nodes enclosing it — for a bad value in a column, the table's name and the column's name. Together they are everything a rendered diagnostic highlights, so a consumer can draw the same annotated excerpt from the document alone. Both are absent for a problem with no place in the file — a metadata problem about a column the dictionary never mentions (`M03`).
 
@@ -214,6 +242,12 @@ A data-level run over a two-table dictionary, with an unreadable source, a dupli
 ```jsonc
 {
   "$version": "0.1.0",
+  "run": {
+    "dictionary": "data-dict.yaml",
+    "level": "data",
+    "generated_at": "2026-08-14T09:31:02Z",
+    "tool": {"name": "data-dict", "version": "0.4.2"}
+  },
   "status": "error",
   "steps": [
     // an M01 step per column also ran and passed; elided here
