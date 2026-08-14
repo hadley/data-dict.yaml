@@ -108,7 +108,7 @@ If a schema change causes `site/examples/` to fail, don't fix them. Instead repo
 A column marked `display: restricted` holds sensitive data (typically PII), and **no value the data held may ever appear in tool output** — exports, rendered HTML, or diagnostics. Enforcement lives in two places:
 
 - `ExportProfile::restrict()` (`export.rs`) strips `sample_values`/`common_values`/`range`/`histogram` from a restricted column's profile, keeping only counts (`missing`, `distinct`). The website renders through this export, so gating here covers it.
-- `is_restricted()` (`validate_data.rs`) withholds offending-value samples from D04/D05 diagnostics (message and `ProblemKind::values` alike).
+- `is_restricted()` (`validate_data.rs`) withholds offending-value samples from the D02/D04/D05/D07 diagnostics (message and `ProblemKind::values` alike). Withholding is per column: a restricted column drops out of every [`ValueRow`](crates/data-dict/src/problem.rs), while the unrestricted columns beside it in a composite key or an assertion keep their values. Each of those kinds carries `redacted`, saying whether anything was withheld.
 
 Any new feature that moves data values toward the user — a new profile statistic, a new export field, a new diagnostic that quotes values — must gate on `display` the same way. Author-declared `examples`/`range` are the author's responsibility (the spec requires fakes); only data-derived values are gated.
 

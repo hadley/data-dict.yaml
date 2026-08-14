@@ -122,6 +122,66 @@ pub struct Suggestion {
     pub span: SourceInfo,
 }
 
+/// One offending row's values, keyed by column name and holding only the
+/// columns the check is about. Entries keep the order the check names its
+/// columns in, which a map would lose. A `None` value is a missing one, and
+/// serializes as JSON `null` so it stays distinct from a string column holding
+/// `"null"`; only an assertion (`D07`) can report one, since the other checks
+/// exempt nulls.
+///
+/// A restricted column is left out of the row entirely, so an entry that names
+/// no columns at all means everything it would have said was withheld.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ValueRow(Vec<(String, Option<String>)>);
+
+impl ValueRow {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Keep only the columns `keep` accepts, reporting whether any were dropped.
+    pub(crate) fn retain(&mut self, keep: impl Fn(&str) -> bool) -> bool {
+        let before = self.0.len();
+        self.0.retain(|(column, _)| keep(column));
+        self.0.len() < before
+    }
+
+    /// The values alone, in column order.
+    pub fn rendered(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(_, value)| missing(value))
+    }
+
+    /// The `column=value` pairs, in column order, as an assertion reports them.
+    pub fn pairs(&self) -> impl Iterator<Item = String> {
+        self.0
+            .iter()
+            .map(|(column, value)| format!("{column}={}", missing(value)))
+    }
+}
+
+/// How a missing value reads in a rendered diagnostic, matching how an
+/// expression renders a null.
+fn missing(value: &Option<String>) -> &str {
+    value.as_deref().unwrap_or("null")
+}
+
+impl FromIterator<(String, Option<String>)> for ValueRow {
+    fn from_iter<T: IntoIterator<Item = (String, Option<String>)>>(iter: T) -> Self {
+        ValueRow(iter.into_iter().collect())
+    }
+}
+
+impl serde::Serialize for ValueRow {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (column, value) in &self.0 {
+            map.serialize_entry(column, value)?;
+        }
+        map.end()
+    }
+}
+
 /// A resolved source span as 0-based line/column bounds, for JSON consumers.
 /// Lines and columns count from 0, following the LSP convention; the
 /// human-rendered diagnostics show the same positions 1-based.
@@ -168,10 +228,15 @@ pub enum ProblemKind {
     /// lists the first few offending row numbers (1-based); `count` is the total.
     NullsInRequired { count: usize, rows: Vec<usize> },
     /// `D02` — a unique column or composite primary key contains duplicates.
+    /// `count` is the total; `rows` lists the first few repeat occurrences
+    /// (1-based) and `values` the key they held, one entry per listed row.
     DuplicateValues {
         columns: Vec<String>,
         count: usize,
         rows: Vec<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        values: Vec<ValueRow>,
+        redacted: bool,
     },
     /// `D03` — a `unique` column or `primary_key` uses a type whose values can't
     /// be compared, so its uniqueness was not checked. `reason` is a short slug
@@ -182,23 +247,27 @@ pub enum ProblemKind {
     },
     /// `D04` — an `enum` column contains values outside its declared `values`.
     /// `count` is the total; `rows` lists the first few offending row numbers
-    /// (1-based) and `values` the first few distinct offending values.
+    /// (1-based) and `values` the value each held, one entry per listed row.
     ValuesOutsideEnum {
         count: usize,
         rows: Vec<usize>,
-        values: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        values: Vec<ValueRow>,
+        redacted: bool,
     },
     /// `D05` — a `foreign_key` column contains values absent from the
     /// `primary_key` it references. `column` is the foreign-key column,
-    /// `references` names the target as `table.column`, `count` is the total, and
-    /// `rows`/`values` sample the first few offending row numbers (1-based) and
-    /// distinct values.
+    /// `references` names the target as `table.column`, `count` is the total,
+    /// `rows` samples the first few offending row numbers (1-based) and `values`
+    /// the value each held, one entry per listed row.
     ForeignKeyNotFound {
         column: String,
         references: String,
         count: usize,
         rows: Vec<usize>,
-        values: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        values: Vec<ValueRow>,
+        redacted: bool,
     },
     /// `D06` — a `foreign_key` or the `primary_key` it references uses a type
     /// whose values can't be compared, so the reference was not checked.
@@ -210,13 +279,15 @@ pub enum ProblemKind {
         reason: String,
     },
     /// `D07` — a row-level `assert` expression is false for some rows. `rows`
-    /// lists the first few (1-based) and `samples` the values their columns
-    /// held; `count` is the total.
+    /// lists the first few (1-based) and `values` the values the columns the
+    /// expression reads held, one entry per listed row; `count` is the total.
     AssertionViolated {
         assertion: String,
         count: usize,
         rows: Vec<usize>,
-        samples: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        values: Vec<ValueRow>,
+        redacted: bool,
     },
     /// `D07` — an aggregate `assert` expression is false for the table. An
     /// aggregate is one verdict about every row at once, so no row is to blame.
@@ -711,6 +782,29 @@ pub(crate) fn format_rows(rows: &[usize], count: usize) -> String {
     }
 }
 
+/// Format offending values for display: `` `sleepy`, `grumpy` ``, or
+/// `` `(1, 2020-01-01)` `` once a row names more than one column. Repeats are
+/// dropped, since a reader learns nothing from seeing the same value twice —
+/// unlike the rows, which line up with [`ValueRow`]s one for one. `None` when
+/// every value was withheld as restricted.
+pub(crate) fn format_values(values: &[ValueRow]) -> Option<String> {
+    let mut seen: Vec<String> = Vec::new();
+    for row in values {
+        if row.is_empty() {
+            continue;
+        }
+        let listed = row.rendered().collect::<Vec<_>>();
+        let text = match listed.as_slice() {
+            [only] => format!("`{only}`"),
+            many => format!("`({})`", many.join(", ")),
+        };
+        if !seen.contains(&text) {
+            seen.push(text);
+        }
+    }
+    (!seen.is_empty()).then(|| seen.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,6 +878,8 @@ mod tests {
                 columns: vec!["id".into()],
                 count: 1,
                 rows: vec![2],
+                values: vec![row(&[("id", Some("x"))])],
+                redacted: false,
             }
             .code(),
             Some("D02")
@@ -792,7 +888,8 @@ mod tests {
             ProblemKind::ValuesOutsideEnum {
                 count: 1,
                 rows: vec![2],
-                values: vec!["x".into()],
+                values: vec![row(&[("status", Some("x"))])],
+                redacted: false,
             }
             .code(),
             Some("D04")
@@ -806,5 +903,48 @@ mod tests {
         assert_eq!(format_rows(&[2], 1), "row: 2");
         assert_eq!(format_rows(&[2, 5, 9], 3), "rows: 2, 5, 9");
         assert_eq!(format_rows(&[1, 2, 3, 4, 5], 8), "rows: 1, 2, 3, 4, 5, …");
+    }
+
+    fn row(pairs: &[(&str, Option<&str>)]) -> ValueRow {
+        pairs
+            .iter()
+            .map(|(column, value)| ((*column).to_string(), value.map(str::to_string)))
+            .collect()
+    }
+
+    #[test]
+    fn value_formatting() {
+        assert_eq!(
+            format_values(&[row(&[("status", Some("sleepy"))])]).as_deref(),
+            Some("`sleepy`")
+        );
+        assert_eq!(
+            format_values(&[row(&[("a", Some("1")), ("b", Some("2020-01-01"))])]).as_deref(),
+            Some("`(1, 2020-01-01)`")
+        );
+        assert_eq!(
+            format_values(&[
+                row(&[("status", Some("sleepy"))]),
+                row(&[("status", Some("sleepy"))]),
+                row(&[("status", Some("grumpy"))]),
+            ])
+            .as_deref(),
+            Some("`sleepy`, `grumpy`")
+        );
+        assert_eq!(
+            format_values(&[row(&[("weight", None)])]).as_deref(),
+            Some("`null`")
+        );
+        assert_eq!(format_values(&[ValueRow::default()]), None);
+        assert_eq!(format_values(&[]), None);
+    }
+
+    #[test]
+    fn value_row_serializes_as_an_object_in_column_order() {
+        let values = vec![row(&[("b", Some("2")), ("a", Some("1")), ("c", None)])];
+        assert_eq!(
+            serde_json::to_string(&values).unwrap(),
+            r#"[{"b":"2","a":"1","c":null}]"#
+        );
     }
 }

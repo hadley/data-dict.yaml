@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::assert_expr::{self, AssertExpr, DefType, Root, TypedAssertion};
-use crate::export::collect_columns;
 use crate::emit::{self, DuckDb, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
+use crate::export::collect_columns;
 use crate::model::{DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet};
 use crate::validate_spec::{DefEnv, resolve_definitions};

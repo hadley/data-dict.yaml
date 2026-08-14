@@ -32,7 +32,9 @@ pub mod validate_spec;
 
 pub use draft::{DraftError, DraftOutcome, draft};
 pub use export::{Export, export_auto, export_data, export_spec};
-pub use problem::{Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status};
+pub use problem::{
+    Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status, ValueRow,
+};
 pub use quarto_source_map::SourceContext;
 pub use validate_data::validate_data;
 pub use validate_meta::validate_meta;
