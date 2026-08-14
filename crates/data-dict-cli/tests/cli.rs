@@ -91,8 +91,9 @@ fn a_preflight_failure_writes_no_report() {
         .expect("failed to run data-dict");
     assert!(!output.status.success());
     assert!(output.stdout.is_empty(), "no report should be written");
+    // The wording is the operating system's, so only its presence is asserted.
     let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
-    assert!(stderr.contains("No such file or directory"), "{stderr}");
+    assert!(!stderr.trim().is_empty(), "the failure should be reported");
 }
 
 /// Rewrite the fixture's absolute path to a stable placeholder so the rendered

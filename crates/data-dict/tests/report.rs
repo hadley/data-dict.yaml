@@ -27,7 +27,9 @@ fn otters(body: &str) -> std::path::PathBuf {
     write_dict(&dir, body)
 }
 
-/// Snapshot a report, hiding the redundant `expression:` header.
+/// Snapshot a report, hiding the redundant `expression:` header. Snapshots run
+/// on Unix alone, so the macro is unused elsewhere.
+#[allow(unused_macros)]
 macro_rules! assert_report {
     ($problems:expr) => {{
         let body = report(&$problems);
