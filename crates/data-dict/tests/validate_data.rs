@@ -700,7 +700,7 @@ fn duplicate_values_in_unique_column_reported() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+            columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
             ..
         }] if columns == &["id"] && rows == &[2] && sampled(values) == ["1.0"]
     ));
@@ -825,7 +825,7 @@ fn duplicate_string_values_across_row_groups_reported() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+            columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
             ..
         }] if columns == &["code"] && rows == &[4] && sampled(values) == ["a"]
     ));
@@ -842,7 +842,7 @@ fn composite_primary_key_is_checked_collectively() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+            columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
             ..
         }] if columns == &["a", "b"] && rows == &[2] && sampled(values) == ["1.0, 1.0"]
     ));
@@ -864,7 +864,7 @@ fn composite_key_withholds_only_its_restricted_column() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, redacted: true },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, redacted: true },
                 ..
             }] if columns == &["a", "b"] && rows == &[2] && sampled(values) == ["1.0"]
         ),
@@ -923,7 +923,7 @@ fn nulls_alongside_a_real_duplicate_report_only_the_duplicate() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
                 ..
             }] if columns == &["id"] && rows == &[3] && sampled(values) == ["1.0"]
         ),
@@ -1106,7 +1106,7 @@ fn json_unique_column_skipped_with_warning() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D03"),
-                kind: ProblemKind::UniquenessNotVerified { columns, reason },
+                columns, kind: ProblemKind::UniquenessNotVerified { reason },
                 ..
             }] if columns == &["notes"] && reason == "json"
         ),
@@ -1184,7 +1184,7 @@ fn json_in_primary_key_skips_whole_key_with_warning() {
             [Problem {
                 code: Some("D03"),
                 message,
-                kind: ProblemKind::UniquenessNotVerified { columns, reason },
+                columns, kind: ProblemKind::UniquenessNotVerified { reason },
                 ..
             }] if columns == &["id", "payload"] && reason == "json" && message.contains("payload")
         ),
@@ -1226,7 +1226,7 @@ fn differently_encoded_decimals_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
                 ..
             }] if columns == &["amount"] && rows == &[2] && sampled(values) == ["0.01"]
         ),
@@ -1259,7 +1259,7 @@ fn signed_zeros_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
                 ..
             // Reported as stored: the duplicate is `-0.0`, even though it is
             // `0.0` that it duplicates.
@@ -1298,7 +1298,7 @@ fn float16_unique_column_is_checked() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
                 ..
             }] if columns == &["reading"] && rows == &[2] && sampled(values) == ["-0"]
         ),
@@ -1334,7 +1334,7 @@ fn distinct_nan_bit_patterns_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, .. },
                 ..
             }] if columns == &["score"] && rows == &[2] && sampled(values) == ["NaN"]
         ),

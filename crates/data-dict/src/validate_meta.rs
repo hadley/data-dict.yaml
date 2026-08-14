@@ -9,8 +9,10 @@ use std::path::Path;
 
 use data_dict_parquet::{ColumnMeta, DataColumn};
 
+use crate::Level;
 use crate::model::{Column, Constraint, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
+use crate::report::{Failed, StepKey, StepTarget};
 
 /// The result of attempting a data-level check from metadata alone.
 pub(crate) enum CheckResult {
@@ -30,6 +32,7 @@ pub fn validate_meta(dict_path: &Path, table: Option<&str>) -> ProblemSet {
     crate::compare_dataset(
         dict_path,
         table,
+        Level::Meta,
         |table, _parquet, actual, problems| {
             meta_issues(table, actual, problems);
         },
@@ -57,17 +60,31 @@ fn check_columns(
     out: &mut ProblemSet,
 ) {
     for col in declared {
+        let segments: Vec<String> = path
+            .iter()
+            .map(|s| (*s).to_string())
+            .chain([col.name.value.clone()])
+            .collect();
+        let dotted = segments.join(".");
+        let step = StepKey::new(&table.name.value, StepTarget::Column(segments));
         // An absent column is M02's concern; a column with no `type` makes no
         // claims, but its declared fields (if any) are still checked.
         let Some(data) = actual.iter().find(|c| c.name == col.name.value) else {
             validate_m02_missing(table, col, path, out);
+            out.at_last(&table.name.value, [dotted]);
+            out.fail_last(&step, Failed::AllRows);
             continue;
         };
         // A type mismatch is the root cause; don't cascade into per-field
-        // reports against data of the wrong shape.
-        if validate_m01_column_type(table, col, data, out)
-            && let Some(fields) = &col.fields
-        {
+        // reports against data of the wrong shape. The fields' own steps are
+        // left unevaluated, since nothing compared them.
+        if !validate_m01_column_type(table, col, data, out) {
+            out.at_last(&table.name.value, [dotted]);
+            out.fail_last(&step, Failed::AllRows);
+            continue;
+        }
+        out.step_pass(&step);
+        if let Some(fields) = &col.fields {
             let path: Vec<&str> = path
                 .iter()
                 .copied()
@@ -76,7 +93,7 @@ fn check_columns(
             check_columns(table, fields, &data.children, &path, out);
         }
     }
-    validate_m03_extra_columns(declared, actual, path, out);
+    validate_m03_extra_columns(table, declared, actual, path, out);
 }
 
 /// Attempt D01 from Parquet footer metadata. Although this reads only metadata,
@@ -155,9 +172,11 @@ fn nulls_in_required_meta(table: &Table, col: &Column, count: usize) -> Problem 
         );
     Problem {
         code: Some("D01"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} null value{plural}"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("A required column must not contain nulls.".into()),
         hint: None,
         suggestion: None,
@@ -185,9 +204,11 @@ fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
         );
     Problem {
         code: Some("D02"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} repeated occurrence{plural}"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("A unique column must not contain duplicate values.".into()),
         hint: None,
         suggestion: None,
@@ -197,7 +218,6 @@ fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
             constraint_span,
         ],
         kind: ProblemKind::DuplicateValues {
-            columns: vec![col.name.value.clone()],
             count,
             rows: Vec::new(),
             // The footer proves how many rows repeat but not which, so there is
@@ -262,6 +282,7 @@ fn validate_m02_missing(table: &Table, col: &Column, path: &[&str], out: &mut Pr
 }
 
 fn validate_m03_extra_columns(
+    table: &Table,
     declared: &[Column],
     actual: &[DataColumn],
     path: &[&str],
@@ -278,7 +299,11 @@ fn validate_m03_extra_columns(
                 .chain([data.name.as_str()])
                 .collect::<Vec<_>>()
                 .join(".");
-            out.push(Problem::undocumented_column(&name, data.dict_type.clone()));
+            out.push(Problem::undocumented_column(
+                &table.name.value,
+                &name,
+                data.dict_type.clone(),
+            ));
         }
     }
 }

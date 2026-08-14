@@ -1,0 +1,74 @@
+---
+source: crates/data-dict/tests/report.rs
+---
+{
+  "$version": "0.1.0",
+  "status": "ok",
+  "steps": [
+    {
+      "id": 1,
+      "code": "M04",
+      "table": "otters",
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 2,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 3,
+      "code": "D01",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 4,
+      "code": "D02",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 5,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 6,
+      "code": "D07",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "assertion": "weight > 0",
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    }
+  ],
+  "problems": []
+}
