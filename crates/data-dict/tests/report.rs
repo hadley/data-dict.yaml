@@ -93,6 +93,27 @@ fn a_spec_run_has_no_steps() {
     assert!(problems.steps.items().is_empty());
 }
 
+/// A report locates its problems but carries no copy of the text, so a consumer
+/// drawing its own excerpt needs the document the spans were measured against.
+#[test]
+fn a_run_can_hand_back_the_text_its_spans_were_measured_against() {
+    let dict = otters(CLEAN);
+    let problems = validate_data(&dict, None);
+    assert_eq!(
+        problems.source_text(),
+        Some(std::fs::read_to_string(&dict).unwrap().as_str())
+    );
+}
+
+/// A run that never read a document has no text to hand back.
+#[test]
+fn a_preflight_failure_has_no_text() {
+    let dir = temp_dir();
+    let problems = validate_data(&dir.join("absent.yaml"), None);
+    assert!(problems.preflight().is_some());
+    assert_eq!(problems.source_text(), None);
+}
+
 #[test]
 fn an_unreadable_source_leaves_the_tables_other_steps_unevaluated() {
     let dir = temp_dir();
