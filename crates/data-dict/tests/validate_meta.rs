@@ -117,8 +117,8 @@ fn extra_column_in_data_is_warning() {
     );
     assert!(matches!(
         problems.items.as_slice(),
-        [Problem { column: Some(column), code: Some(code), severity, kind: ProblemKind::ExtraInData { actual }, .. }]
-            if column == "weight" && *code == "M03" && actual == "number" && *severity == Severity::Warning
+        [Problem { columns, code: Some(code), severity, kind: ProblemKind::ExtraInData { actual }, .. }]
+            if *columns == ["weight"] && *code == "M03" && actual == "number" && *severity == Severity::Warning
     ));
     assert_snapshot!(common::diagnostic(
         &yaml,
@@ -510,7 +510,7 @@ fn undocumented_struct_field_is_warning() {
         problems
             .items
             .iter()
-            .any(|p| p.code == Some("M03") && p.column.as_deref() == Some("addr.country")),
+            .any(|p| p.code == Some("M03") && p.columns == ["addr.country"]),
         "expected an M03 naming `addr.country`, got {:?}",
         problems.items
     );
@@ -594,8 +594,10 @@ fn deep_alternating_nesting_checked_at_every_level() {
         problems.items
     );
     assert!(
-        problems.items.iter().any(|p| p.code == Some("M03")
-            && p.column.as_deref() == Some("order.shipments.origin.statuses")),
+        problems
+            .items
+            .iter()
+            .any(|p| p.code == Some("M03") && p.columns == ["order.shipments.origin.statuses"]),
         "expected a deep M03, got {:?}",
         problems.items
     );

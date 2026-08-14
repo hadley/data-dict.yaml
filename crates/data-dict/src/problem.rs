@@ -16,6 +16,7 @@
 use quarto_source_map::{SourceContext, SourceInfo};
 
 use crate::Level;
+use crate::report::{Failed, Report, StepKey, Steps};
 
 /// Whether a problem blocks validation (`Error`) or is purely advisory
 /// (`Warning`). Errors fail validation; warnings are reported alongside a
@@ -56,24 +57,34 @@ pub struct RenderStyle {
     pub anonymized_line_numbers: bool,
 }
 
-/// One problem found while validating, at any level. `code` and `column` are
-/// present only when meaningful (spec problems have a code but no column;
-/// pre-flight failures have neither); `context` drives source-highlighted
-/// rendering; `kind` is the structured payload.
+/// One problem found while validating, at any level. `code`, `table` and
+/// `columns` are present only when meaningful (a spec problem has a code but
+/// often no table; a pre-flight failure has neither); `context` drives
+/// source-highlighted rendering; `kind` is the structured payload.
 ///
-/// The derive skips the raw `context` spans (they hold internal byte offsets, of
-/// no use to a JSON consumer). Instead the primary span's resolved line/column
-/// [`SpanLocation`] is serialized under a `location` key by a custom step at the
-/// CLI boundary, where the [`SourceContext`] needed to resolve it is available
-/// (see `problems_to_json`).
+/// The derive skips everything a JSON consumer can't use as it stands: the raw
+/// `context` spans (internal byte offsets) and the `suggestion` (whose span is
+/// one). [`crate::report::Report`] serializes those, resolving each span to a
+/// [`SpanLocation`] through the [`SourceContext`] it holds.
 #[derive(Debug, serde::Serialize)]
 pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<&'static str>,
+    /// The [`Step`](crate::report::Step) that found this problem, linked once
+    /// the run is over; `None` for a problem no step accounts for (a spec
+    /// problem, and `M03`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<usize>,
     pub severity: Severity,
     pub message: String,
+    /// The table the problem is about.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub column: Option<String>,
+    pub table: Option<String>,
+    /// Every column the problem is about, in dictionary order, each a dotted
+    /// path for a struct field. Empty for a problem about no column in
+    /// particular.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
     /// What the spec expects, stated independently of this occurrence. When
     /// present it leads the rendering (the title line) and `message` reports
     /// what was found instead.
@@ -85,7 +96,7 @@ pub struct Problem {
     pub hint: Option<String>,
     /// A suggested fix, rendered below the excerpt as an annotate-snippets patch
     /// (a `+`/`-` diff) under a `help:` title.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub suggestion: Option<Suggestion>,
     /// The YAML spans this problem points at, ordered outermost-first: the
     /// **last** span is the primary highlight (carrying `message`) and any
@@ -107,7 +118,7 @@ impl Problem {
     }
 
     /// The enclosing context spans surrounding the primary highlight, outermost-first.
-    fn context_spans(&self) -> &[SourceInfo] {
+    pub(crate) fn context_spans(&self) -> &[SourceInfo] {
         self.context.split_last().map_or(&[], |(_, rest)| rest)
     }
 }
@@ -193,6 +204,19 @@ pub struct SpanLocation {
     pub end_column: usize,
 }
 
+/// Resolve one span to 0-based line/column bounds, or `None` when it doesn't
+/// resolve in `ctx`.
+pub(crate) fn span_location(span: &SourceInfo, ctx: &SourceContext) -> Option<SpanLocation> {
+    let start = span.map_offset(0, ctx)?.location;
+    let end = span.map_offset(span.length(), ctx)?.location;
+    Some(SpanLocation {
+        start_line: start.row,
+        start_column: start.column,
+        end_line: end.row,
+        end_column: end.column,
+    })
+}
+
 /// The structured payload behind a [`Problem`]. The serde tag (`"kind"`) is the
 /// machine-readable discriminator; variants with fields flatten those fields
 /// alongside it. Variants whose whole story is in [`Problem::message`] (the
@@ -226,13 +250,17 @@ pub enum ProblemKind {
     UnreadableSource,
     /// `D01` — a `required` (or `primary_key`) column contains nulls. `rows`
     /// lists the first few offending row numbers (1-based); `count` is the total.
-    NullsInRequired { count: usize, rows: Vec<usize> },
+    NullsInRequired {
+        count: usize,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        rows: Vec<usize>,
+    },
     /// `D02` — a unique column or composite primary key contains duplicates.
     /// `count` is the total; `rows` lists the first few repeat occurrences
     /// (1-based) and `values` the key they held, one entry per listed row.
     DuplicateValues {
-        columns: Vec<String>,
         count: usize,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
@@ -240,16 +268,14 @@ pub enum ProblemKind {
     },
     /// `D03` — a `unique` column or `primary_key` uses a type whose values can't
     /// be compared, so its uniqueness was not checked. `reason` is a short slug
-    /// naming the barrier (e.g. `json`); `columns` are the key's columns.
-    UniquenessNotVerified {
-        columns: Vec<String>,
-        reason: String,
-    },
+    /// naming the barrier (e.g. `json`).
+    UniquenessNotVerified { reason: String },
     /// `D04` — an `enum` column contains values outside its declared `values`.
     /// `count` is the total; `rows` lists the first few offending row numbers
     /// (1-based) and `values` the value each held, one entry per listed row.
     ValuesOutsideEnum {
         count: usize,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
@@ -264,6 +290,7 @@ pub enum ProblemKind {
         column: String,
         references: String,
         count: usize,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
@@ -284,6 +311,7 @@ pub enum ProblemKind {
     AssertionViolated {
         assertion: String,
         count: usize,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
@@ -297,6 +325,7 @@ pub enum ProblemKind {
     /// absent when the obstacle isn't one column's type.
     AssertionNotChecked {
         assertion: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         column: Option<String>,
         reason: String,
     },
@@ -304,6 +333,7 @@ pub enum ProblemKind {
     /// range. `row` is where it happened, absent for an aggregate assertion.
     AssertionOverflow {
         assertion: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         row: Option<usize>,
     },
 }
@@ -330,6 +360,19 @@ impl ProblemKind {
             ProblemKind::AssertionOverflow { .. } => "D09",
             _ => return None,
         })
+    }
+
+    /// Whether the check that reported this reached a verdict at all. The
+    /// kinds that didn't say why they couldn't, and leave their
+    /// [`Step`](crate::report::Step) unevaluated.
+    pub fn evaluated(&self) -> bool {
+        !matches!(
+            self,
+            ProblemKind::UniquenessNotVerified { .. }
+                | ProblemKind::ReferentialIntegrityNotVerified { .. }
+                | ProblemKind::AssertionNotChecked { .. }
+                | ProblemKind::AssertionOverflow { .. }
+        )
     }
 
     /// The validation level this kind belongs to, when it maps to one. Pre-flight
@@ -367,9 +410,11 @@ impl Problem {
     ) -> Self {
         Problem {
             code: Some(code),
+            step: None,
             severity,
             message: message.into(),
-            column: None,
+            table: None,
+            columns: Vec::new(),
             expected: None,
             hint: None,
             suggestion: None,
@@ -381,13 +426,19 @@ impl Problem {
     /// `M03` — a column present in the data but not described by the
     /// dictionary. It exists only in the data, so it has no dictionary location
     /// and is named in the message rather than highlighted in source.
-    pub(crate) fn undocumented_column(name: &str, actual_type: impl Into<String>) -> Self {
+    pub(crate) fn undocumented_column(
+        table: &str,
+        name: &str,
+        actual_type: impl Into<String>,
+    ) -> Self {
         let actual = actual_type.into();
         Problem {
             code: Some("M03"),
+            step: None,
             severity: Severity::Warning,
             message: format!("`{name}` is in the data (`{actual}`) but not the dictionary"),
-            column: Some(name.to_string()),
+            table: Some(table.to_string()),
+            columns: vec![name.to_string()],
             expected: Some(
                 "Every column in the data should be described in the dictionary.".into(),
             ),
@@ -402,9 +453,11 @@ impl Problem {
     pub(crate) fn preflight(kind: ProblemKind, message: impl Into<String>) -> Self {
         Problem {
             code: None,
+            step: None,
             severity: Severity::Error,
             message: message.into(),
-            column: None,
+            table: None,
+            columns: Vec::new(),
             expected: None,
             hint: None,
             suggestion: None,
@@ -428,9 +481,11 @@ impl Problem {
     ) -> Self {
         Problem {
             code: Some(code),
+            step: None,
             severity: Severity::Error,
             message: message.into(),
-            column: None,
+            table: None,
+            columns: Vec::new(),
             expected: Some(expected.to_string()),
             hint,
             suggestion: None,
@@ -443,15 +498,7 @@ impl Problem {
     /// for JSON consumers, e.g. an editor placing the diagnostic in the file.
     /// `None` for problems with no span (column-located and pre-flight failures).
     pub fn location(&self, ctx: &SourceContext) -> Option<SpanLocation> {
-        let span = self.primary_span()?;
-        let start = span.map_offset(0, ctx)?.location;
-        let end = span.map_offset(span.length(), ctx)?.location;
-        Some(SpanLocation {
-            start_line: start.row,
-            start_column: start.column,
-            end_line: end.row,
-            end_column: end.column,
-        })
+        span_location(self.primary_span()?, ctx)
     }
 
     /// Render to display text. Span-located problems get full source
@@ -590,6 +637,10 @@ impl Problem {
 pub struct ProblemSet {
     pub items: Vec<Problem>,
     pub source: SourceContext,
+    /// What the run checked, whether or not it found anything. Empty for a
+    /// spec-level run, whose checks read the document as a whole rather than
+    /// any declared target.
+    pub steps: Steps,
 }
 
 impl ProblemSet {
@@ -598,7 +649,64 @@ impl ProblemSet {
         ProblemSet {
             items: Vec::new(),
             source,
+            steps: Steps::default(),
         }
+    }
+
+    /// Register the steps `table` implies at `level`; see [`Steps::register`].
+    pub(crate) fn register_steps(
+        &mut self,
+        table: &crate::model::Table,
+        level: Level,
+        assertions: &[(String, Vec<String>)],
+    ) {
+        self.steps.register(table, level, assertions);
+    }
+
+    /// Record that the step `key` names found nothing.
+    pub(crate) fn step_pass(&mut self, key: &StepKey) {
+        self.steps.pass(key);
+    }
+
+    /// Push a problem the step `key` names found, failing that step.
+    pub(crate) fn push_for(&mut self, key: &StepKey, failed: Failed, problem: Problem) {
+        self.steps.fail(key, failed);
+        self.push_at(key, problem);
+    }
+
+    /// Push a problem reporting that the step `key` names could not reach a
+    /// verdict, leaving the step unevaluated.
+    pub(crate) fn push_at(&mut self, key: &StepKey, mut problem: Problem) {
+        problem.step = self.steps.id(key);
+        self.push(problem);
+    }
+
+    /// Fail the step `key` names with the problem just pushed; see
+    /// [`suggest_last`](Self::suggest_last) for the ordering it relies on.
+    pub(crate) fn fail_last(&mut self, key: &StepKey, failed: Failed) {
+        self.steps.fail(key, failed);
+        let id = self.steps.id(key);
+        if let Some(problem) = self.items.last_mut() {
+            problem.step = id;
+        }
+    }
+
+    /// Record how many rows the steps of `table` were weighed against.
+    pub(crate) fn set_row_count(&mut self, table: &str, rows: usize) {
+        self.steps.set_row_count(table, rows);
+    }
+
+    /// The failure that stopped the run before any check could be applied, if
+    /// there was one. Such a failure is not a finding about the dictionary and
+    /// has no code, so it is reported as a plain error and no report is
+    /// written (see `site/report.md`).
+    pub fn preflight(&self) -> Option<&Problem> {
+        self.items.iter().find(|p| p.code.is_none())
+    }
+
+    /// This run's findings as the report document `site/report.md` specifies.
+    pub fn report(&self) -> Report<'_> {
+        Report::new(self)
     }
 
     /// A set holding a single pre-flight failure, with no source. Used when
@@ -634,15 +742,52 @@ impl ProblemSet {
         );
         self.push(Problem {
             code: Some(code),
+            step: None,
             severity,
             message: actual.into(),
-            column: None,
+            table: None,
+            columns: Vec::new(),
             expected: Some(expected.into()),
             hint: None,
             suggestion: None,
             context: spans,
             kind,
         });
+    }
+
+    /// Run `f`, saying that everything it reports is about `table` and
+    /// `columns` unless the check itself said something more precise. Lets the
+    /// spec checks name what they are about without every one of them passing
+    /// it along.
+    pub(crate) fn scope<R>(
+        &mut self,
+        table: &str,
+        columns: &[String],
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let from = self.items.len();
+        let result = f(self);
+        for problem in &mut self.items[from..] {
+            problem.table.get_or_insert_with(|| table.to_string());
+            if problem.columns.is_empty() {
+                problem.columns = columns.to_vec();
+            }
+        }
+        result
+    }
+
+    /// Say what the most recently pushed problem is about: the table, and the
+    /// columns within it (a dotted path for a struct field). See
+    /// [`suggest_last`](Self::suggest_last) for the ordering it relies on.
+    pub(crate) fn at_last(
+        &mut self,
+        table: impl Into<String>,
+        columns: impl IntoIterator<Item = String>,
+    ) {
+        if let Some(problem) = self.items.last_mut() {
+            problem.table = Some(table.into());
+            problem.columns = columns.into_iter().collect();
+        }
     }
 
     /// Attach a fix suggestion to the most recently pushed problem. Called right
@@ -810,8 +955,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn undocumented_column_json_flattens_kind_with_code_and_column() {
-        let p = Problem::undocumented_column("notes", "string");
+    fn undocumented_column_json_flattens_kind_with_code_and_columns() {
+        let p = Problem::undocumented_column("otters", "notes", "string");
         assert_eq!(
             serde_json::to_value(&p).unwrap(),
             serde_json::json!({
@@ -819,7 +964,8 @@ mod tests {
                 "severity": "warning",
                 "message": "`notes` is in the data (`string`) but not the dictionary",
                 "expected": "Every column in the data should be described in the dictionary.",
-                "column": "notes",
+                "table": "otters",
+                "columns": ["notes"],
                 "kind": "extra_in_data",
                 "actual": "string",
             })
@@ -833,12 +979,12 @@ mod tests {
         assert_eq!(v["code"], "S07");
         assert_eq!(v["kind"], "spec");
         assert_eq!(v["message"], "bad column");
-        assert!(v.get("column").is_none());
+        assert!(v.get("columns").is_none());
     }
 
     #[test]
     fn plain_problem_renders_expected_then_found() {
-        let p = Problem::undocumented_column("notes", "string");
+        let p = Problem::undocumented_column("otters", "notes", "string");
         assert_eq!(
             p.to_text(&SourceContext::new(), RenderStyle::default()),
             "warning [M03]: Every column in the data should be described in the dictionary.\n  \
@@ -875,7 +1021,6 @@ mod tests {
         );
         assert_eq!(
             ProblemKind::DuplicateValues {
-                columns: vec!["id".into()],
                 count: 1,
                 rows: vec![2],
                 values: vec![row(&[("id", Some("x"))])],

@@ -10,7 +10,7 @@ A failure that stops the run before any check can be applied is not a finding ab
 
 ## Output shape
 
-A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably.
+A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably. The rule is about a problem's and a step's own keys; the four top-level keys are always present, `steps` and `problems` as empty lists when there is nothing to list.
 
 The problems are one flat list. They are deliberately not also grouped by check, by table, or by row: everything needed to build those views is on each problem, and a consumer that wants them can group the list itself rather than reconcile several copies of the same finding.
 
@@ -29,9 +29,11 @@ The problems are one flat list. They are deliberately not also grouped by check,
 
 `steps` is what the run checked, `problems` is what it found. A step is one check applied to one target: a column, a set of key columns, an assertion, or a table. Every step the run reached is listed whether it passed or failed, so a consumer can report a pass rate and not just a failure list.
 
-Which steps exist follows from the dictionary: a `required` column gets a `D01` step, a `unique` one a `D02` step, each `assert` a `D07` step, and a column with no constraint gets none. A spec check (`S##`) reads the document as a whole rather than one declared target, so it is reported through `problems` alone, and `steps` is empty for a spec-level run.
+Which steps exist follows from the dictionary: a `required` column gets a `D01` step, a `unique` one a `D02` step, each `assert` a `D07` step, and a column with no constraint gets none. A struct's fields are declared columns too, so a field gets the steps its own declaration implies (`M01`, and `D04` when it is an `enum`), named by its dotted path. A spec check (`S##`) reads the document as a whole rather than one declared target, so it is reported through `problems` alone, and `steps` is empty for a spec-level run. A run over a single table lists that table's steps alone.
 
-Every step the level attempted is listed, including the ones it could not weigh. A step is missing only when its level never ran at all: a spec error stops the run, so the metadata and data steps that would have followed are absent rather than listed unevaluated.
+Every step the level attempted is listed, including the ones it could not weigh. A step is missing only when its level never ran at all: a spec error stops the run, so the metadata and data steps that would have followed are absent rather than listed unevaluated. The level also decides which steps exist at all: a metadata run lists its `M##` steps alone, since the `D##` checks never ran.
+
+The problems are in no promised order beyond this: a spec problem sits at its position in the document, and a metadata or data problem in the order the run found it. A consumer that wants another order sorts the list itself.
 
 ### Problem
 
@@ -56,7 +58,9 @@ Every step the level attempted is listed, including the ones it could not weigh.
 
 `expected` and `message` are two halves of one sentence: `expected` states the rule in general ("A range's minimum must be less than or equal to its maximum."), `message` reports the specific violation ("minimum `100` is greater than maximum `10`"). A problem always has a `message`; it has an `expected` whenever the rule can be stated in the abstract.
 
-`columns` is every column the problem is about, in dictionary order: one entry for a problem about a single column, several for a composite key or an assertion that reads more than one (`start_date < end_date` names both). It is absent for a problem about no column in particular — a table-level or document-level one. A consumer that groups by column lists such a problem under each of its columns.
+`columns` is every column the problem is about, in dictionary order: one entry for a problem about a single column, several for a composite key or an assertion that reads more than one (`start_date < end_date` names both). It is absent for a problem about no column in particular — a table-level or document-level one. A consumer that groups by column lists such a problem under each of its columns. A `table` and its `columns` are what the check itself was about; a spec problem, which reads the document rather than any declared target, names them only when the check it comes from is about one, and otherwise locates itself through `location` and `context` alone.
+
+A column named by a `columns` entry is written as its dotted path when it is a struct field. A column name may itself contain a dot, so a consumer that must recover the path segments should match against the dictionary rather than splitting the string.
 
 `suggestion` is a concrete edit: splice `replacement` into the source over the suggestion's own `location`, which is an insertion point when it is empty.
 
@@ -77,9 +81,9 @@ Every step the level attempted is listed, including the ones it could not weigh.
 }
 ```
 
-`columns` follows the same rule as a problem's: every column the step checked, in dictionary order — one for a per-column check, the key's columns for a composite key, and every column the expression reads for an assertion. It is absent for a step about the table as a whole (`M04`).
+`columns` follows the same rule as a problem's: every column the step checked, in dictionary order — one for a per-column check, the key's columns for a composite key, and every column the expression reads for an assertion. It is absent for a step about the table as a whole (`M04`), and for an assertion that reads no column at all.
 
-Steps are in dictionary order: tables as `tables` declares them, then each table's columns in order, then that column's checks by code. A step over several columns sorts by the first of them.
+Steps are in dictionary order: tables as `tables` declares them, then the table's own `M04` step, then each table's columns in order — a struct's fields following the column that holds them — and under each column its checks by code, the metadata one before the data ones, as the levels run. A step over several columns sorts by the first of them; one about no column sorts last.
 
 A step's `code` is the code it reports when the thing it checks is plainly wrong. Several checks are alternative verdicts on one declared target — a column is either the wrong type (`M01`) or absent (`M02`), and a uniqueness check either finds duplicates (`D02`) or can't compare the values at all (`D03`) — so one step covers them and the problem carries the code that actually applied:
 
@@ -97,11 +101,13 @@ A step's `code` is the code it reports when the thing it checks is plainly wrong
 
 `M03` is the one check with nothing to declare it: the column exists only in the data, so no step covers it and its problem has no `step`.
 
+One column can be two steps of the same code: a column declared both `unique` and `primary_key` is checked twice for `D02`, once on its own and once as the key. The two steps name the same `columns`, and are told apart by their `id` alone.
+
 `outcome` is the step's verdict, and the only thing a consumer should read it from: `pass` if the step found nothing, `fail` if at least one problem points back at it, `unevaluated` if it could not reach a verdict at all. Do not infer the verdict from the counts below — a step over an empty table fails with nothing to count.
 
-`outcome` is `unevaluated` when the values were not comparable (`D03`, `D06`), the expression could not be run (`D08`, `D09`), or the table's data could not be read, which leaves every step of that table unevaluated. A step that did not evaluate has not passed, and a consumer must not count it as one.
+`outcome` is `unevaluated` when the values were not comparable (`D03`, `D06`), the expression could not be run (`D08`, `D09`), or the check never reached the data at all: the table's data could not be read, which leaves every step of that table unevaluated; the column the step is about is missing from the data (`M02`) or sits under a column that is (`M01`, `M02`); or the assertion reads such a column. A step that did not evaluate has not passed, and a consumer must not count it as one. `unevaluated` takes precedence over `fail`: a `D03` or `D08` problem points back at its step and still leaves it unevaluated, since the check reported why it couldn't run rather than a verdict.
 
-`row_count` is how many of the table's rows the step covered and `failed_row_count` how many of them failed, so every step of a table counts in the same unit against the same denominator. A check with a single verdict is all or nothing: a metadata step, or an aggregate assertion like `SUM(weight) > 0`, fails every row of the table or none of them. That is a coarse weighting so such a step can be counted alongside the row-level ones, not a claim about which rows are at fault — an aggregate assertion's own problem still blames no individual row.
+`row_count` is how many of the table's rows the step covered and `failed_row_count` how many of them failed, so every step of a table counts in the same unit against the same denominator. A step counts rows even where its problem counts something else: a `D04` step over a `list(enum)` column fails as many rows as held a bad value, while the problem's `count` is how many bad values there were. A check with a single verdict is all or nothing: a metadata step, or an aggregate assertion like `SUM(weight) > 0`, fails every row of the table or none of them. That is a coarse weighting so such a step can be counted alongside the row-level ones, not a claim about which rows are at fault — an aggregate assertion's own problem still blames no individual row.
 
 Both keys are absent when the step has no row count to report: when `outcome` is `unevaluated`, and when the failure is that the table's rows could never be counted in the first place (`M04`, `M05`).
 
@@ -157,7 +163,7 @@ Lines and columns count from 0, following the LSP convention. Diagnostics render
 
 Three keys describe how many rows broke a check and which ones:
 
-* `count` is the **exact** total number of offending rows. It is never capped.
+* `count` is the **exact** total number of offending rows — of offending *values* for a check over a column that holds several per row, like a `list(enum)`. It is never capped.
 * `rows` are the offending row numbers, ascending, **capped** at the first so many. Row numbers are 1-based and absolute within the table's Parquet file, so they survive row-group boundaries and can be used to seek back into the data.
 * `values` are the offending values themselves, one **object** per offending row, keyed by column name.
 

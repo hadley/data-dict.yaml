@@ -14,10 +14,11 @@ use data_dict_parquet::{
 use chrono::{DateTime, Utc};
 use quarto_source_map::SourceInfo;
 
-use crate::ReadTables;
 use crate::model::{Assertion, Column, Constraint, DataDict, Table};
 use crate::problem::{Problem, ProblemKind, ProblemSet, Severity, ValueRow};
+use crate::report::{Failed, StepKey, StepTarget, in_dictionary_order, table_assertions};
 use crate::validate_meta::CheckResult;
+use crate::{Level, ReadTables};
 
 /// How many example values (e.g. offending rows) to record per validation
 /// issue. Issues count every offender but only list this many.
@@ -80,6 +81,37 @@ fn restrict_assertion_values(table: &Table, values: Vec<ValueRow>) -> (Vec<Value
     (kept, redacted)
 }
 
+/// Record that a check found nothing. A check whose column declares nothing for
+/// it has no step to record against.
+fn record_pass(out: &mut ProblemSet, step: Option<&StepKey>) {
+    if let Some(step) = step {
+        out.step_pass(step);
+    }
+}
+
+/// Record a check's finding against its step, weighing the step by the rows the
+/// finding blames.
+fn record_fail(out: &mut ProblemSet, step: Option<&StepKey>, problem: Problem) {
+    match step {
+        Some(step) => out.push_for(step, failed_rows(&problem), problem),
+        None => out.push(problem),
+    }
+}
+
+/// How many rows a problem blames. A finding with a single verdict about the
+/// whole table blames every row of it, so it can be counted alongside the
+/// row-level ones (see `site/report.md`).
+fn failed_rows(problem: &Problem) -> Failed {
+    match &problem.kind {
+        ProblemKind::NullsInRequired { count, .. }
+        | ProblemKind::DuplicateValues { count, .. }
+        | ProblemKind::ValuesOutsideEnum { count, .. }
+        | ProblemKind::ForeignKeyNotFound { count, .. }
+        | ProblemKind::AssertionViolated { count, .. } => Failed::Rows(*count),
+        _ => Failed::AllRows,
+    }
+}
+
 /// The `(values; rows)` tail every value-reporting diagnostic ends with, naming
 /// the offending values when they can be shown and saying so when they can't.
 fn found(values: &[ValueRow], rows: &[usize], count: usize, redacted: bool) -> String {
@@ -104,6 +136,7 @@ pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
     crate::compare_dataset(
         dict_path,
         table,
+        Level::Data,
         |table, parquet_path, actual, problems| {
             crate::validate_meta::meta_issues(table, actual, problems);
             if let Err(e) = value_issues(table, parquet_path, actual, problems) {
@@ -143,14 +176,16 @@ fn value_issues(
         };
         let mut merged = ColumnNeeds::default();
         let mut pending: Vec<&dyn ColumnCheck> = Vec::new();
+        let path = vec![col.name.value.clone()];
         for check in VALUE_CHECKS {
+            let step = check.step(table, col, &path);
             match check.check_meta(table, col, meta) {
-                CheckResult::Pass => {}
+                CheckResult::Pass => record_pass(out, step.as_ref()),
                 CheckResult::Inconclusive => {
                     merged = merged.merge(check.needs(col, &data.dict_type));
                     pending.push(*check);
                 }
-                CheckResult::Fail(problem) => out.push(*problem),
+                CheckResult::Fail(problem) => record_fail(out, step.as_ref(), *problem),
             }
         }
         if merged.any() {
@@ -185,8 +220,13 @@ fn value_issues(
     // Phase 3 — check. Per planned column, draw verdicts from the gathered stats.
     for ((request, col, pending), stat) in plan.iter().zip(&stats) {
         for check in pending {
-            if let Some(problem) = check.check_data(table, col, &request.path, stat) {
-                out.push(problem);
+            let step = check.step(table, col, &request.path);
+            match check.check_data(table, col, &request.path, stat) {
+                Some(problem) => match step {
+                    Some(step) => out.push_for(&step, check.failed(stat), problem),
+                    None => out.push(problem),
+                },
+                None => record_pass(out, step.as_ref()),
             }
         }
     }
@@ -201,17 +241,21 @@ fn value_issues(
         .iter()
         .filter(|col| col.has(Constraint::Unique) && present(&col.name.value))
     {
+        let step = StepKey::new(
+            &table.name.value,
+            StepTarget::Unique(col.name.value.clone()),
+        );
         if let Some(&reason) = barriers.get(&col.name.value) {
-            out.push(uniqueness_not_verified_column(table, col, reason));
+            out.push_at(&step, uniqueness_not_verified_column(table, col, reason));
             continue;
         }
         let Some(meta) = metadata.get(&col.name.value) else {
             continue;
         };
         match crate::validate_meta::validate_d02_unique_column(table, col, meta) {
-            CheckResult::Pass => {}
+            CheckResult::Pass => out.step_pass(&step),
             CheckResult::Inconclusive => uniqueness.push(UniquenessTarget::Column(col)),
-            CheckResult::Fail(problem) => out.push(*problem),
+            CheckResult::Fail(problem) => record_fail(out, Some(&step), *problem),
         }
     }
     let primary_key = table
@@ -225,12 +269,15 @@ fn value_issues(
             .find_map(|col| barriers.get(&col.name.value).map(|&reason| (col, reason)));
         match barrier {
             Some((col, reason)) => {
-                out.push(uniqueness_not_verified_primary_key(
-                    table,
-                    &primary_key,
-                    &col.name.value,
-                    reason,
-                ));
+                out.push_at(
+                    &StepKey::new(&table.name.value, StepTarget::PrimaryKey),
+                    uniqueness_not_verified_primary_key(
+                        table,
+                        &primary_key,
+                        &col.name.value,
+                        reason,
+                    ),
+                );
             }
             None => uniqueness.push(UniquenessTarget::PrimaryKey(primary_key)),
         }
@@ -242,17 +289,26 @@ fn value_issues(
             .collect::<Vec<_>>();
         let results = data_dict_parquet::uniqueness_stats(parquet_path, &checks, SAMPLE_LIMIT)?;
         for (target, stats) in uniqueness.iter().zip(&results) {
+            let step = match target {
+                UniquenessTarget::Column(col) => StepKey::new(
+                    &table.name.value,
+                    StepTarget::Unique(col.name.value.clone()),
+                ),
+                UniquenessTarget::PrimaryKey(_) => {
+                    StepKey::new(&table.name.value, StepTarget::PrimaryKey)
+                }
+            };
             if stats.duplicate_count == 0 {
+                out.step_pass(&step);
                 continue;
             }
-            match target {
-                UniquenessTarget::Column(col) => {
-                    out.push(duplicates_in_unique_column(table, col, stats));
-                }
+            let problem = match target {
+                UniquenessTarget::Column(col) => duplicates_in_unique_column(table, col, stats),
                 UniquenessTarget::PrimaryKey(columns) => {
-                    out.push(duplicates_in_primary_key(table, columns, stats));
+                    duplicates_in_primary_key(table, columns, stats)
                 }
-            }
+            };
+            record_fail(out, Some(&step), problem);
         }
     }
 
@@ -297,6 +353,35 @@ fn plan_enum_fields<'a>(
     }
 }
 
+/// Each of the table's `assert` expressions with the columns it reads, in
+/// dictionary order — what a `D07` step is registered from. An expression that
+/// can't be lowered reads no column as far as the report is concerned; the
+/// spec level has already reported why.
+pub(crate) fn assertion_targets(table: &Table) -> Vec<(String, Vec<String>)> {
+    let env = crate::validate_spec::TableEnv::new(table);
+    let defs = crate::validate_spec::definition_exprs(table);
+    table_assertions(table)
+        .into_iter()
+        .map(|(assertion, _)| {
+            let columns = assertion
+                .expr
+                .as_ref()
+                .map(|expr| crate::assert_expr::substitute_definitions(expr, &defs))
+                .and_then(|expr| crate::assert_expr::lower(&expr, &env))
+                .map(|ir| {
+                    crate::eval::column_requests(&ir)
+                        .iter()
+                        .map(|request| request.path.join("."))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut columns: Vec<String> = columns;
+            in_dictionary_order(table, &mut columns);
+            (assertion.text.value.clone(), columns)
+        })
+        .collect()
+}
+
 /// Evaluate the table's `assert` expressions against its data (D07–D09).
 ///
 /// Assertions don't join [`VALUE_CHECKS`]: that pipeline is per column, and an
@@ -312,18 +397,11 @@ fn assertion_issues(
 ) -> Result<(), data_dict_parquet::ParquetError> {
     let env = crate::validate_spec::TableEnv::new(table);
     let defs = crate::validate_spec::definition_exprs(table);
-    let column_assertions = table
-        .columns
-        .iter()
-        .flat_map(|col| col.assertions.iter().map(move |a| (a, Some(col))));
-    let assertions: Vec<(&Assertion, Option<&Column>)> = table
-        .constraints
-        .iter()
-        .map(|a| (a, None))
-        .chain(column_assertions)
-        .collect();
 
-    for (assertion, col) in assertions {
+    for (position, (assertion, col)) in table_assertions(table).into_iter().enumerate() {
+        // An assertion abandoned below leaves its step unevaluated: nothing
+        // compared it against the data.
+        let step = StepKey::new(&table.name.value, StepTarget::Assertion(position));
         // An expression that failed to parse or check was already reported at
         // the spec level, and never reaches a verdict here.
         let Some(expr) = &assertion.expr else {
@@ -345,6 +423,8 @@ fn assertion_issues(
         {
             continue;
         }
+        let mut columns: Vec<String> = requests.iter().map(|r| r.path.join(".")).collect();
+        in_dictionary_order(table, &mut columns);
 
         // Ask whether every column can be read as its declared type before
         // reading anything: an assertion that can't run is D08.
@@ -353,19 +433,27 @@ fn assertion_issues(
             data_dict_parquet::Decodable::No(reason) => Some((r, *reason)),
             data_dict_parquet::Decodable::Yes => None,
         }) {
-            out.push(assertion_not_checked(
-                table,
-                col,
-                assertion,
-                Some(&request.path.join(".")),
-                reason,
-            ));
+            out.push_at(
+                &step,
+                assertion_not_checked(
+                    table,
+                    col,
+                    assertion,
+                    &columns,
+                    Some(&request.path.join(".")),
+                    reason,
+                ),
+            );
             continue;
         }
 
         let outcome = crate::eval::evaluate(parquet_path, &ir, now, SAMPLE_LIMIT)?;
-        if let Some(problem) = assertion_problem(table, col, assertion, outcome) {
-            out.push(problem);
+        match assertion_problem(table, col, assertion, &columns, outcome) {
+            // An assertion that overflowed (D09) or whose pattern was invalid
+            // (D08) never reached a verdict, so its step stays unevaluated.
+            Some(problem) if !problem.kind.evaluated() => out.push_at(&step, problem),
+            Some(problem) => record_fail(out, Some(&step), problem),
+            None => out.step_pass(&step),
         }
     }
     Ok(())
@@ -376,6 +464,7 @@ fn assertion_problem(
     table: &Table,
     col: Option<&Column>,
     assertion: &Assertion,
+    columns: &[String],
     outcome: crate::eval::Outcome,
 ) -> Option<Problem> {
     let text = assertion.text.value.clone();
@@ -420,6 +509,7 @@ fn assertion_problem(
                         table,
                         col,
                         assertion,
+                        columns,
                         None,
                         &format!("`{pattern}`{where_} is not a valid regular expression"),
                     ));
@@ -437,9 +527,11 @@ fn assertion_problem(
     };
     Some(Problem {
         code: kind.code(),
+        step: None,
         severity: Severity::Error,
         message,
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: columns.to_vec(),
         expected: Some(expected.to_string()),
         hint: None,
         suggestion: None,
@@ -452,6 +544,7 @@ fn assertion_not_checked(
     table: &Table,
     col: Option<&Column>,
     assertion: &Assertion,
+    columns: &[String],
     column: Option<&str>,
     reason: &str,
 ) -> Problem {
@@ -474,9 +567,11 @@ fn assertion_not_checked(
     };
     Problem {
         code: kind.code(),
+        step: None,
         severity: Severity::Error,
         message,
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: columns.to_vec(),
         expected: Some("An assertion must be evaluable against the data.".into()),
         hint: Some(hint.into()),
         suggestion: None,
@@ -524,6 +619,15 @@ trait ColumnCheck {
     /// Attempt the check from footer metadata alone.
     fn check_meta(&self, table: &Table, col: &Column, meta: &ColumnMeta) -> CheckResult;
 
+    /// The step this check reports through, or `None` when the column declares
+    /// nothing for it to check. Must agree with the steps
+    /// [`crate::report::Steps::register`] lays out.
+    fn step(&self, table: &Table, col: &Column, path: &[String]) -> Option<StepKey>;
+
+    /// How many rows a failure of this check blames, which is not always how
+    /// many offending values it counted.
+    fn failed(&self, stats: &ColumnStats) -> Failed;
+
     /// What this check needs read from the column's data. `actual` is the
     /// column's data-side type (one of the six dictionary type names), letting
     /// a check opt out when the data can't support it. Returning the default
@@ -556,6 +660,19 @@ struct RequiredNotNull;
 impl ColumnCheck for RequiredNotNull {
     fn check_meta(&self, table: &Table, col: &Column, meta: &ColumnMeta) -> CheckResult {
         crate::validate_meta::validate_d01_required_not_null(table, col, meta)
+    }
+
+    fn step(&self, table: &Table, col: &Column, path: &[String]) -> Option<StepKey> {
+        (path.len() == 1 && col.is_required_implied()).then(|| {
+            StepKey::new(
+                &table.name.value,
+                StepTarget::Required(col.name.value.clone()),
+            )
+        })
+    }
+
+    fn failed(&self, stats: &ColumnStats) -> Failed {
+        Failed::Rows(stats.null_count)
     }
 
     fn needs(&self, col: &Column, _actual: &str) -> ColumnNeeds {
@@ -592,6 +709,17 @@ struct EnumMembership;
 impl ColumnCheck for EnumMembership {
     fn check_meta(&self, _table: &Table, col: &Column, _meta: &ColumnMeta) -> CheckResult {
         crate::validate_meta::validate_d04_enum_membership(col)
+    }
+
+    fn step(&self, table: &Table, col: &Column, path: &[String]) -> Option<StepKey> {
+        (col.is_enum() && col.values.is_some())
+            .then(|| StepKey::new(&table.name.value, StepTarget::Enum(path.to_vec())))
+    }
+
+    // A list column holds several values per row, so the rows that broke the
+    // check are fewer than the values that did.
+    fn failed(&self, stats: &ColumnStats) -> Failed {
+        Failed::Rows(stats.outside_row_count)
     }
 
     fn needs(&self, col: &Column, actual: &str) -> ColumnNeeds {
@@ -675,9 +803,11 @@ fn values_outside_enum(
         .map_or_else(|| col.name.span.clone(), |values| values.span.clone());
     Problem {
         code: Some("D04"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} value{plural} outside the allowed set ({detail})"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![path.join(".")],
         expected: Some("An enum column's values must all be among its declared `values`.".into()),
         hint: None,
         suggestion: None,
@@ -709,9 +839,11 @@ fn nulls_in_required_data(table: &Table, col: &Column, count: usize, rows: Vec<u
         );
     Problem {
         code: Some("D01"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} null value{plural} ({detail})"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("A required column must not contain nulls.".into()),
         hint: None,
         suggestion: None,
@@ -741,9 +873,11 @@ fn duplicates_in_unique_column(table: &Table, col: &Column, stats: &UniquenessSt
         );
     Problem {
         code: Some("D02"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} repeated occurrence{plural} ({detail})"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("A unique column must not contain duplicate values.".into()),
         hint: None,
         suggestion: None,
@@ -753,7 +887,6 @@ fn duplicates_in_unique_column(table: &Table, col: &Column, stats: &UniquenessSt
             constraint_span,
         ],
         kind: ProblemKind::DuplicateValues {
-            columns: vec![col.name.value.clone()],
             count,
             rows: stats.duplicate_rows.clone(),
             values,
@@ -788,9 +921,11 @@ fn duplicates_in_primary_key(
         );
     Problem {
         code: Some("D02"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} repeated occurrence{plural} ({detail})"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: columns.iter().map(|col| col.name.value.clone()).collect(),
         expected: Some("The primary key must uniquely identify every row.".into()),
         hint: None,
         suggestion: None,
@@ -799,7 +934,6 @@ fn duplicates_in_primary_key(
             .chain(std::iter::once(constraint_span))
             .collect(),
         kind: ProblemKind::DuplicateValues {
-            columns: columns.iter().map(|col| col.name.value.clone()).collect(),
             count,
             rows: stats.duplicate_rows.clone(),
             values,
@@ -830,13 +964,15 @@ fn uniqueness_not_verified_column(table: &Table, col: &Column, reason: &str) -> 
         );
     Problem {
         code: Some("D03"),
+        step: None,
         severity: Severity::Warning,
         message: format!(
             "`{}` has {}, whose values can't be compared for uniqueness",
             col.name.value,
             barrier_phrase(reason)
         ),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("Uniqueness can only be verified for comparable types.".into()),
         hint: None,
         suggestion: None,
@@ -846,7 +982,6 @@ fn uniqueness_not_verified_column(table: &Table, col: &Column, reason: &str) -> 
             constraint_span,
         ],
         kind: ProblemKind::UniquenessNotVerified {
-            columns: vec![col.name.value.clone()],
             reason: reason.to_string(),
         },
     }
@@ -871,13 +1006,15 @@ fn uniqueness_not_verified_primary_key(
         );
     Problem {
         code: Some("D03"),
+        step: None,
         severity: Severity::Warning,
         message: format!(
             "primary key column `{}` has {}, whose values can't be compared for uniqueness",
             barrier,
             barrier_phrase(reason)
         ),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: columns.iter().map(|col| col.name.value.clone()).collect(),
         expected: Some("Uniqueness can only be verified for comparable types.".into()),
         hint: None,
         suggestion: None,
@@ -886,7 +1023,6 @@ fn uniqueness_not_verified_primary_key(
             .chain(std::iter::once(constraint_span))
             .collect(),
         kind: ProblemKind::UniquenessNotVerified {
-            columns: columns.iter().map(|col| col.name.value.clone()).collect(),
             reason: reason.to_string(),
         },
     }
@@ -937,20 +1073,23 @@ fn foreign_key_issues(dict: &DataDict, readable: &ReadTables, out: &mut ProblemS
         }
     };
     for ((table, col, parent_table, parent_col), result) in targets.iter().zip(results) {
+        let step = StepKey::new(
+            &table.name.value,
+            StepTarget::ForeignKey(col.name.value.clone()),
+        );
         match result {
-            ForeignKeyResult::NotVerified { reason } => out.push(
+            ForeignKeyResult::NotVerified { reason } => out.push_at(
+                &step,
                 referential_integrity_not_verified(table, col, parent_table, parent_col, reason),
             ),
             ForeignKeyResult::Checked(stats) if stats.orphan_count > 0 => {
-                out.push(foreign_key_not_found(
-                    table,
-                    col,
-                    parent_table,
-                    parent_col,
-                    &stats,
-                ));
+                record_fail(
+                    out,
+                    Some(&step),
+                    foreign_key_not_found(table, col, parent_table, parent_col, &stats),
+                );
             }
-            ForeignKeyResult::Checked(_) => {}
+            ForeignKeyResult::Checked(_) => out.step_pass(&step),
         }
     }
 }
@@ -986,9 +1125,11 @@ fn foreign_key_not_found(
     let references = format!("{}.{}", parent_table.name.value, parent_col.name.value);
     Problem {
         code: Some("D05"),
+        step: None,
         severity: Severity::Error,
         message: format!("has {count} value{plural} not found in `{references}` ({detail})"),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some(
             "A foreign key's values must all appear in the primary key it references.".into(),
         ),
@@ -1020,12 +1161,14 @@ fn referential_integrity_not_verified(
     let references = format!("{}.{}", parent_table.name.value, parent_col.name.value);
     Problem {
         code: Some("D06"),
+        step: None,
         severity: Severity::Warning,
         message: format!(
             "can't be verified against `{references}`: {} values aren't comparable",
             barrier_phrase(reason)
         ),
-        column: None,
+        table: Some(table.name.value.clone()),
+        columns: vec![col.name.value.clone()],
         expected: Some("Referential integrity can only be verified for comparable types.".into()),
         hint: None,
         suggestion: None,

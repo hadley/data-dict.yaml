@@ -56,6 +56,9 @@ enum Command {
         /// A data-dict.yaml file or a directory containing one (defaults to
         /// the current directory)
         path: Option<PathBuf>,
+        /// Emit results as a JSON report
+        #[arg(long)]
+        json: bool,
     },
     /// Validate a dataset's column names and types against a data dictionary
     ValidateMeta(ValidateArgs),
@@ -138,7 +141,7 @@ struct ValidateArgs {
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
-    /// Emit results as JSON
+    /// Emit results as a JSON report
     #[arg(long)]
     json: bool,
 }
@@ -155,7 +158,7 @@ fn main() -> ExitCode {
     match command {
         Command::Describe { path, column, json } => run_describe(&path, column.as_deref(), json),
         Command::Draft { paths, output } => run_draft(&paths, &output),
-        Command::ValidateSpec { path } => {
+        Command::ValidateSpec { path, json } => {
             let path = match resolve_dict_path(path) {
                 Ok(path) => path,
                 Err(err) => {
@@ -163,16 +166,7 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            let problems = data_dict::validate_spec(&path);
-            for line in problems.render(stderr_style()) {
-                eprintln!("{line}");
-            }
-            if problems.status().failed() {
-                ExitCode::FAILURE
-            } else {
-                println!("{}: ok", path.display());
-                ExitCode::SUCCESS
-            }
+            report(&path, data_dict::validate_spec(&path), json)
         }
         Command::ValidateMeta(args) => run_validate(args, data_dict::validate_meta),
         Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
@@ -489,40 +483,32 @@ fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
         }
     };
     let problems = validate(&dict, args.table.as_deref());
-    let status = problems.status();
-    if args.json {
-        println!("{}", problems_to_json(&problems));
+    report(&dict, problems, args.json)
+}
+
+/// Render a validation run: the JSON report on stdout, or the diagnostics on
+/// stderr. A failure that stopped the run before any check could be applied is
+/// not a finding about the dictionary, so it is reported as a plain error and
+/// no report is written (see `site/report.md`).
+fn report(dict: &Path, problems: ProblemSet, json: bool) -> ExitCode {
+    let failed = problems.status().failed();
+    let reportable = json && problems.preflight().is_none();
+    if reportable {
+        let json = serde_json::to_string(&problems.report()).expect("a report always serializes");
+        println!("{json}");
     } else {
         for line in problems.render(stderr_style()) {
             eprintln!("{line}");
         }
-        if !status.failed() {
+        if !failed && !json {
             println!("{}: ok", dict.display());
         }
     }
-    if status.failed() {
+    if failed {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
     }
-}
-
-fn problems_to_json(problems: &ProblemSet) -> serde_json::Value {
-    let items: Vec<serde_json::Value> = problems
-        .items
-        .iter()
-        .map(|p| {
-            let mut value = serde_json::to_value(p).expect("a Problem always serializes");
-            if let Some(location) = p.location(&problems.source) {
-                value["location"] = serde_json::to_value(location).expect("location serializes");
-            }
-            value
-        })
-        .collect();
-    serde_json::json!({
-        "status": problems.status(),
-        "problems": items,
-    })
 }
 
 #[cfg(test)]
@@ -588,10 +574,15 @@ mod tests {
     }
 
     #[test]
-    fn json_carries_problems_on_success() {
+    fn json_report_carries_problems_on_success() {
         // A warning-only set still passes, but its status reflects the warning.
-        let json = problems_to_json(&warning_problems("json-ok"));
+        let problems = warning_problems("json-ok");
+        let json: serde_json::Value =
+            serde_json::to_value(problems.report()).expect("a report serializes");
+        assert_eq!(json["$version"], data_dict::REPORT_VERSION);
         assert_eq!(json["status"], "warning");
+        // A spec-level run reads the document as a whole, so it has no steps.
+        assert_eq!(json["steps"], serde_json::json!([]));
         assert_eq!(json["problems"][0]["code"], "S09");
         assert_eq!(json["problems"][0]["severity"], "warning");
         assert_eq!(json["problems"][0]["kind"], "spec");
@@ -609,16 +600,18 @@ mod tests {
     }
 
     #[test]
-    fn json_reports_error_status() {
+    fn a_preflight_failure_writes_no_report() {
         let problems = ProblemSet::from_preflight(
             data_dict::ProblemKind::TableNotFound {
                 available: vec!["a".to_string(), "b".to_string()],
             },
             "table \"x\" is not in the data dictionary",
         );
-        let json = problems_to_json(&problems);
-        assert_eq!(json["status"], "error");
-        assert_eq!(json["problems"][0]["kind"], "table_not_found");
-        assert_eq!(json["problems"][0]["available"][1], "b");
+        assert!(problems.status().failed());
+        let preflight = problems.preflight().expect("the failure stopped the run");
+        assert_eq!(
+            preflight.message,
+            "table \"x\" is not in the data dictionary"
+        );
     }
 }

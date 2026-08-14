@@ -57,6 +57,45 @@ fn multiple_diagnostics_json_output() {
     insta::assert_snapshot!(serde_json::to_string_pretty(&value).unwrap());
 }
 
+/// A spec-level run reports through the same document, with no steps: its
+/// checks read the document as a whole rather than any declared target.
+#[test]
+fn validate_spec_json_report() {
+    let fixture = multi_error_fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
+        .args(["validate-spec"])
+        .arg(&fixture)
+        .arg("--json")
+        .output()
+        .expect("failed to run data-dict");
+    assert!(!output.status.success());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout is valid JSON");
+    assert_eq!(report["$version"], data_dict::REPORT_VERSION);
+    assert_eq!(report["status"], "error");
+    assert_eq!(report["steps"], serde_json::json!([]));
+    assert!(report["problems"].as_array().is_some_and(|p| !p.is_empty()));
+}
+
+/// A failure that stopped the run before any check could be applied is not a
+/// finding about the dictionary, so it is reported as a plain error on stderr
+/// and no report is written (see `site/report.md`).
+#[test]
+fn a_preflight_failure_writes_no_report() {
+    let dir = temp_dir("preflight");
+    let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
+        .args(["validate-data"])
+        .arg(dir.join("absent.yaml"))
+        .arg("--json")
+        .output()
+        .expect("failed to run data-dict");
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty(), "no report should be written");
+    // The wording is the operating system's, so only its presence is asserted.
+    let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
+    assert!(!stderr.trim().is_empty(), "the failure should be reported");
+}
+
 /// Rewrite the fixture's absolute path to a stable placeholder so the rendered
 /// diagnostic can be snapshotted. The CLI already renders plain (no colour) when
 /// its stderr is a pipe, as it is under the test harness, so there is no

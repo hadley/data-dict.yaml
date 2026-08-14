@@ -3,6 +3,7 @@ source: crates/data-dict-cli/tests/cli.rs
 expression: "serde_json::to_string_pretty(&value).unwrap()"
 ---
 {
+  "$version": "0.1.0",
   "problems": [
     {
       "code": "S09",
@@ -17,12 +18,35 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
       "message": "`$learn_more` is not set",
       "severity": "warning",
       "suggestion": {
+        "location": {
+          "end_column": 0,
+          "end_line": 1,
+          "start_column": 0,
+          "start_line": 1
+        },
         "replacement": "$learn_more: https://data-dict.tidyverse.org/\n",
         "title": "point readers to the spec"
       }
     },
     {
       "code": "S07",
+      "columns": [
+        "id"
+      ],
+      "context": [
+        {
+          "end_column": 22,
+          "end_line": 3,
+          "start_column": 10,
+          "start_line": 3
+        },
+        {
+          "end_column": 16,
+          "end_line": 7,
+          "start_column": 14,
+          "start_line": 7
+        }
+      ],
       "expected": "A `number(id)` column must describe its data with `examples`.",
       "kind": "spec",
       "location": {
@@ -32,10 +56,28 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
         "start_line": 8
       },
       "message": "has type `number(id)` but is missing `examples`",
-      "severity": "error"
+      "severity": "error",
+      "table": "measurements"
     },
     {
       "code": "S08",
+      "columns": [
+        "name"
+      ],
+      "context": [
+        {
+          "end_column": 22,
+          "end_line": 3,
+          "start_column": 10,
+          "start_line": 3
+        },
+        {
+          "end_column": 18,
+          "end_line": 9,
+          "start_column": 14,
+          "start_line": 9
+        }
+      ],
       "expected": "A column with `units` must have type `number(quantity)`.",
       "kind": "spec",
       "location": {
@@ -45,8 +87,10 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
         "start_line": 12
       },
       "message": "has `units` but has type `string`",
-      "severity": "error"
+      "severity": "error",
+      "table": "measurements"
     }
   ],
-  "status": "error"
+  "status": "error",
+  "steps": []
 }

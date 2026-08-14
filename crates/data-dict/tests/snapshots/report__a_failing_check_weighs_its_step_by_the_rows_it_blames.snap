@@ -1,0 +1,149 @@
+---
+source: crates/data-dict/tests/report.rs
+---
+{
+  "$version": "0.1.0",
+  "status": "error",
+  "steps": [
+    {
+      "id": 1,
+      "code": "M04",
+      "table": "otters",
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 2,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 3,
+      "code": "D04",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "fail",
+      "row_count": 2,
+      "failed_row_count": 1
+    },
+    {
+      "id": 4,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0
+    },
+    {
+      "id": 5,
+      "code": "D07",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "assertion": "weight > 1.5",
+      "outcome": "fail",
+      "row_count": 2,
+      "failed_row_count": 1
+    }
+  ],
+  "problems": [
+    {
+      "code": "D04",
+      "step": 3,
+      "severity": "error",
+      "message": "has 1 value outside the allowed set (`seal`; row: 2)",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "expected": "An enum column's values must all be among its declared `values`.",
+      "kind": "values_outside_enum",
+      "count": 1,
+      "rows": [
+        2
+      ],
+      "values": [
+        {
+          "name": "seal"
+        }
+      ],
+      "redacted": false,
+      "location": {
+        "start_line": 9,
+        "start_column": 16,
+        "end_line": 9,
+        "end_column": 31
+      },
+      "context": [
+        {
+          "start_line": 3,
+          "start_column": 10,
+          "end_line": 3,
+          "end_column": 16
+        },
+        {
+          "start_line": 7,
+          "start_column": 14,
+          "end_line": 7,
+          "end_column": 18
+        }
+      ]
+    },
+    {
+      "code": "D07",
+      "step": 5,
+      "severity": "error",
+      "message": "is false for 1 row: 1 (weight=1)",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "expected": "An assertion must hold for every row.",
+      "kind": "assertion_violated",
+      "assertion": "weight > 1.5",
+      "count": 1,
+      "rows": [
+        1
+      ],
+      "values": [
+        {
+          "weight": "1"
+        }
+      ],
+      "redacted": false,
+      "location": {
+        "start_line": 14,
+        "start_column": 20,
+        "end_line": 14,
+        "end_column": 32
+      },
+      "context": [
+        {
+          "start_line": 3,
+          "start_column": 10,
+          "end_line": 3,
+          "end_column": 16
+        },
+        {
+          "start_line": 10,
+          "start_column": 14,
+          "end_line": 10,
+          "end_column": 20
+        }
+      ]
+    }
+  ]
+}

@@ -238,53 +238,69 @@ fn check_spec(dict: &DataDict, out: &mut ProblemSet) {
 
     let mut seen_tables: HashMap<String, SourceInfo> = HashMap::new();
     for table in &dict.tables {
-        if validate_s11_table_name(table, out) {
-            validate_s10_unique_table_name(table, &mut seen_tables, out);
-        }
-        // Definitions first: assertions (and other definitions) may reference
-        // them, so their resolved types and shapes must be known.
-        let defs = validate_definitions(table, out);
-        validate_table_assertions(table, &defs, out);
-        check_columns(dict, table, &table.columns, &defs, false, out);
+        out.scope(&table.name.value, &[], |out| {
+            if validate_s11_table_name(table, out) {
+                validate_s10_unique_table_name(table, &mut seen_tables, out);
+            }
+            // Definitions first: assertions (and other definitions) may reference
+            // them, so their resolved types and shapes must be known.
+            let defs = validate_definitions(table, out);
+            validate_table_assertions(table, &defs, out);
+            check_columns(dict, table, &table.columns, &defs, &[], out);
+        });
     }
 }
 
-/// Run all column-level checks for a slice of columns. `in_struct` is `true`
-/// when the columns are fields inside a `struct`, which skips the checks that
-/// only make sense for table columns (S01, assertions, S29 — fields carry no
-/// `constraints` at all, which the schema enforces).
+/// Run all column-level checks for a slice of columns. `path` names the
+/// enclosing `struct` columns, empty for a table's own columns; inside a struct
+/// the checks that only make sense for table columns are skipped (S01,
+/// assertions, S29 — fields carry no `constraints` at all, which the schema
+/// enforces).
 fn check_columns(
     dict: &DataDict,
     table: &Table,
     columns: &[Column],
     defs: &HashMap<String, DefType>,
-    in_struct: bool,
+    path: &[&str],
     out: &mut ProblemSet,
 ) {
     let mut seen: HashMap<String, SourceInfo> = HashMap::new();
     for col in columns {
-        if !in_struct {
-            validate_s01_foreign_key(dict, table, col, out);
-            validate_column_assertions(table, col, defs, out);
-            validate_s29_key_constraints(table, col, out);
-        }
-        validate_s08_units(table, col, out);
-        validate_s14_time_zone(table, col, out);
-        validate_s15_time_zone_format(table, col, out);
-        if validate_s11_column_name(table, col, out) {
-            validate_s10_unique_name(table, col, &mut seen, out);
-        }
-        validate_enum_values(table, col, out);
-        if validate_s28_type(table, col, out)
-            && validate_s07_representation(table, col, out)
-            && validate_s12_value_types(table, col, out)
-        {
-            validate_s13_range_order(table, col, out);
-        }
-        // Recurse into struct fields (covers both `struct` and `list(struct)`).
-        if let Some(fields) = &col.fields {
-            check_columns(dict, table, fields, defs, true, out);
-        }
+        let dotted = path
+            .iter()
+            .copied()
+            .chain([col.name.value.as_str()])
+            .collect::<Vec<_>>()
+            .join(".");
+        out.scope(&table.name.value, &[dotted], |out| {
+            if path.is_empty() {
+                validate_s01_foreign_key(dict, table, col, out);
+                validate_column_assertions(table, col, defs, out);
+                validate_s29_key_constraints(table, col, out);
+            }
+            validate_s08_units(table, col, out);
+            validate_s14_time_zone(table, col, out);
+            validate_s15_time_zone_format(table, col, out);
+            if validate_s11_column_name(table, col, out) {
+                validate_s10_unique_name(table, col, &mut seen, out);
+            }
+            validate_enum_values(table, col, out);
+            if validate_s28_type(table, col, out)
+                && validate_s07_representation(table, col, out)
+                && validate_s12_value_types(table, col, out)
+            {
+                validate_s13_range_order(table, col, out);
+            }
+            // Recurse into struct fields (covers both `struct` and `list(struct)`).
+            if let Some(fields) = &col.fields {
+                let path: Vec<&str> = path
+                    .iter()
+                    .copied()
+                    .chain([col.name.value.as_str()])
+                    .collect();
+                check_columns(dict, table, fields, defs, &path, out);
+            }
+        });
     }
 }
 

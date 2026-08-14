@@ -25,6 +25,7 @@ pub mod join_expr;
 pub mod lower;
 pub mod model;
 pub mod problem;
+pub mod report;
 pub mod translate;
 pub mod validate_data;
 pub mod validate_meta;
@@ -36,6 +37,7 @@ pub use problem::{
     Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status, ValueRow,
 };
 pub use quarto_source_map::SourceContext;
+pub use report::{REPORT_VERSION, Report, Step, StepOutcome};
 pub use validate_data::validate_data;
 pub use validate_meta::validate_meta;
 pub(crate) use validate_spec::{load, validate_and_lower};
@@ -43,6 +45,7 @@ pub use validate_spec::{validate_spec, validate_spec_str};
 
 use data_dict_parquet::DataColumn;
 use model::{DataDict, Table};
+use report::{Failed, StepKey, StepTarget};
 
 pub const SPEC_MD: &str = include_str!("../../../site/spec.md");
 
@@ -73,6 +76,7 @@ pub(crate) type ReadTables = HashMap<String, (PathBuf, Vec<String>)>;
 pub(crate) fn compare_dataset(
     dict_path: &Path,
     table: Option<&str>,
+    level: Level,
     checks: impl Fn(&Table, &Path, &[DataColumn], &mut ProblemSet),
     cross: impl Fn(&DataDict, &ReadTables, &mut ProblemSet),
 ) -> ProblemSet {
@@ -89,15 +93,27 @@ pub(crate) fn compare_dataset(
     let base_dir = dict_path.parent().unwrap_or_else(|| Path::new(""));
     let mut readable: ReadTables = HashMap::new();
     for table in tables {
+        // Registered before the data is opened, so a table whose source can't
+        // be read still lists the steps that never reached a verdict. Only the
+        // data level evaluates assertions, so only it needs their columns.
+        let assertions = match level {
+            Level::Data => validate_data::assertion_targets(table),
+            _ => Vec::new(),
+        };
+        problems.register_steps(table, level, &assertions);
         if let Some((parquet_path, actual)) =
             read_parquet(table, base_dir, Severity::Error, &mut problems)
         {
             checks(table, &parquet_path, &actual, &mut problems);
+            if let Ok(rows) = data_dict_parquet::row_count(&parquet_path) {
+                problems.set_row_count(&table.name.value, rows);
+            }
             let columns = actual.iter().map(|col| col.name.clone()).collect();
             readable.insert(table.name.value.clone(), (parquet_path, columns));
         }
     }
     cross(&dict, &readable, &mut problems);
+    problems.steps.finish();
     problems
 }
 
@@ -113,6 +129,7 @@ pub(crate) fn read_parquet(
     severity: Severity,
     out: &mut ProblemSet,
 ) -> Option<(PathBuf, Vec<DataColumn>)> {
+    let key = StepKey::new(&table.name.value, StepTarget::Table);
     let Some(source) = &table.source else {
         out.push_located(
             ProblemKind::MissingSource,
@@ -121,11 +138,16 @@ pub(crate) fn read_parquet(
             "has no `source`",
             [table.name.span.clone()],
         );
+        out.at_last(&table.name.value, []);
+        out.fail_last(&key, Failed::Uncounted);
         return None;
     };
     let parquet_path = base_dir.join(&source.parquet.value);
     match data_dict_parquet::column_tree(&parquet_path) {
-        Ok(actual) => Some((parquet_path, actual)),
+        Ok(actual) => {
+            out.step_pass(&key);
+            Some((parquet_path, actual))
+        }
         Err(e) => {
             out.push_located(
                 ProblemKind::UnreadableSource,
@@ -134,6 +156,8 @@ pub(crate) fn read_parquet(
                 e.to_string(),
                 [table.name.span.clone(), source.parquet.span.clone()],
             );
+            out.at_last(&table.name.value, []);
+            out.fail_last(&key, Failed::Uncounted);
             None
         }
     }

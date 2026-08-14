@@ -50,13 +50,20 @@ pub struct ColumnStats {
     pub null_count: usize,
     /// 1-based row numbers, capped by the caller's limit.
     pub null_rows: Vec<usize>,
-    /// Non-null values found outside the [`ColumnNeeds::allowed`] set.
+    /// Non-null values found outside the [`ColumnNeeds::allowed`] set. A list
+    /// or struct column holds several values per row, so this can exceed
+    /// [`outside_row_count`](Self::outside_row_count).
     pub outside_count: usize,
+    /// How many rows held at least one such value.
+    pub outside_row_count: usize,
     /// 1-based row numbers of outside values, capped by the caller's limit.
     /// A value inside a list or struct is attributed to the row holding it.
     pub outside_rows: Vec<usize>,
     /// The value each sampled row in `outside_rows` held, in the same order.
     pub outside_values: Vec<String>,
+    /// The row the last offending value was found in, so several offending
+    /// values in one row count as one row.
+    last_outside_row: Option<usize>,
 }
 
 /// Gather requested statistics in one projected, streaming pass over the file.
@@ -210,8 +217,15 @@ fn check_membership<'a>(
             continue;
         }
         stat.outside_count += 1;
+        let row = row_offset + row_of(index) + 1;
+        // Values arrive in row order, so a row is new when it differs from the
+        // last one counted.
+        if stat.last_outside_row != Some(row) {
+            stat.last_outside_row = Some(row);
+            stat.outside_row_count += 1;
+        }
         if stat.outside_rows.len() < limit {
-            stat.outside_rows.push(row_offset + row_of(index) + 1);
+            stat.outside_rows.push(row);
             stat.outside_values.push(match value {
                 Some(value) => value.to_string(),
                 None => bytes.iter().map(|b| format!("{b:02x}")).collect(),
