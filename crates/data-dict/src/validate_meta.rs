@@ -200,6 +200,10 @@ fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
             columns: vec![col.name.value.clone()],
             count,
             rows: Vec::new(),
+            // The footer proves how many rows repeat but not which, so there is
+            // no row to read a value from.
+            values: Vec::new(),
+            redacted: false,
         },
     }
 }

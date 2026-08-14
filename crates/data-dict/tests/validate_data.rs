@@ -12,7 +12,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use data_dict::{Problem, ProblemKind, ProblemSet, Status, validate_data, validate_meta};
+use data_dict::{Problem, ProblemKind, ProblemSet, Status, ValueRow, validate_data, validate_meta};
 use indoc::{formatdoc, indoc};
 use parquet::data_type::{
     ByteArray, ByteArrayType, DoubleType, FixedLenByteArray, FixedLenByteArrayType, Int32Type,
@@ -21,6 +21,15 @@ use parquet::data_type::{
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use parquet::file::writer::{SerializedColumnWriter, SerializedFileWriter};
 use parquet::schema::parser::parse_message_type;
+
+/// The values each sampled row held, a composite key's columns joined with a
+/// comma. A row whose every column was withheld as restricted reads as empty.
+fn sampled(values: &[ValueRow]) -> Vec<String> {
+    values
+        .iter()
+        .map(|row| row.rendered().collect::<Vec<_>>().join(", "))
+        .collect()
+}
 
 /// Validate a single column's values in isolation, via [`build_column`].
 fn check_column(
@@ -101,6 +110,11 @@ fn write_double_with_null(col: &mut SerializedColumnWriter) {
 }
 
 fn build_composite_key(first: &[f64], second: &[f64]) -> PathBuf {
+    build_composite_key_with_display(first, second, "")
+}
+
+/// [`build_composite_key`], with `display` spliced into key column `b`'s entry.
+fn build_composite_key_with_display(first: &[f64], second: &[f64], display: &str) -> PathBuf {
     let dir = temp_dir();
     let parquet = dir.join("data.parquet");
     let schema = Arc::new(
@@ -126,7 +140,7 @@ fn build_composite_key(first: &[f64], second: &[f64]) -> PathBuf {
 
     write_dict(
         &dir,
-        indoc! {"
+        &formatdoc! {"
             tables:
               - name: t
                 source:
@@ -139,7 +153,7 @@ fn build_composite_key(first: &[f64], second: &[f64]) -> PathBuf {
                   - name: b
                     type: number(id)
                     constraints: [primary_key]
-                    examples: [1, 2]
+                    examples: [1, 2]{display}
         "},
     )
 }
@@ -306,9 +320,9 @@ fn values_outside_enum_reported() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[4] && values == &["sleepy"]
+            }] if rows == &[4] && sampled(values) == ["sleepy"]
         ),
         "got {:?}",
         result.items
@@ -318,6 +332,39 @@ fn values_outside_enum_reported() {
         &yaml,
         &result.render(common::SNAPSHOT_STYLE).join("\n")
     ));
+}
+
+/// `values` line up with `rows` one for one, so a value that offends twice is
+/// reported twice even though the message names it once.
+#[test]
+fn every_offending_enum_row_reports_its_value() {
+    let yaml = build_column(
+        "REQUIRED BYTE_ARRAY status (UTF8)",
+        write_strings(&["active", "sleepy", "sleepy", "grumpy"]),
+        indoc! {"
+            - name: status
+              type: enum
+              values: [active]
+        "},
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D04"),
+                kind: ProblemKind::ValuesOutsideEnum { count: 3, rows, values, .. },
+                ..
+            }] if rows == &[2, 3, 4] && sampled(values) == ["sleepy", "sleepy", "grumpy"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D04", "(`sleepy`, `grumpy`; rows: 2, 3, 4)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
 }
 
 /// A restricted column's offending values are withheld from both the message
@@ -342,7 +389,7 @@ fn values_outside_enum_withheld_when_restricted() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. },
                 ..
             }] if rows == &[4] && values.is_empty()
         ),
@@ -390,9 +437,9 @@ fn enum_map_form_values_are_the_keys() {
         matches!(
             result.items.as_slice(),
             [Problem {
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[2] && values == &["Active"]
+            }] if rows == &[2] && sampled(values) == ["Active"]
         ),
         "got {:?}",
         result.items
@@ -453,9 +500,9 @@ fn true_parquet_enum_column_is_checked() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[2] && values == &["other"]
+            }] if rows == &[2] && sampled(values) == ["other"]
         ),
         "got {:?}",
         result.items
@@ -594,9 +641,9 @@ fn enum_without_dictionary_encoding_falls_back_to_scan() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D04"),
-                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values },
+                kind: ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[3] && values == &["sleepy"]
+            }] if rows == &[3] && sampled(values) == ["sleepy"]
         ),
         "got {:?}",
         result.items
@@ -653,10 +700,71 @@ fn duplicate_values_in_unique_column_reported() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
             ..
-        }] if columns == &["id"] && rows == &[2]
+        }] if columns == &["id"] && rows == &[2] && sampled(values) == ["1.0"]
     ));
+}
+
+/// `values` line up with `rows` one for one, nothing deduplicated, so a key
+/// repeated twice is reported twice.
+#[test]
+fn every_repeat_of_a_key_is_reported() {
+    let yaml = build_string_groups(&[&["a", "a", "b", "a"]]);
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { count: 2, rows, values, .. },
+                ..
+            }] if rows == &[2, 4] && sampled(values) == ["a", "a"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D02", "has 2 repeated occurrences (`a`; rows: 2, 4)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// A restricted column's duplicate values are withheld from both the message
+/// and the structured kind. The rows stay, so the records are still findable by
+/// anyone entitled to read them.
+#[test]
+fn duplicate_values_withheld_when_restricted() {
+    let yaml = build_column(
+        "REQUIRED BYTE_ARRAY email (UTF8)",
+        write_strings(&["a@example.com", "a@example.com"]),
+        indoc! {"
+            - name: email
+              type: string
+              constraints: [unique]
+              examples: ['x@example.com']
+              display: restricted
+        "},
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { count: 1, rows, values, redacted: true, .. },
+                ..
+            }] if rows == &[2] && values.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
+    let rendered = result.render(common::SNAPSHOT_STYLE).join("\n");
+    assert!(!rendered.contains("a@example.com"), "got {rendered}");
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(&yaml, &rendered));
 }
 
 /// Write a single required string column whose values are split across the
@@ -717,9 +825,9 @@ fn duplicate_string_values_across_row_groups_reported() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
             ..
-        }] if columns == &["code"] && rows == &[4]
+        }] if columns == &["code"] && rows == &[4] && sampled(values) == ["a"]
     ));
 }
 
@@ -734,10 +842,39 @@ fn composite_primary_key_is_checked_collectively() {
         result.items.as_slice(),
         [Problem {
             code: Some("D02"),
-            kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+            kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
             ..
-        }] if columns == &["a", "b"] && rows == &[2]
+        }] if columns == &["a", "b"] && rows == &[2] && sampled(values) == ["1.0, 1.0"]
     ));
+}
+
+/// Withholding is per column: the restricted key column drops out of the
+/// reported key while its neighbour still names its value.
+#[test]
+fn composite_key_withholds_only_its_restricted_column() {
+    let yaml = build_composite_key_with_display(
+        &[1.0, 1.0, 2.0],
+        &[1.0, 1.0, 2.0],
+        "\n        display: restricted",
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, redacted: true },
+                ..
+            }] if columns == &["a", "b"] && rows == &[2] && sampled(values) == ["1.0"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D02", "has 1 repeated occurrence (`1.0`; row: 2)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
 }
 
 #[test]
@@ -786,9 +923,9 @@ fn nulls_alongside_a_real_duplicate_report_only_the_duplicate() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
                 ..
-            }] if columns == &["id"] && rows == &[3]
+            }] if columns == &["id"] && rows == &[3] && sampled(values) == ["1.0"]
         ),
         "got {:?}",
         result.items
@@ -1089,9 +1226,9 @@ fn differently_encoded_decimals_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
                 ..
-            }] if columns == &["amount"] && rows == &[2]
+            }] if columns == &["amount"] && rows == &[2] && sampled(values) == ["0.01"]
         ),
         "got {:?}",
         result.items
@@ -1122,9 +1259,11 @@ fn signed_zeros_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
                 ..
-            }] if columns == &["score"] && rows == &[2]
+            // Reported as stored: the duplicate is `-0.0`, even though it is
+            // `0.0` that it duplicates.
+            }] if columns == &["score"] && rows == &[2] && sampled(values) == ["-0.0"]
         ),
         "got {:?}",
         result.items
@@ -1159,9 +1298,9 @@ fn float16_unique_column_is_checked() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
                 ..
-            }] if columns == &["reading"] && rows == &[2]
+            }] if columns == &["reading"] && rows == &[2] && sampled(values) == ["-0"]
         ),
         "got {:?}",
         result.items
@@ -1195,9 +1334,9 @@ fn distinct_nan_bit_patterns_are_duplicates() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                kind: ProblemKind::DuplicateValues { columns, count: 1, rows },
+                kind: ProblemKind::DuplicateValues { columns, count: 1, rows, values, .. },
                 ..
-            }] if columns == &["score"] && rows == &[2]
+            }] if columns == &["score"] && rows == &[2] && sampled(values) == ["NaN"]
         ),
         "got {:?}",
         result.items
@@ -1315,12 +1454,12 @@ fn foreign_key_orphan_value_reported() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D05"),
-                kind: ProblemKind::ForeignKeyNotFound { column, references, count: 1, rows, values },
+                kind: ProblemKind::ForeignKeyNotFound { column, references, count: 1, rows, values, .. },
                 ..
             }] if column == "category_id"
                 && references == "category.id"
                 && rows == &[3]
-                && values == &["5"]
+                && sampled(values) == ["5"]
         ),
         "got {:?}",
         result.items
@@ -1330,6 +1469,46 @@ fn foreign_key_orphan_value_reported() {
         &yaml,
         &result.render(common::SNAPSHOT_STYLE).join("\n")
     ));
+}
+
+/// `values` line up with `rows` one for one, so an orphan repeated across rows
+/// is reported once per row.
+#[test]
+fn every_orphan_row_reports_its_value() {
+    let yaml = build_fk(
+        "REQUIRED INT64 category_id",
+        |col| {
+            col.typed::<Int64Type>()
+                .write_batch(&[5, 1, 5], None, None)
+                .unwrap();
+        },
+        "REQUIRED INT64 id",
+        |col| {
+            col.typed::<Int64Type>()
+                .write_batch(&[1, 2, 3], None, None)
+                .unwrap();
+        },
+        "number(id)",
+        "[1, 2]",
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D05"),
+                kind: ProblemKind::ForeignKeyNotFound { count: 2, rows, values, .. },
+                ..
+            }] if rows == &[1, 3] && sampled(values) == ["5", "5"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D05", "(`5`; rows: 1, 3)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
 }
 
 /// A restricted foreign key's orphan values are withheld from both the
@@ -1449,7 +1628,7 @@ fn foreign_key_null_values_are_exempt() {
                 code: Some("D05"),
                 kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[3] && values == &["5"]
+            }] if rows == &[3] && sampled(values) == ["5"]
         ),
         "got {:?}",
         result.items
@@ -1474,7 +1653,7 @@ fn foreign_key_string_orphan_reported() {
                 code: Some("D05"),
                 kind: ProblemKind::ForeignKeyNotFound { references, count: 1, rows, values, .. },
                 ..
-            }] if references == "category.id" && rows == &[3] && values == &["z"]
+            }] if references == "category.id" && rows == &[3] && sampled(values) == ["z"]
         ),
         "got {:?}",
         result.items
@@ -1542,7 +1721,7 @@ fn foreign_key_across_decimal_encodings() {
                 code: Some("D05"),
                 kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[2] && values == &["9.99"]
+            }] if rows == &[2] && sampled(values) == ["9.99"]
         ),
         "got {:?}",
         result.items
@@ -1606,7 +1785,7 @@ fn foreign_key_without_common_form_reports_all() {
                 code: Some("D05"),
                 kind: ProblemKind::ForeignKeyNotFound { count: 2, rows, values, .. },
                 ..
-            }] if rows == &[1, 3] && values == &["a", "b"]
+            }] if rows == &[1, 3] && sampled(values) == ["a", "b"]
         ),
         "got {:?}",
         result.items
@@ -1669,7 +1848,7 @@ fn foreign_key_date_orphan_renders_as_date() {
                 code: Some("D05"),
                 kind: ProblemKind::ForeignKeyNotFound { count: 1, rows, values, .. },
                 ..
-            }] if rows == &[2] && values == &["2024-01-02"]
+            }] if rows == &[2] && sampled(values) == ["2024-01-02"]
         ),
         "got {:?}",
         result.items
@@ -1805,8 +1984,8 @@ fn list_enum_membership_checked() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
-                if rows == &vec![2] && values == &vec!["zz".to_string()]
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. }
+                if rows == &vec![2] && sampled(values) == ["zz"]
         )),
         "got {:?}",
         result.items
@@ -1841,8 +2020,8 @@ fn struct_enum_field_membership_checked() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
-                if rows == &vec![2] && values == &vec!["XX".to_string()]
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. }
+                if rows == &vec![2] && sampled(values) == ["XX"]
         )),
         "got {:?}",
         result.items
@@ -1910,8 +2089,8 @@ fn nested_list_checks_compose() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
-                if rows == &vec![2] && values == &vec!["zz".to_string()]
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. }
+                if rows == &vec![2] && sampled(values) == ["zz"]
         )),
         "got {:?}",
         result.items
@@ -1990,8 +2169,8 @@ fn deep_alternating_nesting_checks_values() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::ValuesOutsideEnum { count: 1, rows, values }
-                if rows == &vec![2] && values == &vec!["bogus".to_string()]
+            ProblemKind::ValuesOutsideEnum { count: 1, rows, values, .. }
+                if rows == &vec![2] && sampled(values) == ["bogus"]
         )),
         "got {:?}",
         result.items
@@ -2010,6 +2189,17 @@ fn deep_alternating_nesting_checks_values() {
 
 /// A two-column table of integers, with `constraints` spliced in at table level.
 fn build_asserted(a: &[i64], b: &[Option<i64>], constraints: &str) -> PathBuf {
+    build_asserted_with_display(a, b, constraints, "")
+}
+
+/// [`build_asserted`], with `display` spliced into column `a`'s entry so an
+/// assertion can read a restricted column.
+fn build_asserted_with_display(
+    a: &[i64],
+    b: &[Option<i64>],
+    constraints: &str,
+    display: &str,
+) -> PathBuf {
     let dir = temp_dir();
     let parquet = dir.join("data.parquet");
     let schema = Arc::new(
@@ -2049,7 +2239,7 @@ fn build_asserted(a: &[i64], b: &[Option<i64>], constraints: &str) -> PathBuf {
                 columns:
                   - name: a
                     type: number(quantity)
-                    range: [-1000000, 1000000]
+                    range: [-1000000, 1000000]{display}
                   - name: b
                     type: number(quantity)
                     range: [-1000000, 1000000]
@@ -2115,6 +2305,66 @@ fn assertion_violated_reports_the_rows() {
     diagnostic.assert_contains(&["D07", "is false for 2 rows", "2, 4"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
+}
+
+/// An assertion reads its columns' values to report a violation, so a
+/// restricted column withholds them there too.
+#[test]
+fn assertion_values_withheld_when_restricted() {
+    let yaml = build_asserted_with_display(
+        &[1, -2, 3],
+        &[None, None, None],
+        &assertion("a > 0"),
+        "\n        display: restricted",
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D07"),
+                kind: ProblemKind::AssertionViolated { count: 1, rows, values, redacted: true, .. },
+                ..
+            }] if rows == &[2] && values.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D07", "is false for 1 row: 2 (values restricted)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// A restricted column an assertion reads drops out of the values, while the
+/// columns beside it still report theirs.
+#[test]
+fn assertion_withholds_only_its_restricted_column() {
+    let yaml = build_asserted_with_display(
+        &[1, -2, 3],
+        &[Some(10), Some(20), Some(30)],
+        &assertion("a > 0 OR b > 100"),
+        "\n        display: restricted",
+    );
+    let result = validate_data(&yaml, None);
+
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D07"),
+                kind: ProblemKind::AssertionViolated { count: 1, rows, values, redacted: true, .. },
+                ..
+            }] if rows == &[2] && sampled(values) == ["20"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let rendered = result.render(common::SNAPSHOT_STYLE).join("\n");
+    assert!(!rendered.contains("a=-2"), "got {rendered}");
+    #[cfg(unix)]
+    assert_snapshot!(common::diagnostic(&yaml, &rendered));
 }
 
 #[test]

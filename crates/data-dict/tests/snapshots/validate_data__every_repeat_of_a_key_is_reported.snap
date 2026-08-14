@@ -1,0 +1,24 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    columns:
+      - name: code
+        type: string
+        constraints: [unique]
+        examples: [a, b]
+────────────────────────────────────────
+error[D02]: A unique column must not contain duplicate values.
+  --> dict.yaml:10:23
+   |
+LL |   - name: t
+...
+LL |       - name: code
+LL |         type: string
+LL |         constraints: [unique]
+   |                       ^^^^^^ has 2 repeated occurrences (`a`; rows: 2, 4)

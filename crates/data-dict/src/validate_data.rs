@@ -16,7 +16,7 @@ use quarto_source_map::SourceInfo;
 
 use crate::ReadTables;
 use crate::model::{Assertion, Column, Constraint, DataDict, Table};
-use crate::problem::{Problem, ProblemKind, ProblemSet, Severity};
+use crate::problem::{Problem, ProblemKind, ProblemSet, Severity, ValueRow};
 use crate::validate_meta::CheckResult;
 
 /// How many example values (e.g. offending rows) to record per validation
@@ -26,6 +26,69 @@ const SAMPLE_LIMIT: usize = 5;
 /// A `display: restricted` column's values never appear in diagnostics.
 fn is_restricted(col: &Column) -> bool {
     col.display.as_deref() == Some("restricted")
+}
+
+/// Pair each sampled row's values with the columns they came from, leaving out
+/// every column `restricted` names. Withholding is per column, so a key's
+/// unrestricted columns still report their values; a row left naming nothing at
+/// all is dropped, since an empty entry says nothing.
+///
+/// Returns the rows and whether anything was withheld, which the problem
+/// reports as `redacted`.
+fn value_rows(
+    columns: &[String],
+    values: &[Vec<String>],
+    restricted: impl Fn(&str) -> bool,
+) -> (Vec<ValueRow>, bool) {
+    let kept: Vec<bool> = columns.iter().map(|name| !restricted(name)).collect();
+    let redacted = kept.iter().any(|keep| !keep);
+    let rows = values
+        .iter()
+        .map(|value| {
+            columns
+                .iter()
+                .zip(value)
+                .zip(&kept)
+                .filter(|(_, keep)| **keep)
+                .map(|((name, value), _)| (name.clone(), Some(value.clone())))
+                .collect::<ValueRow>()
+        })
+        .filter(|row| !row.is_empty())
+        .collect();
+    (rows, redacted)
+}
+
+/// Withhold the values of every restricted column an assertion reads, dropping
+/// a row left naming nothing. An assertion names its columns by path, and only
+/// a whole column can be restricted, so the root segment decides.
+fn restrict_assertion_values(table: &Table, values: Vec<ValueRow>) -> (Vec<ValueRow>, bool) {
+    let restricted = |path: &str| {
+        let root = path.split('.').next().unwrap_or(path);
+        table
+            .columns
+            .iter()
+            .any(|col| col.name.value == root && is_restricted(col))
+    };
+    let mut redacted = false;
+    let mut kept = Vec::new();
+    for mut row in values {
+        redacted |= row.retain(|column| !restricted(column));
+        if !row.is_empty() {
+            kept.push(row);
+        }
+    }
+    (kept, redacted)
+}
+
+/// The `(values; rows)` tail every value-reporting diagnostic ends with, naming
+/// the offending values when they can be shown and saying so when they can't.
+fn found(values: &[ValueRow], rows: &[usize], count: usize, redacted: bool) -> String {
+    let listed = crate::problem::format_rows(rows, count);
+    match crate::problem::format_values(values) {
+        Some(values) => format!("{values}; {listed}"),
+        None if redacted => format!("values restricted; {listed}"),
+        None => listed,
+    }
 }
 
 /// Validate a parquet file's values against a data dictionary.
@@ -120,9 +183,9 @@ fn value_issues(
     let stats = data_dict_parquet::column_stats(parquet_path, &requests, SAMPLE_LIMIT)?;
 
     // Phase 3 — check. Per planned column, draw verdicts from the gathered stats.
-    for ((_, col, pending), stat) in plan.iter().zip(&stats) {
+    for ((request, col, pending), stat) in plan.iter().zip(&stats) {
         for check in pending {
-            if let Some(problem) = check.check_data(table, col, stat) {
+            if let Some(problem) = check.check_data(table, col, &request.path, stat) {
                 out.push(problem);
             }
         }
@@ -322,11 +385,16 @@ fn assertion_problem(
         crate::eval::Outcome::Rows {
             count,
             rows,
-            samples,
+            values,
         } => {
+            let (values, redacted) = restrict_assertion_values(table, values);
             let plural = if count == 1 { "" } else { "s" };
             let listed = list_rows(&rows, count);
-            let sample = samples.first().map_or(String::new(), |s| format!(" ({s})"));
+            let sample = values
+                .first()
+                .map(|row| row.pairs().collect::<Vec<_>>().join(", "))
+                .or_else(|| redacted.then(|| "values restricted".to_string()))
+                .map_or(String::new(), |sample| format!(" ({sample})"));
             (
                 format!("is false for {count} row{plural}: {listed}{sample}"),
                 "An assertion must hold for every row.",
@@ -334,7 +402,8 @@ fn assertion_problem(
                     assertion: text,
                     count,
                     rows,
-                    samples,
+                    values,
+                    redacted,
                 },
             )
         }
@@ -463,10 +532,18 @@ trait ColumnCheck {
 
     /// Draw a verdict from the gathered stats. Only ever called with stats whose
     /// requested fields this check (or another) asked for. `table` is passed for
-    /// locating the finding at the column's node in the dictionary.
+    /// locating the finding at the column's node in the dictionary, and `path`
+    /// names the column as the data holds it — several segments for a field
+    /// reached through a struct.
     /// Complete an inconclusive metadata check from scanned values. `None` is
     /// pass and `Some` is fail; data checks cannot remain inconclusive.
-    fn check_data(&self, table: &Table, col: &Column, stats: &ColumnStats) -> Option<Problem>;
+    fn check_data(
+        &self,
+        table: &Table,
+        col: &Column,
+        path: &[String],
+        stats: &ColumnStats,
+    ) -> Option<Problem>;
 }
 
 /// Every value-level check, run against each present column. Add a check here
@@ -488,7 +565,13 @@ impl ColumnCheck for RequiredNotNull {
         }
     }
 
-    fn check_data(&self, table: &Table, col: &Column, stats: &ColumnStats) -> Option<Problem> {
+    fn check_data(
+        &self,
+        table: &Table,
+        col: &Column,
+        _path: &[String],
+        stats: &ColumnStats,
+    ) -> Option<Problem> {
         // Nulls are only counted when this check requested them (i.e. the column
         // is required), so a positive count is exactly a violation.
         if stats.null_count == 0 {
@@ -531,13 +614,19 @@ impl ColumnCheck for EnumMembership {
         }
     }
 
-    fn check_data(&self, table: &Table, col: &Column, stats: &ColumnStats) -> Option<Problem> {
+    fn check_data(
+        &self,
+        table: &Table,
+        col: &Column,
+        path: &[String],
+        stats: &ColumnStats,
+    ) -> Option<Problem> {
         // The set was only requested for enum columns, so any outside value is a
         // violation.
         if stats.outside_count == 0 {
             return None;
         }
-        Some(values_outside_enum(table, col, stats))
+        Some(values_outside_enum(table, col, path, stats))
     }
 }
 
@@ -555,21 +644,31 @@ fn enum_allowed(col: &Column) -> Option<HashSet<String>> {
     )
 }
 
-fn values_outside_enum(table: &Table, col: &Column, stats: &ColumnStats) -> Problem {
+fn values_outside_enum(
+    table: &Table,
+    col: &Column,
+    path: &[String],
+    stats: &ColumnStats,
+) -> Problem {
     let count = stats.outside_count;
-    let rows = crate::problem::format_rows(&stats.outside_rows, count);
+    let rowwise: Vec<Vec<String>> = stats
+        .outside_values
+        .iter()
+        .map(|value| vec![value.clone()])
+        .collect();
+    // The schema allows `display` on a column but not on a nested field, so a
+    // field reached through a struct takes its restriction from the column that
+    // holds it.
+    let restricted = is_restricted(col)
+        || path.first().is_some_and(|root| {
+            table
+                .columns
+                .iter()
+                .any(|col| col.name.value == *root && is_restricted(col))
+        });
+    let (values, redacted) = value_rows(&[path.join(".")], &rowwise, |_| restricted);
+    let detail = found(&values, &stats.outside_rows, count, redacted);
     let plural = if count == 1 { "" } else { "s" };
-    let restricted = is_restricted(col);
-    let sample = if restricted {
-        "values restricted".to_string()
-    } else {
-        stats
-            .outside_values
-            .iter()
-            .map(|value| format!("`{value}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
     let values_span = col
         .values
         .as_ref()
@@ -577,7 +676,7 @@ fn values_outside_enum(table: &Table, col: &Column, stats: &ColumnStats) -> Prob
     Problem {
         code: Some("D04"),
         severity: Severity::Error,
-        message: format!("has {count} value{plural} outside the allowed set ({sample}; {rows})"),
+        message: format!("has {count} value{plural} outside the allowed set ({detail})"),
         column: None,
         expected: Some("An enum column's values must all be among its declared `values`.".into()),
         hint: None,
@@ -586,11 +685,8 @@ fn values_outside_enum(table: &Table, col: &Column, stats: &ColumnStats) -> Prob
         kind: ProblemKind::ValuesOutsideEnum {
             count,
             rows: stats.outside_rows.clone(),
-            values: if restricted {
-                Vec::new()
-            } else {
-                stats.outside_values.clone()
-            },
+            values,
+            redacted,
         },
     }
 }
@@ -630,7 +726,10 @@ fn nulls_in_required_data(table: &Table, col: &Column, count: usize, rows: Vec<u
 
 fn duplicates_in_unique_column(table: &Table, col: &Column, stats: &UniquenessStats) -> Problem {
     let count = stats.duplicate_count;
-    let detail = crate::problem::format_rows(&stats.duplicate_rows, count);
+    let (values, redacted) = value_rows(&stats.key_columns, &stats.duplicate_values, |_| {
+        is_restricted(col)
+    });
+    let detail = found(&values, &stats.duplicate_rows, count, redacted);
     let plural = if count == 1 { "" } else { "s" };
     let constraint_span = col
         .constraints
@@ -657,6 +756,8 @@ fn duplicates_in_unique_column(table: &Table, col: &Column, stats: &UniquenessSt
             columns: vec![col.name.value.clone()],
             count,
             rows: stats.duplicate_rows.clone(),
+            values,
+            redacted,
         },
     }
 }
@@ -667,7 +768,12 @@ fn duplicates_in_primary_key(
     stats: &UniquenessStats,
 ) -> Problem {
     let count = stats.duplicate_count;
-    let detail = crate::problem::format_rows(&stats.duplicate_rows, count);
+    let (values, redacted) = value_rows(&stats.key_columns, &stats.duplicate_values, |name| {
+        columns
+            .iter()
+            .any(|col| col.name.value == name && is_restricted(col))
+    });
+    let detail = found(&values, &stats.duplicate_rows, count, redacted);
     let plural = if count == 1 { "" } else { "s" };
     let last = columns
         .last()
@@ -696,6 +802,8 @@ fn duplicates_in_primary_key(
             columns: columns.iter().map(|col| col.name.value.clone()).collect(),
             count,
             rows: stats.duplicate_rows.clone(),
+            values,
+            redacted,
         },
     }
 }
@@ -865,26 +973,21 @@ fn foreign_key_not_found(
     stats: &ForeignKeyStats,
 ) -> Problem {
     let count = stats.orphan_count;
-    let detail = crate::problem::format_rows(&stats.orphan_rows, count);
+    let rowwise: Vec<Vec<String>> = stats
+        .orphan_values
+        .iter()
+        .map(|value| vec![value.clone()])
+        .collect();
+    let (values, redacted) = value_rows(std::slice::from_ref(&col.name.value), &rowwise, |_| {
+        is_restricted(col)
+    });
+    let detail = found(&values, &stats.orphan_rows, count, redacted);
     let plural = if count == 1 { "" } else { "s" };
-    let restricted = is_restricted(col);
-    let sample = if restricted {
-        "values restricted".to_string()
-    } else {
-        stats
-            .orphan_values
-            .iter()
-            .map(|value| format!("`{value}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
     let references = format!("{}.{}", parent_table.name.value, parent_col.name.value);
     Problem {
         code: Some("D05"),
         severity: Severity::Error,
-        message: format!(
-            "has {count} value{plural} not found in `{references}` ({sample}; {detail})"
-        ),
+        message: format!("has {count} value{plural} not found in `{references}` ({detail})"),
         column: None,
         expected: Some(
             "A foreign key's values must all appear in the primary key it references.".into(),
@@ -901,11 +1004,8 @@ fn foreign_key_not_found(
             references,
             count,
             rows: stats.orphan_rows.clone(),
-            values: if restricted {
-                Vec::new()
-            } else {
-                stats.orphan_values.clone()
-            },
+            values,
+            redacted,
         },
     }
 }
