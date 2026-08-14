@@ -18,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use data_dict::RenderStyle;
 
-use crate::assets::{Assets, dict_json};
+use crate::assets::{Assets, embed_json};
 
 /// Where the browser is sent first. Fixed, so a pinned tab survives a restart.
 const DEFAULT_PORT: u16 = 7590;
@@ -130,7 +130,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
         .into_iter()
         .map(|path| base.join(path))
         .collect();
-    match assets.render_page(&dict_json(&export), true) {
+    match assets.render_dict_page(&embed_json(&export), true) {
         Ok(html) => Build {
             // The page's own copy is escaped for its `<script>` block; the one
             // served on its own is the plain document.

@@ -616,6 +616,7 @@ dependencies = [
  "indoc",
  "insta",
  "parquet",
+ "serde",
  "serde_json",
 ]
 

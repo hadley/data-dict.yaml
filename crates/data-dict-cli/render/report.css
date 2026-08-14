@@ -1,0 +1,47 @@
+/* The validation report page. Shares the palette and shell in app.css. */
+
+/* A verdict reads through its border and its wording, not colour alone. */
+.verdict {
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--ink-faint);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 16px 18px;
+  margin: 0 0 24px;
+}
+.verdict.is-ok { border-left-color: var(--green); }
+.verdict.is-warning { border-left-color: var(--warn); }
+.verdict.is-error { border-left-color: var(--red); }
+
+.verdict h2 { font-size: var(--text-xl); font-weight: 650; margin: 0; }
+.verdict-meta {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  margin: 6px 0 0;
+}
+
+.plist { list-style: none; margin: 0; padding: 0; }
+.plist li {
+  border-top: 1px solid var(--row-line);
+  padding: 12px 0;
+}
+.plist li:first-child { border-top: 0; }
+.pcode {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent1);
+}
+.pat {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+.pline {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  color: var(--ink-soft);
+  margin: 6px 0 0;
+}

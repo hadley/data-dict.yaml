@@ -393,7 +393,7 @@ fn run_render(args: RenderArgs) -> ExitCode {
     let Some(export) = export else {
         return ExitCode::FAILURE;
     };
-    let page = match assets.render_page(&assets::dict_json(&export), false) {
+    let page = match assets.render_dict_page(&assets::embed_json(&export), false) {
         Ok(page) => page,
         Err(err) => {
             eprintln!("could not read the page's assets: {err}");
