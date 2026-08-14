@@ -16,7 +16,7 @@
 use quarto_source_map::{SourceContext, SourceInfo};
 
 use crate::Level;
-use crate::report::{Failed, Report, StepKey, Steps};
+use crate::report::{Failed, Report, Run, StepKey, Steps};
 
 /// Whether a problem blocks validation (`Error`) or is purely advisory
 /// (`Warning`). Errors fail validation; warnings are reported alongside a
@@ -705,8 +705,8 @@ impl ProblemSet {
     }
 
     /// This run's findings as the report document `site/report.md` specifies.
-    pub fn report(&self) -> Report<'_> {
-        Report::new(self)
+    pub fn report(&self, run: Run) -> Report<'_> {
+        Report::new(self, run)
     }
 
     /// A set holding a single pre-flight failure, with no source. Used when

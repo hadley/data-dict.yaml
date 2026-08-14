@@ -3,6 +3,15 @@ source: crates/data-dict/tests/report.rs
 ---
 {
   "$version": "0.1.0",
+  "run": {
+    "dictionary": "data-dict.yaml",
+    "level": "data",
+    "generated_at": "2026-01-01T00:00:00Z",
+    "tool": {
+      "name": "data-dict",
+      "version": "0.0.0"
+    }
+  },
   "status": "error",
   "steps": [
     {

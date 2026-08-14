@@ -53,7 +53,12 @@ fn multiple_diagnostics_json_output() {
     assert!(!output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout is not valid UTF-8");
     // Re-serialize so the snapshot is pretty-printed and key order is stable.
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is valid JSON");
+    let mut value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is valid JSON");
+    // The run names a fixture in a temp directory, the clock moves, and the
+    // version changes on release; the snapshot is about the findings.
+    value["run"]["dictionary"] = "<fixture>".into();
+    value["run"]["generated_at"] = "<timestamp>".into();
+    value["run"]["tool"]["version"] = "<version>".into();
     insta::assert_snapshot!(serde_json::to_string_pretty(&value).unwrap());
 }
 
@@ -75,6 +80,53 @@ fn validate_spec_json_report() {
     assert_eq!(report["status"], "error");
     assert_eq!(report["steps"], serde_json::json!([]));
     assert!(report["problems"].as_array().is_some_and(|p| !p.is_empty()));
+}
+
+/// A report says which level ran, which is not what its findings reveal: a
+/// data-level run stopped by a spec error still reports the data level.
+#[test]
+fn the_report_says_what_the_run_was() {
+    let fixture = multi_error_fixture();
+    for (command, level) in [
+        ("validate-spec", "spec"),
+        ("validate-meta", "meta"),
+        ("validate-data", "data"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
+            .args([command])
+            .arg(&fixture)
+            .arg("--json")
+            .output()
+            .expect("failed to run data-dict");
+        let report: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("stdout is valid JSON");
+        let run = &report["run"];
+        assert_eq!(run["level"], level, "{command}");
+        assert_eq!(run["dictionary"], fixture.display().to_string());
+        assert_eq!(run["tool"]["name"], "data-dict");
+        assert_eq!(run["tool"]["version"], env!("CARGO_PKG_VERSION"));
+        assert!(
+            run["table"].is_null(),
+            "a whole-dictionary run names no table"
+        );
+        let at = run["generated_at"].as_str().expect("a timestamp");
+        assert!(at.ends_with('Z') && at.len() == 20, "{at}");
+    }
+}
+
+/// A run over one table says so, which its steps can't: a one-table dictionary
+/// and a single-table run over a larger one list the same steps.
+#[test]
+fn the_report_names_a_single_table_run() {
+    let dir = temp_dir("run-table");
+    write_render_dict(&dir, "One row per pup.");
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
+
+    let output = run_in(&dir, &["validate-data", "--table", "pups", "--json"]);
+    assert!(output.status.success());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout is valid JSON");
+    assert_eq!(report["run"]["table"], "pups");
 }
 
 /// A failure that stopped the run before any check could be applied is not a

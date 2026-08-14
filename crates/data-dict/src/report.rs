@@ -13,7 +13,9 @@
 //! [`SpanLocation`], which the problems can't carry themselves.
 
 use std::collections::HashMap;
+use std::path::Path;
 
+use chrono::{SecondsFormat, Utc};
 use quarto_source_map::SourceContext;
 
 use crate::Level;
@@ -384,16 +386,61 @@ pub(crate) fn table_assertions(table: &Table) -> Vec<(&crate::model::Assertion, 
         .collect()
 }
 
+/// What a run was: which dictionary it read, at which level, when, and by what.
+/// None of it can be recovered from the findings, so a report that outlives the
+/// run it came from carries it.
+#[derive(Debug, serde::Serialize)]
+pub struct Run {
+    /// The dictionary as the caller named it: a relative path stays relative, so
+    /// an archived report doesn't record where the machine that made it kept its
+    /// files. Every [`SpanLocation`] in the report is a span of this file.
+    pub dictionary: String,
+    pub level: Level,
+    /// The one table a single-table run covered; `None` for a whole dictionary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    /// When the run finished, UTC to the second, ISO 8601 with a `Z` offset.
+    pub generated_at: String,
+    pub tool: Tool,
+}
+
+impl Run {
+    /// Stamps the clock, so build it when the run has finished rather than
+    /// before it starts.
+    pub fn new(dictionary: &Path, level: Level, table: Option<&str>) -> Self {
+        Run {
+            dictionary: dictionary.display().to_string(),
+            level,
+            table: table.map(str::to_string),
+            generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            tool: Tool {
+                name: env!("CARGO_PKG_NAME"),
+                version: Some(env!("CARGO_PKG_VERSION")),
+            },
+        }
+    }
+}
+
+/// What produced a report, so one found on its own says where it came from.
+#[derive(Debug, serde::Serialize)]
+pub struct Tool {
+    pub name: &'static str,
+    /// The producer's own version, not [`REPORT_VERSION`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<&'static str>,
+}
+
 /// One validation run's findings, ready to serialize as `site/report.md`
 /// specifies. Borrows the [`ProblemSet`] for the [`SourceContext`] its spans
 /// resolve through.
 pub struct Report<'a> {
     problems: &'a ProblemSet,
+    run: Run,
 }
 
 impl<'a> Report<'a> {
-    pub fn new(problems: &'a ProblemSet) -> Self {
-        Report { problems }
+    pub fn new(problems: &'a ProblemSet, run: Run) -> Self {
+        Report { problems, run }
     }
 }
 
@@ -401,6 +448,7 @@ impl<'a> Report<'a> {
 struct ReportOut<'a> {
     #[serde(rename = "$version")]
     version: &'static str,
+    run: &'a Run,
     status: Status,
     steps: &'a [Step],
     problems: Vec<ProblemOut<'a>>,
@@ -462,6 +510,7 @@ impl serde::Serialize for Report<'_> {
             .collect();
         ReportOut {
             version: REPORT_VERSION,
+            run: &self.run,
             status: self.problems.status(),
             steps: self.problems.steps.items(),
             problems,

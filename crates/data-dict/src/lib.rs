@@ -37,7 +37,7 @@ pub use problem::{
     Problem, ProblemKind, ProblemSet, RenderStyle, Severity, SpanLocation, Status, ValueRow,
 };
 pub use quarto_source_map::SourceContext;
-pub use report::{REPORT_VERSION, Report, Step, StepOutcome};
+pub use report::{REPORT_VERSION, Report, Run, Step, StepOutcome, Tool};
 pub use validate_data::validate_data;
 pub use validate_meta::validate_meta;
 pub(crate) use validate_spec::{load, validate_and_lower};

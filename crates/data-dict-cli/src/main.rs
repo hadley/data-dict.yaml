@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use data_dict::{ProblemSet, RenderStyle};
+use data_dict::{Level, ProblemSet, RenderStyle, Run};
 
 mod assets;
 mod live;
@@ -166,10 +166,11 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            report(&path, data_dict::validate_spec(&path), json)
+            let problems = data_dict::validate_spec(&path);
+            report(&path, Level::Spec, None, problems, json)
         }
-        Command::ValidateMeta(args) => run_validate(args, data_dict::validate_meta),
-        Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
+        Command::ValidateMeta(args) => run_validate(args, Level::Meta, data_dict::validate_meta),
+        Command::ValidateData(args) => run_validate(args, Level::Data, data_dict::validate_data),
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
         Command::Render(args) => run_render(args),
@@ -474,7 +475,7 @@ fn stderr_style() -> RenderStyle {
 
 /// Run a meta or data validation and turn its outcome into rendered output and
 /// an exit code.
-fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
+fn run_validate(args: ValidateArgs, level: Level, validate: ValidateFn) -> ExitCode {
     let dict = match resolve_dict_path(args.dict) {
         Ok(dict) => dict,
         Err(err) => {
@@ -482,19 +483,28 @@ fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let problems = validate(&dict, args.table.as_deref());
-    report(&dict, problems, args.json)
+    let table = args.table.as_deref();
+    let problems = validate(&dict, table);
+    report(&dict, level, table, problems, args.json)
 }
 
 /// Render a validation run: the JSON report on stdout, or the diagnostics on
 /// stderr. A failure that stopped the run before any check could be applied is
 /// not a finding about the dictionary, so it is reported as a plain error and
 /// no report is written (see `site/report.md`).
-fn report(dict: &Path, problems: ProblemSet, json: bool) -> ExitCode {
+fn report(
+    dict: &Path,
+    level: Level,
+    table: Option<&str>,
+    problems: ProblemSet,
+    json: bool,
+) -> ExitCode {
     let failed = problems.status().failed();
     let reportable = json && problems.preflight().is_none();
     if reportable {
-        let json = serde_json::to_string(&problems.report()).expect("a report always serializes");
+        let run = Run::new(dict, level, table);
+        let json =
+            serde_json::to_string(&problems.report(run)).expect("a report always serializes");
         println!("{json}");
     } else {
         for line in problems.render(stderr_style()) {
@@ -577,8 +587,9 @@ mod tests {
     fn json_report_carries_problems_on_success() {
         // A warning-only set still passes, but its status reflects the warning.
         let problems = warning_problems("json-ok");
+        let run = Run::new(Path::new("data-dict.yaml"), Level::Spec, None);
         let json: serde_json::Value =
-            serde_json::to_value(problems.report()).expect("a report serializes");
+            serde_json::to_value(problems.report(run)).expect("a report serializes");
         assert_eq!(json["$version"], data_dict::REPORT_VERSION);
         assert_eq!(json["status"], "warning");
         // A spec-level run reads the document as a whole, so it has no steps.
