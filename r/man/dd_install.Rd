@@ -19,7 +19,8 @@ The path to the installed binary, invisibly.
 }
 \description{
 Downloads the release archive for this platform, checks it against the
-published SHA-256, and unpacks the binary into \code{\link[=dd_dir]{dd_dir()}}.
+published SHA-256, and unpacks the binary into
+\code{tools::R_user_dir("datadict", "cache")}.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}

@@ -1,10 +1,3 @@
-#' Where `datadict` keeps the `data-dict` binary
-#'
-#' @return Path to the directory the binary is installed into by
-#'   [dd_install()]. The directory may not exist yet.
-#' @export
-#' @examples
-#' dd_dir()
 dd_dir <- function() {
   tools::R_user_dir("datadict", "cache")
 }
@@ -12,7 +5,7 @@ dd_dir <- function() {
 #' Locate the `data-dict` binary
 #'
 #' Searched in order: the `DATA_DICT` environment variable, the copy installed
-#' by [dd_install()] in [dd_dir()], then the `PATH`.
+#' by [dd_install()] in the package's cache directory, then the `PATH`.
 #'
 #' @param check Whether to throw an error when no binary is found. With
 #'   `FALSE`, return `""` instead.

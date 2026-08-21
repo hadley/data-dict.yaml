@@ -1,11 +1,5 @@
 base_url <- "https://github.com/tidyverse/data-dict/releases"
 
-#' The release target triple for the current platform
-#'
-#' @return One of the target triples `data-dict` publishes binaries for.
-#' @export
-#' @examples
-#' dd_target()
 dd_target <- function() {
   target_triple(Sys.info()[["sysname"]], R.version$arch)
 }
@@ -32,7 +26,8 @@ target_triple <- function(sysname, arch) {
 #' Download the `data-dict` binary
 #'
 #' Downloads the release archive for this platform, checks it against the
-#' published SHA-256, and unpacks the binary into [dd_dir()].
+#' published SHA-256, and unpacks the binary into
+#' `tools::R_user_dir("datadict", "cache")`.
 #'
 #' @param version Release to install, e.g. `"0.0.1"` (a leading `v` is also
 #'   accepted). Defaults to the latest release.

@@ -16,7 +16,7 @@ Path to the binary, or \code{""} if it was not found and \code{check} is
 }
 \description{
 Searched in order: the \code{DATA_DICT} environment variable, the copy installed
-by \code{\link[=dd_install]{dd_install()}} in \code{\link[=dd_dir]{dd_dir()}}, then the \code{PATH}.
+by \code{\link[=dd_install]{dd_install()}} in the package's cache directory, then the \code{PATH}.
 }
 \examples{
 dd_path(check = FALSE)
