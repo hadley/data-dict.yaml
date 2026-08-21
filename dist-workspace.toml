@@ -17,8 +17,3 @@ install-updater = false
 pr-run-mode = "plan"
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
-# Repack the release archives into wheels and publish them to PyPI
-publish-jobs = ["./publish-pypi"]
-# Setting this drops dist's defaults, so id-token (for PyPI's OIDC trusted
-# publishing) has to be restated alongside what the job's own steps need
-github-custom-job-permissions = { publish-pypi = { id-token = "write", contents = "read", actions = "read" } }
