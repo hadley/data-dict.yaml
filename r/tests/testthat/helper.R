@@ -1,5 +1,11 @@
 skip_if_no_cli <- function() {
-  skip_if(dd_path(check = FALSE) == "", "no data-dict binary available")
+  if (dd_path(check = FALSE) != "") {
+    return(invisible())
+  }
+  if (tolower(Sys.getenv("NOT_CRAN")) == "true") {
+    stop("no data-dict binary available")
+  }
+  skip("no data-dict binary available")
 }
 
 # A dictionary for one table of otters, and the parquet file it describes.
