@@ -61,8 +61,8 @@ bin_name <- function() {
 #' @return A list with the exit `status` and the captured `output`, a character
 #'   vector of lines, invisibly.
 #' @export
-#' @examples
-#' if (nzchar(dd_path(check = FALSE))) dd_run("--version")$output
+#' @examplesIf FALSE
+#' dd_run("--version")
 dd_run <- function(args, echo = FALSE, ...) {
   result <- run_binary(args, echo = echo, ...)
   if (result$status != 0) {

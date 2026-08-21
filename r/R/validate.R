@@ -16,11 +16,9 @@
 #' @return A list with the `html` path and the CLI's exit `status`, where `0`
 #'   means the dataset validated, invisibly.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf FALSE
 #' # a directory holding a data-dict.yaml and the parquet files it points at
 #' dd_validate_data("inst/data")
-#' }
 dd_validate_data <- function(dict = ".",
                              table = NULL,
                              html = tempfile(fileext = ".html"),

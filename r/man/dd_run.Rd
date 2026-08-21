@@ -28,5 +28,7 @@ A non-zero exit status is an error, carrying the captured output as the
 message.
 }
 \examples{
-if (nzchar(dd_path(check = FALSE))) dd_run("--version")$output
+\dontshow{if (FALSE) withAutoprint(\{ # examplesIf}
+dd_run("--version")
+\dontshow{\}) # examplesIf}
 }

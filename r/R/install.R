@@ -35,7 +35,7 @@ target_triple <- function(sysname, arch) {
 #' @param quiet Whether to suppress the download progress bar and messages.
 #' @return The path to the installed binary, invisibly.
 #' @export
-#' @examplesIf interactive()
+#' @examplesIf FALSE
 #' dd_install()
 dd_install <- function(version = "latest", force = FALSE, quiet = FALSE) {
   dest <- file.path(dd_dir(), bin_name())

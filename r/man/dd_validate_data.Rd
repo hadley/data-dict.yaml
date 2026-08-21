@@ -36,8 +36,8 @@ A dataset that fails validation is not an R error: the report is the point,
 so check \code{status} to see whether the run passed.
 }
 \examples{
-\dontrun{
+\dontshow{if (FALSE) withAutoprint(\{ # examplesIf}
 # a directory holding a data-dict.yaml and the parquet files it points at
 dd_validate_data("inst/data")
-}
+\dontshow{\}) # examplesIf}
 }
