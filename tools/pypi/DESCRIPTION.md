@@ -10,12 +10,13 @@ metadata, and against the data itself.
 ## Install
 
 ```bash
-uv tool install data-dict
+uv tool install data-dict-yaml
 ```
 
-The wheels ship the prebuilt binary, so there is nothing to compile and no Rust
-toolchain to install. They cover macOS (Apple silicon and Intel), Linux (x86_64
-and aarch64, glibc and musl alike), and Windows (x86_64).
+The installed command is `data-dict`. The wheels ship the prebuilt binary, so
+there is nothing to compile and no Rust toolchain to install. They cover macOS
+(Apple silicon and Intel), Linux (x86_64 and aarch64, glibc and musl alike),
+and Windows (x86_64).
 
 ## Use
 

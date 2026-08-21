@@ -22,7 +22,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-NAME = "data-dict"
+NAME = "data-dict-yaml"
 SUMMARY = "Command-line tool for data-dict.yaml"
 HOMEPAGE = "https://data-dict.tidyverse.org"
 REPOSITORY = "https://github.com/tidyverse/data-dict"

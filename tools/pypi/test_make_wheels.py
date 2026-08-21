@@ -145,11 +145,11 @@ class TestBuildWheel(unittest.TestCase):
 
     def test_filenames_carry_the_platform_tags(self):
         cases = {
-            "aarch64-apple-darwin": "data_dict-0.1.0-py3-none-macosx_11_0_arm64.whl",
-            "x86_64-apple-darwin": "data_dict-0.1.0-py3-none-macosx_10_12_x86_64.whl",
-            "x86_64-pc-windows-msvc": "data_dict-0.1.0-py3-none-win_amd64.whl",
+            "aarch64-apple-darwin": "data_dict_yaml-0.1.0-py3-none-macosx_11_0_arm64.whl",
+            "x86_64-apple-darwin": "data_dict_yaml-0.1.0-py3-none-macosx_10_12_x86_64.whl",
+            "x86_64-pc-windows-msvc": "data_dict_yaml-0.1.0-py3-none-win_amd64.whl",
             "x86_64-unknown-linux-musl": (
-                "data_dict-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64"
+                "data_dict_yaml-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64"
                 ".musllinux_1_1_x86_64.musllinux_1_2_x86_64.whl"
             ),
         }
@@ -161,33 +161,33 @@ class TestBuildWheel(unittest.TestCase):
             self.assertEqual(
                 sorted(zf.namelist()),
                 [
-                    "data_dict-0.1.0.data/scripts/data-dict",
-                    "data_dict-0.1.0.dist-info/METADATA",
-                    "data_dict-0.1.0.dist-info/RECORD",
-                    "data_dict-0.1.0.dist-info/WHEEL",
+                    "data_dict_yaml-0.1.0.data/scripts/data-dict",
+                    "data_dict_yaml-0.1.0.dist-info/METADATA",
+                    "data_dict_yaml-0.1.0.dist-info/RECORD",
+                    "data_dict_yaml-0.1.0.dist-info/WHEEL",
                 ],
             )
 
     def test_windows_wheel_keeps_the_exe_extension(self):
         with zipfile.ZipFile(self.build("x86_64-pc-windows-msvc")) as zf:
-            self.assertIn("data_dict-0.1.0.data/scripts/data-dict.exe", zf.namelist())
+            self.assertIn("data_dict_yaml-0.1.0.data/scripts/data-dict.exe", zf.namelist())
 
     def test_binary_is_executable(self):
         with zipfile.ZipFile(self.build("x86_64-apple-darwin")) as zf:
-            info = zf.getinfo("data_dict-0.1.0.data/scripts/data-dict")
+            info = zf.getinfo("data_dict_yaml-0.1.0.data/scripts/data-dict")
             self.assertEqual(info.external_attr >> 16, 0o755)
             self.assertEqual(info.create_system, 3)
-            metadata = zf.getinfo("data_dict-0.1.0.dist-info/METADATA")
+            metadata = zf.getinfo("data_dict_yaml-0.1.0.dist-info/METADATA")
             self.assertEqual(metadata.external_attr >> 16, 0o644)
 
     def test_record_hashes_match_the_payload(self):
         with zipfile.ZipFile(self.build("x86_64-apple-darwin")) as zf:
-            record = zf.read("data_dict-0.1.0.dist-info/RECORD").decode()
+            record = zf.read("data_dict_yaml-0.1.0.dist-info/RECORD").decode()
             entries = dict(
                 (line.split(",")[0], line.split(",")[1:])
                 for line in record.splitlines()
             )
-            self.assertEqual(entries["data_dict-0.1.0.dist-info/RECORD"], ["", ""])
+            self.assertEqual(entries["data_dict_yaml-0.1.0.dist-info/RECORD"], ["", ""])
             for path, (digest, size) in entries.items():
                 if not digest:
                     continue
@@ -198,7 +198,7 @@ class TestBuildWheel(unittest.TestCase):
     def test_wheel_lists_every_tag(self):
         target = "aarch64-unknown-linux-musl"
         with zipfile.ZipFile(self.build(target)) as zf:
-            wheel = zf.read("data_dict-0.1.0.dist-info/WHEEL").decode()
+            wheel = zf.read("data_dict_yaml-0.1.0.dist-info/WHEEL").decode()
         tags = [line for line in wheel.splitlines() if line.startswith("Tag: ")]
         self.assertEqual(
             tags, [f"Tag: py3-none-{tag}" for tag in make_wheels.TARGETS[target]]
@@ -207,8 +207,8 @@ class TestBuildWheel(unittest.TestCase):
 
     def test_metadata_carries_the_description(self):
         with zipfile.ZipFile(self.build("x86_64-apple-darwin")) as zf:
-            metadata = zf.read("data_dict-0.1.0.dist-info/METADATA").decode()
-        self.assertIn("Name: data-dict", metadata)
+            metadata = zf.read("data_dict_yaml-0.1.0.dist-info/METADATA").decode()
+        self.assertIn("Name: data-dict-yaml", metadata)
         self.assertIn("Version: 0.1.0", metadata)
         self.assertIn("Description-Content-Type: text/markdown", metadata)
         self.assertTrue(metadata.endswith(DESCRIPTION))

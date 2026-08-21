@@ -67,7 +67,7 @@ This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). It is also on PyPI, so
 if you already have [uv](https://docs.astral.sh/uv/) or `pipx`:
 
 ```bash
-uv tool install data-dict
+uv tool install data-dict-yaml
 ```
 
 You can also download an archive straight from the [releases
