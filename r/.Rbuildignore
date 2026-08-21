@@ -1,0 +1,6 @@
+^datadict\.Rproj$
+^\.Rproj\.user$
+^\.Rhistory$
+^\.claude$
+^.*\.Rcheck$
+^datadict_.*\.tar\.gz$

@@ -1,0 +1,25 @@
+Package: datadict
+Title: Validate Data Against a 'data-dict.yaml' Data Dictionary
+Version: 0.0.0.9000
+Authors@R:
+    person("Gábor", "Csárdi", , "gabor@posit.co", role = c("aut", "cre"))
+Description: Installs the 'data-dict' command line tool and runs it from R.
+    A data dictionary describes a collection of related tables: their
+    columns, types, constraints, relationships, and glossary. Validate a
+    dataset against its dictionary and read the findings as an HTML report.
+License: MIT + file LICENSE
+URL: https://data-dict.tidyverse.org, https://github.com/tidyverse/data-dict
+BugReports: https://github.com/tidyverse/data-dict/issues
+Depends:
+    R (>= 4.5)
+Imports:
+    tools,
+    utils
+Suggests:
+    nanoparquet,
+    testthat (>= 3.0.0),
+    withr
+Config/testthat/edition: 3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.0.0
