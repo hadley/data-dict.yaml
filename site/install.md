@@ -58,9 +58,12 @@ Prebuilt binaries are available for:
 |----------|--------|
 | macOS (Apple silicon) | `aarch64-apple-darwin` |
 | macOS (Intel) | `x86_64-apple-darwin` |
-| Linux (ARM64, glibc) | `aarch64-unknown-linux-gnu` |
-| Linux (x86-64, glibc) | `x86_64-unknown-linux-gnu` |
+| Linux (ARM64) | `aarch64-unknown-linux-musl` |
+| Linux (x86-64) | `x86_64-unknown-linux-musl` |
 | Windows (x86-64) | `x86_64-pc-windows-msvc` |
+
+The Linux binaries are statically linked against musl, so they have no libc
+dependency and run on any distribution, glibc or musl.
 
 ## From R
 

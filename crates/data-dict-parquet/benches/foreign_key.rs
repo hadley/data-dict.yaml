@@ -20,6 +20,10 @@ use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::types::Type;
 
+// Match the allocator the CLI ships with.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const ROWS_PER_GROUP: usize = 1_000_000;
 
 fn rows() -> usize {
