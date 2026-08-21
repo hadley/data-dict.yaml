@@ -37,7 +37,6 @@ test_that("a corrupted download is rejected", {
 
 test_that("dd_install downloads a working binary", {
   skip_on_cran()
-  skip_if_offline()
   cache <- withr::local_tempdir()
   withr::local_envvar(R_USER_CACHE_DIR = cache)
 
