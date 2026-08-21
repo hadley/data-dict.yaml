@@ -8,6 +8,11 @@ use data_dict::{Level, ProblemSet, RenderStyle, Run};
 mod assets;
 mod live;
 
+// The released Linux binaries are statically linked against musl, whose
+// allocator costs 10-35% on the allocation-heavy validation paths.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use assets::Assets;
 
 #[derive(Parser)]

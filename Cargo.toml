@@ -34,6 +34,7 @@ regex = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+mimalloc = { version = "0.1", default-features = false }
 
 # The profile that 'dist' will build with
 [profile.dist]

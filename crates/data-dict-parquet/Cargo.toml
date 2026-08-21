@@ -28,6 +28,7 @@ hashbrown = "0.15"
 
 [dev-dependencies]
 criterion = "0.5"
+mimalloc.workspace = true
 insta = "1"
 serde_json = { workspace = true }
 
