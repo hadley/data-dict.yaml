@@ -13,10 +13,10 @@
 //! next level is caught by the driver checking [`ProblemSet::status`] before
 //! descending. Fatality is control flow, not data.
 
-use quarto_source_map::{SourceContext, SourceInfo};
+use quarto_source_map::{FileId, SourceContext, SourceInfo};
 
 use crate::Level;
-use crate::report::{Failed, Report, StepKey, Steps};
+use crate::report::{Failed, Report, Run, StepKey, Steps};
 
 /// Whether a problem blocks validation (`Error`) or is purely advisory
 /// (`Warning`). Errors fail validation; warnings are reported alongside a
@@ -641,16 +641,32 @@ pub struct ProblemSet {
     /// spec-level run, whose checks read the document as a whole rather than
     /// any declared target.
     pub steps: Steps,
+    /// The document every span in this set is a span of. [`SourceContext`] can
+    /// return a file but not name which one is the dictionary, so the id is
+    /// kept alongside it.
+    root: Option<FileId>,
 }
 
 impl ProblemSet {
     /// An empty set tied to a source context, ready for checks to push into.
-    pub fn new(source: SourceContext) -> Self {
+    /// `root` is the dictionary's own file within `source`, and is `None` only
+    /// for a set holding no located problems.
+    pub(crate) fn new(source: SourceContext, root: Option<FileId>) -> Self {
         ProblemSet {
             items: Vec::new(),
             source,
             steps: Steps::default(),
+            root,
         }
+    }
+
+    /// The dictionary's text, for a consumer drawing its own annotated excerpt
+    /// from the spans a report carries. `None` when validation never got as far
+    /// as reading a document.
+    pub fn source_text(&self) -> Option<&str> {
+        self.source
+            .get_file(self.root?)
+            .and_then(|file| file.content.as_deref())
     }
 
     /// Register the steps `table` implies at `level`; see [`Steps::register`].
@@ -705,14 +721,14 @@ impl ProblemSet {
     }
 
     /// This run's findings as the report document `site/report.md` specifies.
-    pub fn report(&self) -> Report<'_> {
-        Report::new(self)
+    pub fn report(&self, run: Run) -> Report<'_> {
+        Report::new(self, run)
     }
 
     /// A set holding a single pre-flight failure, with no source. Used when
     /// validation could not begin (unreadable or unparseable document).
     pub fn from_preflight(kind: ProblemKind, message: impl Into<String>) -> Self {
-        let mut set = ProblemSet::new(SourceContext::new());
+        let mut set = ProblemSet::new(SourceContext::new(), None);
         set.push(Problem::preflight(kind, message));
         set
     }

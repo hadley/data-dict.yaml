@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use data_dict::{ProblemSet, RenderStyle};
+use data_dict::{Level, ProblemSet, RenderStyle, Run};
 
 mod assets;
 mod live;
@@ -56,9 +56,8 @@ enum Command {
         /// A data-dict.yaml file or a directory containing one (defaults to
         /// the current directory)
         path: Option<PathBuf>,
-        /// Emit results as a JSON report
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        out: ReportArgs,
     },
     /// Validate a dataset's column names and types against a data dictionary
     ValidateMeta(ValidateArgs),
@@ -141,9 +140,23 @@ struct ValidateArgs {
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
+    #[command(flatten)]
+    out: ReportArgs,
+}
+
+/// Where a validation run's report goes, shared by every `validate-*` command.
+#[derive(clap::Args)]
+struct ReportArgs {
     /// Emit results as a JSON report
     #[arg(long)]
     json: bool,
+    /// Also write the report as a self-contained HTML page
+    #[arg(long, value_name = "FILE")]
+    html: Option<PathBuf>,
+    /// Build the page from the CSS and JS in this directory instead of the
+    /// copies compiled in
+    #[arg(long, hide = true, value_name = "DIR", requires = "html")]
+    assets: Option<PathBuf>,
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
@@ -158,7 +171,7 @@ fn main() -> ExitCode {
     match command {
         Command::Describe { path, column, json } => run_describe(&path, column.as_deref(), json),
         Command::Draft { paths, output } => run_draft(&paths, &output),
-        Command::ValidateSpec { path, json } => {
+        Command::ValidateSpec { path, out } => {
             let path = match resolve_dict_path(path) {
                 Ok(path) => path,
                 Err(err) => {
@@ -166,10 +179,11 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            report(&path, data_dict::validate_spec(&path), json)
+            let problems = data_dict::validate_spec(&path);
+            report(&path, Level::Spec, None, problems, &out)
         }
-        Command::ValidateMeta(args) => run_validate(args, data_dict::validate_meta),
-        Command::ValidateData(args) => run_validate(args, data_dict::validate_data),
+        Command::ValidateMeta(args) => run_validate(args, Level::Meta, data_dict::validate_meta),
+        Command::ValidateData(args) => run_validate(args, Level::Data, data_dict::validate_data),
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
         Command::Render(args) => run_render(args),
@@ -392,7 +406,7 @@ fn run_render(args: RenderArgs) -> ExitCode {
     let Some(export) = export else {
         return ExitCode::FAILURE;
     };
-    let page = match assets.render_page(&assets::dict_json(&export), false) {
+    let page = match assets.render_dict_page(&assets::embed_json(&export), false) {
         Ok(page) => page,
         Err(err) => {
             eprintln!("could not read the page's assets: {err}");
@@ -474,7 +488,7 @@ fn stderr_style() -> RenderStyle {
 
 /// Run a meta or data validation and turn its outcome into rendered output and
 /// an exit code.
-fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
+fn run_validate(args: ValidateArgs, level: Level, validate: ValidateFn) -> ExitCode {
     let dict = match resolve_dict_path(args.dict) {
         Ok(dict) => dict,
         Err(err) => {
@@ -482,26 +496,58 @@ fn run_validate(args: ValidateArgs, validate: ValidateFn) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let problems = validate(&dict, args.table.as_deref());
-    report(&dict, problems, args.json)
+    let table = args.table.as_deref();
+    let problems = validate(&dict, table);
+    report(&dict, level, table, problems, &args.out)
 }
 
-/// Render a validation run: the JSON report on stdout, or the diagnostics on
-/// stderr. A failure that stopped the run before any check could be applied is
-/// not a finding about the dictionary, so it is reported as a plain error and
-/// no report is written (see `site/report.md`).
-fn report(dict: &Path, problems: ProblemSet, json: bool) -> ExitCode {
+/// Render a validation run: the report as JSON on stdout, as an HTML page at
+/// `--html`, or the diagnostics on stderr. A failure that stopped the run before
+/// any check could be applied is not a finding about the dictionary, so it is
+/// reported as a plain error and no report is written (see `site/report.md`).
+///
+/// `--json` owns stdout, so the note naming a written page moves to stderr under
+/// it and the one report is serialized once for both sinks.
+fn report(
+    dict: &Path,
+    level: Level,
+    table: Option<&str>,
+    problems: ProblemSet,
+    out: &ReportArgs,
+) -> ExitCode {
     let failed = problems.status().failed();
-    let reportable = json && problems.preflight().is_none();
-    if reportable {
-        let json = serde_json::to_string(&problems.report()).expect("a report always serializes");
-        println!("{json}");
-    } else {
+    // A run stopped before any check could be applied has no report to give, so
+    // its diagnostics are the only output it has, `--json` or not.
+    let reportable = problems.preflight().is_none();
+    if !out.json || !reportable {
         for line in problems.render(stderr_style()) {
             eprintln!("{line}");
         }
-        if !failed && !json {
-            println!("{}: ok", dict.display());
+    }
+    if !failed && !out.json {
+        println!("{}: ok", dict.display());
+    }
+    if !reportable {
+        if out.json || out.html.is_some() {
+            eprintln!("no report written: the run could not be started");
+        }
+        return ExitCode::FAILURE;
+    }
+    let run = Run::new(dict, level, table);
+    let json = serde_json::to_string(&problems.report(run)).expect("a report always serializes");
+    if out.json {
+        println!("{json}");
+    }
+    if let Some(path) = &out.html {
+        if let Err(err) = write_report_page(path, &json, problems.source_text(), &out.assets) {
+            eprintln!("{}: {err}", path.display());
+            return ExitCode::FAILURE;
+        }
+        let wrote = format!("wrote {}", path.display());
+        if out.json {
+            eprintln!("{wrote}");
+        } else {
+            println!("{wrote}");
         }
     }
     if failed {
@@ -509,6 +555,22 @@ fn report(dict: &Path, problems: ProblemSet, json: bool) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// Build the report page and write it. `source` is the dictionary's text, which
+/// the page annotates with the spans the report carries.
+fn write_report_page(
+    path: &Path,
+    json: &str,
+    source: Option<&str>,
+    assets: &Option<PathBuf>,
+) -> std::io::Result<()> {
+    let assets = assets.clone().map_or(Assets::Embedded, Assets::Dir);
+    let page = assets.render_report_page(
+        &assets::escape_embedded(json),
+        &assets::embed_json(&source.unwrap_or_default()),
+    )?;
+    std::fs::write(path, page)
 }
 
 #[cfg(test)]
@@ -577,8 +639,9 @@ mod tests {
     fn json_report_carries_problems_on_success() {
         // A warning-only set still passes, but its status reflects the warning.
         let problems = warning_problems("json-ok");
+        let run = Run::new(Path::new("data-dict.yaml"), Level::Spec, None);
         let json: serde_json::Value =
-            serde_json::to_value(problems.report()).expect("a report serializes");
+            serde_json::to_value(problems.report(run)).expect("a report serializes");
         assert_eq!(json["$version"], data_dict::REPORT_VERSION);
         assert_eq!(json["status"], "warning");
         // A spec-level run reads the document as a whole, so it has no steps.

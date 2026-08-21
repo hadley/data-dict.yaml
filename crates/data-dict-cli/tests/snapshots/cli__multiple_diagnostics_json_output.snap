@@ -91,6 +91,15 @@ expression: "serde_json::to_string_pretty(&value).unwrap()"
       "table": "measurements"
     }
   ],
+  "run": {
+    "dictionary": "<fixture>",
+    "generated_at": "<timestamp>",
+    "level": "data",
+    "tool": {
+      "name": "data-dict",
+      "version": "<version>"
+    }
+  },
   "status": "error",
   "steps": []
 }

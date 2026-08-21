@@ -9,14 +9,20 @@ mod common;
 use common::{temp_dir, write_dict, write_parquet};
 
 use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 
-use data_dict::{ProblemSet, validate_data, validate_meta};
+use data_dict::{Level, ProblemSet, Run, validate_data, validate_meta};
 use indoc::indoc;
 
-/// The report as pretty JSON, ready to snapshot.
-fn report(problems: &ProblemSet) -> String {
-    serde_json::to_string_pretty(&problems.report()).unwrap()
+/// The report as pretty JSON, ready to snapshot. The run is stamped by hand:
+/// the real dictionary sits in a temp directory, the clock moves, and the
+/// version changes on release, none of which a snapshot can hold.
+fn report(problems: &ProblemSet, level: Level) -> String {
+    let mut run = Run::new(Path::new("data-dict.yaml"), level, None);
+    run.generated_at = "2026-01-01T00:00:00Z".to_string();
+    run.tool.version = Some("0.0.0");
+    serde_json::to_string_pretty(&problems.report(run)).unwrap()
 }
 
 /// Write a dictionary next to the two-column parquet file `write_parquet`
@@ -31,8 +37,8 @@ fn otters(body: &str) -> std::path::PathBuf {
 /// on Unix alone, so the macro is unused elsewhere.
 #[allow(unused_macros)]
 macro_rules! assert_report {
-    ($problems:expr) => {{
-        let body = report(&$problems);
+    ($problems:expr, $level:expr) => {{
+        let body = report(&$problems, $level);
         let mut settings = insta::Settings::clone_current();
         settings.set_omit_expression(true);
         let _guard = settings.bind_to_scope();
@@ -63,7 +69,7 @@ fn a_clean_run_lists_every_step_as_passed() {
     let problems = validate_data(&dict, None);
     assert!(problems.items.is_empty(), "{:?}", problems.items);
     #[cfg(unix)]
-    assert_report!(problems);
+    assert_report!(problems, Level::Data);
 }
 
 /// A metadata-level run checks only names and types, so it registers only the
@@ -75,7 +81,7 @@ fn a_metadata_run_registers_only_metadata_steps() {
     let codes: Vec<&str> = problems.steps.items().iter().map(|s| s.code).collect();
     assert_eq!(codes, ["M04", "M01", "M01"]);
     #[cfg(unix)]
-    assert_report!(problems);
+    assert_report!(problems, Level::Meta);
 }
 
 /// A spec check reads the document as a whole rather than any declared target,
@@ -85,6 +91,27 @@ fn a_spec_run_has_no_steps() {
     let dict = otters(CLEAN);
     let problems = data_dict::validate_spec(&dict);
     assert!(problems.steps.items().is_empty());
+}
+
+/// A report locates its problems but carries no copy of the text, so a consumer
+/// drawing its own excerpt needs the document the spans were measured against.
+#[test]
+fn a_run_can_hand_back_the_text_its_spans_were_measured_against() {
+    let dict = otters(CLEAN);
+    let problems = validate_data(&dict, None);
+    assert_eq!(
+        problems.source_text(),
+        Some(std::fs::read_to_string(&dict).unwrap().as_str())
+    );
+}
+
+/// A run that never read a document has no text to hand back.
+#[test]
+fn a_preflight_failure_has_no_text() {
+    let dir = temp_dir();
+    let problems = validate_data(&dir.join("absent.yaml"), None);
+    assert!(problems.preflight().is_some());
+    assert_eq!(problems.source_text(), None);
 }
 
 #[test]
@@ -152,7 +179,7 @@ fn a_failing_check_weighs_its_step_by_the_rows_it_blames() {
         [("D04", Some(2), Some(1)), ("D07", Some(2), Some(1))]
     );
     #[cfg(unix)]
-    assert_report!(problems);
+    assert_report!(problems, Level::Data);
 }
 
 /// An aggregate assertion is one verdict about the whole table, so it blames
@@ -259,7 +286,7 @@ fn a_restricted_column_reports_counts_but_no_values() {
                 examples: [1.0, 2.0]
     "});
     let problems = validate_data(&dict, None);
-    let json = report(&problems);
+    let json = report(&problems, Level::Data);
     assert!(json.contains("\"redacted\": true"), "{json}");
     assert!(
         !json.contains("seal"),

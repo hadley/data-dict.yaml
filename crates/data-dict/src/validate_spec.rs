@@ -135,7 +135,7 @@ pub(crate) fn load_str(
         let span = schema_error_span(&err);
         let hints = diagnostic.hints();
         let hint = (!hints.is_empty()).then(|| hints.join(" "));
-        let mut problems = ProblemSet::new(source);
+        let mut problems = ProblemSet::new(source, Some(file_id));
         problems.push(Problem::schema(
             err.error_code(),
             schema_expected(&err.kind),
@@ -146,7 +146,7 @@ pub(crate) fn load_str(
         return Err(problems);
     }
 
-    Ok((ProblemSet::new(source), doc))
+    Ok((ProblemSet::new(source, Some(file_id)), doc))
 }
 
 /// The tightest span for a structural error. The validator points an unknown

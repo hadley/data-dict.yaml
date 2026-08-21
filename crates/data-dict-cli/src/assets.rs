@@ -1,9 +1,13 @@
-//! The files the rendered page is stitched from.
+//! The files the rendered pages are stitched from: the dictionary page `render`
+//! writes, and the validation report page `validate-* --html` writes.
 //!
 //! They are compiled into the binary, so a released `data-dict` is one
 //! self-contained executable. [`Assets::Dir`] reads them from a directory
 //! instead, which is what lets `render --live` pick up an edit to the page's
 //! own CSS or JS without a rebuild.
+//!
+//! Both pages draw from one [`PARTS`] table, so a file shared between them is
+//! compiled in once; a [`Page`] names the subset it embeds.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -42,6 +46,7 @@ const PARTS: &[(&str, &str, &str)] = &[
         "shared.js",
         include_str!("../render/shared.js"),
     ),
+    ("{{DICT_JS}}", "dict.js", include_str!("../render/dict.js")),
     (
         "{{COMPONENTS_JS}}",
         "components.js",
@@ -53,13 +58,95 @@ const PARTS: &[(&str, &str, &str)] = &[
         include_str!("../render/diagram.js"),
     ),
     ("{{APP_JS}}", "app.js", include_str!("../render/app.js")),
+    (
+        "{{DIAGNOSTIC_JS}}",
+        "diagnostic.js",
+        include_str!("../render/diagnostic.js"),
+    ),
+    (
+        "{{REPORT_CSS}}",
+        "report.css",
+        include_str!("../render/report.css"),
+    ),
+    (
+        "{{REPORT_JS}}",
+        "report.js",
+        include_str!("../render/report.js"),
+    ),
 ];
 
-/// The stylesheet parts of `PARTS`, in the order the template embeds them.
-const CSS_FILES: &[&str] = &["app.css", "diagram.css", "tables.css"];
+/// The marker and compiled-in copy of one part, by file name.
+fn part(file: &str) -> (&'static str, &'static str) {
+    PARTS
+        .iter()
+        .find(|(_, name, _)| *name == file)
+        .map(|(marker, _, embedded)| (*marker, *embedded))
+        .expect("every page part is in PARTS")
+}
 
-/// The template every part is substituted into.
-const PAGE: (&str, &str) = ("index.html", include_str!("../render/index.html"));
+/// One page: its template, the parts it embeds, and the documents a build fills
+/// it with.
+struct Page {
+    file: &'static str,
+    embedded: &'static str,
+    /// The `PARTS` files this page embeds, in the order the template does.
+    parts: &'static [&'static str],
+    /// The markers a build fills with a JSON document, each substituted last so
+    /// a marker spelled inside one is embedded as written.
+    docs: &'static [&'static str],
+    /// Whether `--live` serves this page, which adds the reload client.
+    live: bool,
+}
+
+impl Page {
+    /// The stylesheet parts, in the order the template embeds them.
+    fn css(&self) -> impl Iterator<Item = &'static str> {
+        self.parts.iter().copied().filter(|f| f.ends_with(".css"))
+    }
+}
+
+/// The dictionary page, written by `render`.
+const DICT_PAGE: Page = Page {
+    file: "index.html",
+    embedded: include_str!("../render/index.html"),
+    parts: &[
+        "app.css",
+        "diagram.css",
+        "tables.css",
+        "dagre.js",
+        "layout-dagre.js",
+        "preact.js",
+        "shared.js",
+        "dict.js",
+        "components.js",
+        "diagram.js",
+        "app.js",
+    ],
+    docs: &["{{DICT_JSON}}"],
+    live: true,
+};
+
+/// The validation report page, written by `validate-* --html`. It carries no
+/// relationship diagram, so it leaves out the layout engine the dictionary page
+/// needs.
+const REPORT_PAGE: Page = Page {
+    file: "report.html",
+    embedded: include_str!("../render/report.html"),
+    parts: &[
+        "app.css",
+        "tables.css",
+        "report.css",
+        "preact.js",
+        "shared.js",
+        "components.js",
+        "diagnostic.js",
+        "report.js",
+    ],
+    docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}", "{{CHECKS_JSON}}"],
+    live: false,
+};
+
+const PAGES: &[&Page] = &[&DICT_PAGE, &REPORT_PAGE];
 
 /// The live-reload client, added only by `render --live`.
 const LIVE_JS: (&str, &str) = ("live.js", include_str!("../render/live.js"));
@@ -96,27 +183,28 @@ impl Assets {
         PARTS
             .iter()
             .map(|(_, file, _)| *file)
-            .chain([PAGE.0, LIVE_JS.0])
+            .chain(PAGES.iter().map(|page| page.file))
+            .chain([LIVE_JS.0])
             .map(|file| dir.join(file))
             .collect()
     }
 
-    /// The stylesheet files, for `--live` to tell a CSS-only change apart
-    /// from one that needs the page rebuilt.
+    /// The stylesheet files of the page `--live` serves, for it to tell a
+    /// CSS-only change apart from one that needs the page rebuilt.
     pub fn css_files(&self) -> Vec<PathBuf> {
         let Assets::Dir(dir) = self else {
             return Vec::new();
         };
-        CSS_FILES.iter().map(|file| dir.join(file)).collect()
+        DICT_PAGE.css().map(|file| dir.join(file)).collect()
     }
 
-    /// The page's stylesheet as one document, in template order. Served on
-    /// its own by `render --live`, so a CSS edit can be swapped into the
-    /// page without a reload.
+    /// The stylesheet of the page `--live` serves, as one document in template
+    /// order. Served on its own so a CSS edit can be swapped into the page
+    /// without a reload.
     pub fn css(&self) -> io::Result<String> {
         let mut css = String::new();
-        for (_, file, embedded) in PARTS.iter().filter(|(_, file, _)| CSS_FILES.contains(file)) {
-            css.push_str(&self.read(file, embedded)?);
+        for file in DICT_PAGE.css() {
+            css.push_str(&self.read(file, part(file).1)?);
             css.push('\n');
         }
         Ok(css)
@@ -129,95 +217,176 @@ impl Assets {
         }
     }
 
-    /// Build the page around `dict_json`. `live` adds the reload client, which
-    /// only works against the server `--live` runs and so is left out of a
-    /// page written to disk.
-    ///
-    /// The dictionary JSON is substituted last, so a marker spelled out in
-    /// someone's prose is embedded as written rather than expanded.
-    pub fn render_page(&self, dict_json: &str, live: bool) -> io::Result<String> {
-        let mut page = self.read(PAGE.0, PAGE.1)?;
-        for (marker, file, embedded) in PARTS {
-            page = page.replace(marker, &self.read(file, embedded)?);
+    /// Build the dictionary page around `dict_json`. `live` adds the reload
+    /// client, which only works against the server `--live` runs and so is left
+    /// out of a page written to disk.
+    pub fn render_dict_page(&self, dict_json: &str, live: bool) -> io::Result<String> {
+        self.build(&DICT_PAGE, &[dict_json], live)
+    }
+
+    /// Build the validation report page around a report and the dictionary text
+    /// its spans are measured against, both already escaped for embedding. The
+    /// page carries the check catalogue too, so it can name a code offline.
+    pub fn render_report_page(&self, report_json: &str, source_json: &str) -> io::Result<String> {
+        let checks = embed_json(&data_dict::checks());
+        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], false)
+    }
+
+    /// `docs` are the page's documents in the order [`Page::docs`] names their
+    /// markers.
+    fn build(&self, page: &Page, docs: &[&str], live: bool) -> io::Result<String> {
+        assert_eq!(page.docs.len(), docs.len(), "{} document count", page.file);
+        let mut html = self.read(page.file, page.embedded)?;
+        for file in page.parts {
+            let (marker, embedded) = part(file);
+            html = html.replace(marker, &self.read(file, embedded)?);
         }
-        // The marker trails the last script tag, so a page built without the
-        // client is byte-for-byte the page that had no marker at all.
-        let live_js = if live {
-            format!("\n<script>\n{}</script>", self.read(LIVE_JS.0, LIVE_JS.1)?)
-        } else {
-            String::new()
-        };
-        Ok(page
-            .replace("{{LIVE_JS}}", &live_js)
-            .replace("{{DICT_JSON}}", dict_json))
+        if page.live {
+            // The marker trails the last script tag, so a page built without the
+            // client is byte-for-byte the page that had no marker at all.
+            let live_js = if live {
+                format!("\n<script>\n{}</script>", self.read(LIVE_JS.0, LIVE_JS.1)?)
+            } else {
+                String::new()
+            };
+            html = html.replace("{{LIVE_JS}}", &live_js);
+        }
+        let filled: Vec<(&str, &str)> = page
+            .docs
+            .iter()
+            .copied()
+            .zip(docs.iter().copied())
+            .collect();
+        Ok(fill_documents(&html, &filled))
     }
 }
 
-/// An export as the JSON embedded in the page. `<` is escaped so nothing in
-/// the dictionary can close the page's `<script>` block or open a comment
+/// Substitute each document into the page in one pass, never rescanning what it
+/// just wrote. A document holds text nobody here controls — a dictionary's prose
+/// or its literal YAML — so it can spell a marker, its own or another document's,
+/// and must be embedded as written rather than expanded.
+fn fill_documents(page: &str, docs: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(page.len());
+    let mut rest = page;
+    loop {
+        let next = docs
+            .iter()
+            .filter_map(|(marker, doc)| rest.find(marker).map(|at| (at, *marker, *doc)))
+            .min_by_key(|(at, ..)| *at);
+        let Some((at, marker, doc)) = next else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..at]);
+        out.push_str(doc);
+        rest = &rest[at + marker.len()..];
+    }
+}
+
+/// A JSON document as the page embeds it. `<` is escaped so nothing in the
+/// document can close the page's `<script>` block or open a comment
 /// (`</script>`, `<!--`); in JSON, `<` only ever appears inside strings, where
 /// `<` spells the same text.
-pub fn dict_json(export: &data_dict::Export) -> String {
-    serde_json::to_string(export)
-        .expect("an export always serializes")
-        .replace('<', "\\u003c")
+pub fn escape_embedded(json: &str) -> String {
+    json.replace('<', "\\u003c")
+}
+
+/// Serialize a value as the JSON document the page embeds. A `&str` becomes a
+/// JSON string, which is how the dictionary's own text rides along beside the
+/// report that locates spans in it.
+pub fn embed_json(value: &impl serde::Serialize) -> String {
+    escape_embedded(&serde_json::to_string(value).expect("an embedded document always serializes"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Every marker the template spells is one this module knows how to fill,
-    /// so adding a part to `index.html` without adding it to `PARTS` fails
-    /// here rather than shipping a page with `{{…}}` printed in it.
+    /// Every marker a build of `page` fills, so a template that spells one this
+    /// module doesn't know about can be caught.
+    fn markers(page: &Page) -> impl Iterator<Item = &'static str> {
+        page.parts
+            .iter()
+            .map(|file| part(file).0)
+            .chain(page.docs.iter().copied())
+            .chain(page.live.then_some("{{LIVE_JS}}"))
+    }
+
+    /// Build one page through its public entry point, with every document set to
+    /// `{}`, for the tests that only care about the parts around them.
+    fn build(assets: &Assets, page: &Page, live: bool) -> String {
+        if page.file == REPORT_PAGE.file {
+            assets.render_report_page("{}", "{}").unwrap()
+        } else {
+            assets.render_dict_page("{}", live).unwrap()
+        }
+    }
+
+    /// Every marker a template spells is one this module knows how to fill, so
+    /// adding a part to a template without registering it fails here rather
+    /// than shipping a page with `{{…}}` printed in it.
     #[test]
     fn every_marker_is_substituted() {
-        let page = Assets::Embedded.render_page("{}", true).unwrap();
-        for marker in PARTS
-            .iter()
-            .map(|(marker, _, _)| *marker)
-            .chain(["{{LIVE_JS}}", "{{DICT_JSON}}"])
-        {
-            assert!(!page.contains(marker), "{marker} was left in the page");
-            assert!(
-                PAGE.1.contains(marker),
-                "{marker} is filled but the template never asks for it"
+        for page in PAGES {
+            let built = build(&Assets::Embedded, page, true);
+            for marker in markers(page) {
+                assert!(
+                    !built.contains(marker),
+                    "{marker} was left in {}",
+                    page.file
+                );
+                assert!(
+                    page.embedded.contains(marker),
+                    "{marker} is filled but {} never asks for it",
+                    page.file
+                );
+            }
+            assert_eq!(
+                page.embedded.matches("{{").count(),
+                markers(page).count(),
+                "{} has a marker this module doesn't fill",
+                page.file
             );
         }
-        let markers = PAGE.1.matches("{{").count();
-        assert_eq!(
-            markers,
-            PARTS.len() + 2,
-            "the template has a marker this module doesn't fill"
-        );
     }
 
     #[test]
     fn live_client_is_added_only_when_live() {
         let embedded = Assets::Embedded;
-        assert!(
-            !embedded
-                .render_page("{}", false)
-                .unwrap()
-                .contains("EventSource")
-        );
-        assert!(
-            embedded
-                .render_page("{}", true)
-                .unwrap()
-                .contains("EventSource")
-        );
+        assert!(!build(&embedded, &DICT_PAGE, false).contains("EventSource"));
+        assert!(build(&embedded, &DICT_PAGE, true).contains("EventSource"));
+    }
+
+    /// The report page is never served by `--live`, so it carries no client
+    /// however it is built.
+    #[test]
+    fn the_report_page_never_carries_the_live_client() {
+        assert!(!build(&Assets::Embedded, &REPORT_PAGE, true).contains("EventSource"));
+    }
+
+    /// The report page has no relationship diagram, so it leaves the layout
+    /// engine out rather than shipping it unused in every report.
+    #[test]
+    fn the_report_page_leaves_out_the_diagram() {
+        let built = build(&Assets::Embedded, &REPORT_PAGE, false);
+        for absent in ["dagre", "DIAGRAM_INIT"] {
+            assert!(!built.contains(absent), "{absent} is in the report page");
+        }
     }
 
     /// The compiled-in copies and the files they were compiled from are the
-    /// same page, so `--live` shows what a plain `render` would write.
+    /// same pages, so `--live` shows what a plain `render` would write.
     #[test]
     fn a_directory_builds_the_same_page_as_the_embedded_copies() {
         let dir = Assets::Dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("render"));
-        assert_eq!(
-            dir.render_page("{}", true).unwrap(),
-            Assets::Embedded.render_page("{}", true).unwrap()
-        );
+        for page in PAGES {
+            assert_eq!(
+                build(&dir, page, true),
+                build(&Assets::Embedded, page, true),
+                "{}",
+                page.file
+            );
+        }
     }
 
     #[test]
@@ -225,7 +394,7 @@ mod tests {
         assert!(Assets::Embedded.files().is_empty());
         assert_eq!(
             Assets::Dir(PathBuf::from("x")).files().len(),
-            PARTS.len() + 2
+            PARTS.len() + PAGES.len() + 1
         );
     }
 
@@ -234,7 +403,7 @@ mod tests {
         let dir = Assets::Dir(PathBuf::from("x"));
         assert_eq!(
             dir.css_files(),
-            CSS_FILES
+            ["app.css", "diagram.css", "tables.css"]
                 .iter()
                 .map(|file| PathBuf::from("x").join(file))
                 .collect::<Vec<_>>()
@@ -247,11 +416,30 @@ mod tests {
     #[test]
     fn the_standalone_stylesheet_matches_the_embedded_one() {
         let css = Assets::Embedded.css().unwrap();
-        let page = Assets::Embedded.render_page("{}", false).unwrap();
-        for file in CSS_FILES {
-            let (_, _, embedded) = PARTS.iter().find(|(_, f, _)| f == file).unwrap();
+        let page = build(&Assets::Embedded, &DICT_PAGE, false);
+        for file in DICT_PAGE.css() {
+            let embedded = part(file).1;
             assert!(css.contains(embedded), "{file} is missing from the css");
             assert!(page.contains(embedded), "{file} is missing from the page");
         }
+    }
+
+    /// A document is text nobody here controls, so one that spells a marker —
+    /// its own, or another document's — is embedded as written.
+    #[test]
+    fn a_document_that_spells_a_marker_is_embedded_as_written() {
+        let filled = fill_documents(
+            "a{{ONE}}b{{TWO}}c",
+            &[("{{ONE}}", "{{TWO}}"), ("{{TWO}}", "2")],
+        );
+        assert_eq!(filled, "a{{TWO}}b2c");
+    }
+
+    /// Nothing in a document can close the page's `<script>` block.
+    #[test]
+    fn a_document_cannot_close_the_script_block() {
+        let escaped = embed_json(&"</script><script>alert(1)</script>");
+        assert!(escaped.contains("\\u003c/script>"), "{escaped}");
+        assert!(!escaped.contains("</script>"), "{escaped}");
     }
 }

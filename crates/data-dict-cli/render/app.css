@@ -53,14 +53,29 @@
   --accent2-soft: light-dark(
     color-mix(in oklab, var(--accent2-hue) 20%, white),
     color-mix(in oklab, var(--accent2-hue) 20%, var(--background)));
-  /* unresolved work — the one thing on the page that is a caveat rather than a
-     fact, so it takes the palette's yellow and no other colour does */
+  /* a caveat rather than a fact, which is what the palette's yellow is for and
+     what its three tenants have in common: an unresolved todo, a restricted
+     column, and a validation warning */
   --warn: light-dark(
     color-mix(in oklab, var(--yellow) 80%, black),
     color-mix(in oklab, var(--yellow) 80%, white));
   --warn-soft: light-dark(
     color-mix(in oklab, var(--yellow) 20%, white),
     color-mix(in oklab, var(--yellow) 20%, var(--background)));
+  /* a verdict: green passed, red failed. Only the validation report has
+     verdicts to report, so only it uses these. */
+  --good: light-dark(
+    color-mix(in oklab, var(--green) 80%, black),
+    color-mix(in oklab, var(--green) 80%, white));
+  --good-soft: light-dark(
+    color-mix(in oklab, var(--green) 20%, white),
+    color-mix(in oklab, var(--green) 20%, var(--background)));
+  --bad: light-dark(
+    color-mix(in oklab, var(--red) 80%, black),
+    color-mix(in oklab, var(--red) 80%, white));
+  --bad-soft: light-dark(
+    color-mix(in oklab, var(--red) 20%, white),
+    color-mix(in oklab, var(--red) 20%, var(--background)));
   --grid-dot: light-dark(#cdc6b6, #2c343c);
   --scroll-thumb: light-dark(#cdc9c1, #3f4751);
   /* every row that takes part in a relationship wears this, so it is the
@@ -82,6 +97,9 @@
   --hist-bar: var(--accent1-hue);
   --hist-bar-hot: var(--accent2-hue);
   --hist-band: color-mix(in oklab, var(--accent2-hue) 20%, transparent);
+  /* a bar is a mark rather than text or a fill, so it takes the raw value */
+  --pass-bar: var(--green);
+  --fail-bar: var(--red);
   --null-bar: var(--red);
   --null-fill: light-dark(#e3e3e3, #444c55);
   --null-edge: light-dark(#bcbcbc, #5a626c);

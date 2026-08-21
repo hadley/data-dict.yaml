@@ -12,13 +12,17 @@
 //! [`SourceContext`] each span needs to become a line/column
 //! [`SpanLocation`], which the problems can't carry themselves.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 
+use chrono::{SecondsFormat, Utc};
 use quarto_source_map::SourceContext;
 
 use crate::Level;
 use crate::model::{Column, Constraint, Table};
-use crate::problem::{Problem, ProblemSet, SpanLocation, Status, Suggestion, span_location};
+use crate::problem::{
+    Problem, ProblemSet, Severity, SpanLocation, Status, Suggestion, span_location,
+};
 
 /// The version of the report document format itself, not of any dictionary.
 pub const REPORT_VERSION: &str = "0.1.0";
@@ -384,16 +388,101 @@ pub(crate) fn table_assertions(table: &Table) -> Vec<(&crate::model::Assertion, 
         .collect()
 }
 
+/// The check catalogue, as `site/validation.md` documents it.
+const VALIDATION_MD: &str = include_str!("../../../site/validation.md");
+
+/// What one check is called and how loudly it speaks, so a consumer can name a
+/// code it only ever sees as `D04`.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Check {
+    pub name: &'static str,
+    pub severity: Severity,
+}
+
+/// Every check in `site/validation.md`, by code. Read out of that document's
+/// tables rather than kept beside them, so a renamed check can't drift from the
+/// spec that named it.
+pub fn checks() -> BTreeMap<&'static str, Check> {
+    VALIDATION_MD
+        .lines()
+        .filter_map(|line| {
+            let mut cells = line.strip_prefix("| ")?.split(" | ");
+            let code = cells.next()?.trim();
+            let name = cells.next()?.trim();
+            let severity = match cells.next()?.trim() {
+                "E" => Severity::Error,
+                "W" => Severity::Warning,
+                _ => return None,
+            };
+            is_check_code(code).then_some((code, Check { name, severity }))
+        })
+        .collect()
+}
+
+/// Whether `code` is a check code — a level letter and two digits — rather than
+/// some other first cell in a table.
+fn is_check_code(code: &str) -> bool {
+    let mut chars = code.chars();
+    matches!(chars.next(), Some('S' | 'M' | 'D'))
+        && chars.clone().count() == 2
+        && chars.all(|c| c.is_ascii_digit())
+}
+
+/// What a run was: which dictionary it read, at which level, when, and by what.
+/// None of it can be recovered from the findings, so a report that outlives the
+/// run it came from carries it.
+#[derive(Debug, serde::Serialize)]
+pub struct Run {
+    /// The dictionary as the caller named it: a relative path stays relative, so
+    /// an archived report doesn't record where the machine that made it kept its
+    /// files. Every [`SpanLocation`] in the report is a span of this file.
+    pub dictionary: String,
+    pub level: Level,
+    /// The one table a single-table run covered; `None` for a whole dictionary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    /// When the run finished, UTC to the second, ISO 8601 with a `Z` offset.
+    pub generated_at: String,
+    pub tool: Tool,
+}
+
+impl Run {
+    /// Stamps the clock, so build it when the run has finished rather than
+    /// before it starts.
+    pub fn new(dictionary: &Path, level: Level, table: Option<&str>) -> Self {
+        Run {
+            dictionary: dictionary.display().to_string(),
+            level,
+            table: table.map(str::to_string),
+            generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            tool: Tool {
+                name: env!("CARGO_PKG_NAME"),
+                version: Some(env!("CARGO_PKG_VERSION")),
+            },
+        }
+    }
+}
+
+/// What produced a report, so one found on its own says where it came from.
+#[derive(Debug, serde::Serialize)]
+pub struct Tool {
+    pub name: &'static str,
+    /// The producer's own version, not [`REPORT_VERSION`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<&'static str>,
+}
+
 /// One validation run's findings, ready to serialize as `site/report.md`
 /// specifies. Borrows the [`ProblemSet`] for the [`SourceContext`] its spans
 /// resolve through.
 pub struct Report<'a> {
     problems: &'a ProblemSet,
+    run: Run,
 }
 
 impl<'a> Report<'a> {
-    pub fn new(problems: &'a ProblemSet) -> Self {
-        Report { problems }
+    pub fn new(problems: &'a ProblemSet, run: Run) -> Self {
+        Report { problems, run }
     }
 }
 
@@ -401,6 +490,7 @@ impl<'a> Report<'a> {
 struct ReportOut<'a> {
     #[serde(rename = "$version")]
     version: &'static str,
+    run: &'a Run,
     status: Status,
     steps: &'a [Step],
     problems: Vec<ProblemOut<'a>>,
@@ -462,10 +552,122 @@ impl serde::Serialize for Report<'_> {
             .collect();
         ReportOut {
             version: REPORT_VERSION,
+            run: &self.run,
             status: self.problems.status(),
             steps: self.problems.steps.items(),
             problems,
         }
         .serialize(serializer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::problem::ProblemKind;
+
+    /// Every code a check can report has a name in the catalogue, so the report
+    /// page can name what it found rather than printing a bare `D04`.
+    #[test]
+    fn every_code_a_check_reports_is_in_the_catalogue() {
+        let checks = checks();
+        // `Schema` is left out: it stands for the whole `S60` block, and takes
+        // its code from the structural validator rather than the kind. The
+        // block's presence is asserted below.
+        let kinds = [
+            ProblemKind::TypeMismatch {
+                declared: String::new(),
+                actual: String::new(),
+            },
+            ProblemKind::MissingInData,
+            ProblemKind::ExtraInData {
+                actual: String::new(),
+            },
+            ProblemKind::MissingSource,
+            ProblemKind::UnreadableSource,
+            ProblemKind::NullsInRequired {
+                count: 0,
+                rows: Vec::new(),
+            },
+            ProblemKind::DuplicateValues {
+                count: 0,
+                rows: Vec::new(),
+                values: Vec::new(),
+                redacted: false,
+            },
+            ProblemKind::UniquenessNotVerified {
+                reason: String::new(),
+            },
+            ProblemKind::ValuesOutsideEnum {
+                count: 0,
+                rows: Vec::new(),
+                values: Vec::new(),
+                redacted: false,
+            },
+            ProblemKind::ForeignKeyNotFound {
+                column: String::new(),
+                references: String::new(),
+                count: 0,
+                rows: Vec::new(),
+                values: Vec::new(),
+                redacted: false,
+            },
+            ProblemKind::ReferentialIntegrityNotVerified {
+                column: String::new(),
+                references: String::new(),
+                reason: String::new(),
+            },
+            ProblemKind::AssertionViolated {
+                assertion: String::new(),
+                count: 0,
+                rows: Vec::new(),
+                values: Vec::new(),
+                redacted: false,
+            },
+            ProblemKind::AssertionFalse {
+                assertion: String::new(),
+            },
+            ProblemKind::AssertionNotChecked {
+                assertion: String::new(),
+                column: None,
+                reason: String::new(),
+            },
+            ProblemKind::AssertionOverflow {
+                assertion: String::new(),
+                row: None,
+            },
+        ];
+        for kind in &kinds {
+            let code = kind.code().expect("a documented kind has a code");
+            assert!(
+                checks.contains_key(code),
+                "{code} has no entry in validation.md"
+            );
+        }
+    }
+
+    /// The catalogue is parsed out of prose, so a table that changes shape would
+    /// quietly empty it. Each level's block has to be there.
+    #[test]
+    fn the_catalogue_covers_every_level() {
+        let checks = checks();
+        for code in ["S07", "S60", "M01", "D07"] {
+            assert!(checks.contains_key(code), "{code} is missing");
+        }
+        for level in ['S', 'M', 'D'] {
+            assert!(
+                checks.keys().filter(|c| c.starts_with(level)).count() > 4,
+                "too few {level} checks: {:?}",
+                checks.keys().collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(
+            checks["D02"],
+            Check {
+                name: "Duplicate values",
+                severity: Severity::Error
+            }
+        );
+        assert_eq!(checks["M03"].severity, Severity::Warning);
     }
 }

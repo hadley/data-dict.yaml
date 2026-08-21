@@ -1,0 +1,275 @@
+/* The validation report page: the verdict, the roster of checks, and one
+   problem in full. Shares the palette in app.css and the card, table, chip and
+   modal primitives in tables.css, and is concatenated after both so its
+   narrower rules win at equal specificity. */
+
+/* ---- Verdict ------------------------------------------------------------
+   The status reads three ways, never colour alone: the edge, the sentence, and
+   the mark beside it. */
+
+.verdict {
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--ink-faint);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 16px 18px;
+  margin: 0 0 26px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.verdict.is-ok { border-left-color: var(--good); }
+.verdict.is-warning { border-left-color: var(--warn); }
+.verdict.is-error { border-left-color: var(--bad); }
+
+.verdict-mark { flex: 0 0 auto; line-height: 1; margin-top: 2px; }
+.verdict-mark .ic svg { width: 22px; height: 22px; }
+.is-ok .verdict-mark { color: var(--good); }
+.is-warning .verdict-mark { color: var(--warn); }
+.is-error .verdict-mark { color: var(--bad); }
+
+.verdict-body { flex: 1 1 auto; min-width: 0; }
+.verdict h2 { font-size: var(--text-xl); font-weight: 650; margin: 0; }
+.is-ok .verdict h2 { color: var(--good); }
+.is-warning .verdict h2 { color: var(--warn); }
+.is-error .verdict h2 { color: var(--bad); }
+
+.verdict-meta {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  margin: 5px 0 0;
+}
+
+/* The tallies are the roster's filter, so they are buttons that look like the
+   quiet text beside them until you reach for them. */
+.vstats { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.vstat {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.vstat:hover { background: var(--hover-row); color: var(--ink); }
+.vstat[aria-pressed="true"] { border-color: var(--accent1); color: var(--accent1); }
+.vstat:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* ---- Sections -----------------------------------------------------------*/
+
+.rsection { margin: 0 0 30px; }
+.rsection > h2 {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.rsection-note { color: var(--ink-soft); font-size: var(--text-sm); margin: 0 0 12px; }
+.rsection-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 650;
+  margin: 0 0 18px;
+}
+
+/* ---- The roster of checks ------------------------------------------------
+   `.tlist` gives the card, the header row and the numeric alignment. What it
+   doesn't give is the right hover: its group-wide highlight suits a four-row
+   table block and not a forty-step roster, so the hover moves down to the row. */
+
+.slist { table-layout: auto; }
+.slist tbody.tgroup:hover td { background: transparent; }
+.slist tbody.tgroup tr[data-href]:hover td { background: var(--hover-row); }
+.slist td, .slist th { padding: 6px 10px; vertical-align: middle; }
+.slist th { white-space: nowrap; }
+
+/* The band naming the table a run of steps belongs to. */
+.slist tr.grouphead td {
+  background: var(--chip);
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.grouphead-name { font-weight: 700; color: var(--accent1); }
+.grouphead-tally { color: var(--ink-soft); }
+.grouphead-note { color: var(--warn); }
+
+.sid { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); }
+.scheck { white-space: nowrap; }
+.scheck-name { color: var(--ink-soft); font-size: var(--text-sm); }
+.starget { font-family: var(--font-mono); font-size: var(--text-sm); }
+.starget-assert { display: block; color: var(--ink); }
+.starget-cols { display: block; color: var(--ink-faint); }
+.swhole { color: var(--ink-faint); font-family: var(--font-sans); }
+
+/* The three verdicts, as `.key` variants. `unevaluated` gets no hue at all: a
+   dashed outline says "no verdict" without asking anyone to see a colour. */
+.key.pass { color: var(--good); background: var(--good-soft); }
+.key.fail { color: var(--bad); background: var(--bad-soft); }
+/* A warning severity. It shares yellow with a restricted column but not the
+   badge: `restricted` says one particular thing, and a warning is not it. */
+.key.warn { color: var(--warn); background: var(--warn-soft); }
+.key.uneval {
+  color: var(--ink-faint);
+  background: none;
+  border: 1px dashed var(--rule);
+  padding: 0 3px;
+}
+
+/* The share of rows a step failed. Geometry from `.missbar`, including the
+   min-width that keeps two failures out of ninety thousand visible; the
+   vocabulary is failure rather than missingness, hence its own names. */
+.stepmeter { width: 110px; }
+.steptrack {
+  height: 9px;
+  background: var(--good-soft);
+  border: 0.5px solid var(--rule);
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+}
+.stepfill {
+  position: absolute;
+  top: -0.5px;
+  left: -0.5px;
+  bottom: -0.5px;
+  min-width: 6px;
+  border-radius: 999px 0 0 999px;
+  background: var(--fail-bar);
+  box-sizing: border-box;
+}
+.stepfill.full { right: -0.5px; min-width: 0; }
+
+/* ---- One problem --------------------------------------------------------*/
+
+.srep {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 16px 18px;
+  margin: 0 0 16px;
+}
+.srep-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+.srep-step {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.srep-expected { font-size: var(--text-lg); font-weight: 650; margin: 0 0 6px; max-width: 76ch; }
+.srep-message { margin: 0 0 10px; color: var(--ink-soft); max-width: 76ch; }
+.srep-found { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-faint); }
+.srep-where { font-family: var(--font-mono); font-size: var(--text-sm); margin: 0 0 10px; }
+.srep-hint { margin: 10px 0 0; color: var(--ink-soft); max-width: 76ch; }
+.srep-hint::before {
+  content: "help: ";
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent1);
+}
+
+.code-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent1);
+  text-decoration: none;
+}
+.code-chip:hover { text-decoration: underline; }
+.code-chip:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+/* A backtick span in a diagnostic's own wording. */
+code.tick {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--chip);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+/* ---- The annotated excerpt ----------------------------------------------
+   The same excerpt the terminal prints: the offending span marked, the nodes
+   enclosing it shown but unlabelled, and a fold where lines are skipped. */
+
+.excerpt {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--background);
+  padding: 10px 0;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+.ex-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  padding: 0 12px 6px;
+}
+.ex-rows { display: table; width: 100%; font-family: var(--font-mono); font-size: var(--text-sm); }
+.ex-row { display: table-row; }
+.ex-num, .ex-text { display: table-cell; padding: 0 12px; white-space: pre; }
+.ex-num {
+  text-align: right;
+  color: var(--ink-faint);
+  user-select: none; /* so copying the snippet yields YAML, not line numbers */
+  width: 1%;
+  border-right: 1px solid var(--rule);
+}
+.ex-text { color: var(--ink-soft); }
+/* The underline is the faithful analogue of the terminal's `^^^^`, and it
+   survives a reader who can't tell the fill from the text around it. */
+.ex-hit {
+  background: var(--bad-soft);
+  box-shadow: inset 0 -2px 0 var(--bad);
+  color: var(--ink);
+}
+.is-warning .ex-hit { background: var(--warn-soft); box-shadow: inset 0 -2px 0 var(--warn); }
+.ex-ctx { background: var(--hover-row); }
+.ex-fold .ex-num { color: var(--ink-faint); }
+
+.diff-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent1);
+  padding: 0 12px 6px;
+}
+.diff-del .ex-text { background: var(--bad-soft); }
+.diff-add .ex-text { background: var(--good-soft); }
+.diff-del .ex-num, .diff-add .ex-num { color: var(--ink-faint); }
+
+/* ---- Offending rows -----------------------------------------------------*/
+
+.rowtable { border-collapse: collapse; margin: 12px 0 0; font-size: var(--text-sm); }
+.rowtable th, .rowtable td {
+  border-bottom: 1px solid var(--row-line);
+  padding: 4px 12px 4px 0;
+  text-align: left;
+}
+.rowtable th {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.rownum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+.rows-cap, .rows-note, .redacted-note {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  margin: 8px 0 0;
+}
+.rows-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 0; }
+.rows-head h3 { font-size: var(--text-base); font-weight: 650; margin: 0; }
+/* A missing value is not the string "null", so it doesn't wear a value chip. */
+.val.is-null { font-style: italic; color: var(--ink-faint); background: none; }
+
+@media (max-width: 720px) {
+  .verdict { flex-direction: column; }
+  .stepmeter { display: none; }
+}
