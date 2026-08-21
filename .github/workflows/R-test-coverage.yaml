@@ -39,6 +39,8 @@ jobs:
 
       - name: Test coverage
         run: |
+          uncovr::reload()
+          datadict::dd_install()
           uncovr::test()
           if (nzchar(Sys.getenv("CODECOV_TOKEN")) || Sys.getenv("GITHUB_EVENT_NAME") != "pull_request") {
             uncovr::codecov()

@@ -58,6 +58,13 @@ jobs:
           needs: check
           working-directory: r
 
+      - name: Install the data-dict binary
+        run: |
+          pkgload::load_all()
+          datadict::dd_install()
+        shell: Rscript {0}
+        working-directory: r
+
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
