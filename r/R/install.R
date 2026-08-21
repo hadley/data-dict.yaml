@@ -9,9 +9,9 @@ target_triple <- function(sysname, arch) {
     paste(sysname, arch),
     "Darwin aarch64" = "aarch64-apple-darwin",
     "Darwin x86_64" = "x86_64-apple-darwin",
-    "Linux aarch64" = "aarch64-unknown-linux-gnu",
-    "Linux arm64" = "aarch64-unknown-linux-gnu",
-    "Linux x86_64" = "x86_64-unknown-linux-gnu",
+    "Linux aarch64" = "aarch64-unknown-linux-musl",
+    "Linux arm64" = "aarch64-unknown-linux-musl",
+    "Linux x86_64" = "x86_64-unknown-linux-musl",
     "Windows x86_64" = "x86_64-pc-windows-msvc",
     NULL
   )

@@ -1,8 +1,8 @@
 test_that("every released platform maps to its target triple", {
   expect_equal(target_triple("Darwin", "aarch64"), "aarch64-apple-darwin")
   expect_equal(target_triple("Darwin", "x86_64"), "x86_64-apple-darwin")
-  expect_equal(target_triple("Linux", "aarch64"), "aarch64-unknown-linux-gnu")
-  expect_equal(target_triple("Linux", "x86_64"), "x86_64-unknown-linux-gnu")
+  expect_equal(target_triple("Linux", "aarch64"), "aarch64-unknown-linux-musl")
+  expect_equal(target_triple("Linux", "x86_64"), "x86_64-unknown-linux-musl")
   expect_equal(target_triple("Windows", "x86_64"), "x86_64-pc-windows-msvc")
 })
 
@@ -14,7 +14,7 @@ test_that("a platform without a released binary is an error", {
 test_that("this platform is one we build for", {
   expect_true(dd_target() %in% c(
     "aarch64-apple-darwin", "x86_64-apple-darwin",
-    "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl",
     "x86_64-pc-windows-msvc"
   ))
 })
