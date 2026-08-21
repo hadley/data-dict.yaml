@@ -3,7 +3,13 @@ name: test-crates.yaml
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'r/**'
+      - '.github/workflows/R-*.yaml'
   pull_request:
+    paths-ignore:
+      - 'r/**'
+      - '.github/workflows/R-*.yaml'
   workflow_dispatch:
 
 jobs:

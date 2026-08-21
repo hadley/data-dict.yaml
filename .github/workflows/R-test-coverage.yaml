@@ -1,0 +1,51 @@
+# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
+# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'r/**'
+      - '.github/workflows/R-test-coverage.yaml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'r/**'
+      - '.github/workflows/R-test-coverage.yaml'
+  workflow_dispatch:
+
+name: R-test-coverage.yaml
+
+permissions: read-all
+
+jobs:
+  test-coverage:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    defaults:
+      run:
+        working-directory: r
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: gaborcsardi/uncovr
+          needs: coverage
+          working-directory: r
+
+      - name: Test coverage
+        run: |
+          uncovr::test()
+          if (nzchar(Sys.getenv("CODECOV_TOKEN")) || Sys.getenv("GITHUB_EVENT_NAME") != "pull_request") {
+            uncovr::codecov()
+          } else {
+            message("Skipping uncovr::codecov(): no CODECOV_TOKEN available for PR run.")
+          }
+        shell: Rscript {0}
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
