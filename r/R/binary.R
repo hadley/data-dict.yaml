@@ -54,13 +54,53 @@ bin_name <- function() {
 
 #' Run the `data-dict` binary
 #'
+#' Both output streams are captured, interleaved as the binary wrote them.
+#' With `echo = TRUE` they are also printed as they arrive, so a long run
+#' shows its progress.
+#'
+#' A non-zero exit status is an error, carrying the captured output as the
+#' message.
+#'
 #' @param args Character vector of command line arguments.
-#' @param ... Passed on to [system2()], e.g. `stdout` to capture output.
-#' @return The exit status, invisibly, unless `...` redirects the output, in
-#'   which case whatever [system2()] returns.
+#' @param echo Whether to print the binary's output while it runs, on top of
+#'   capturing it.
+#' @param ... Passed on to [processx::run()], e.g. `timeout` or `wd`.
+#' @return A list with the exit `status` and the captured `output`, a character
+#'   vector of lines, invisibly.
 #' @export
 #' @examples
-#' if (nzchar(dd_path(check = FALSE))) dd_run("--version")
-dd_run <- function(args, ...) {
-  system2(dd_path(), args, ...)
+#' if (nzchar(dd_path(check = FALSE))) dd_run("--version")$output
+dd_run <- function(args, echo = FALSE, ...) {
+  result <- run_binary(args, echo = echo, ...)
+  if (result$status != 0) {
+    stop(
+      run_failure(paste0("data-dict failed with status ", result$status, ":"),
+                  result),
+      call. = FALSE
+    )
+  }
+  invisible(result)
+}
+
+run_binary <- function(args, echo = FALSE, ...) {
+  result <- processx::run(
+    dd_path(),
+    as.character(args),
+    error_on_status = FALSE,
+    stderr_to_stdout = TRUE,
+    echo = echo,
+    ...
+  )
+  list(status = result$status, output = split_lines(result$stdout))
+}
+
+run_failure <- function(headline, result) {
+  paste(c(headline, result$output), collapse = "\n")
+}
+
+split_lines <- function(text) {
+  if (!nzchar(text)) {
+    return(character())
+  }
+  strsplit(sub("\r?\n$", "", text), "\r?\n")[[1]]
 }

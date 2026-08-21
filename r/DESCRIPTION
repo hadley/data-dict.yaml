@@ -13,6 +13,7 @@ BugReports: https://github.com/tidyverse/data-dict/issues
 Depends:
     R (>= 4.5)
 Imports:
+    processx,
     tools,
     utils
 Suggests:

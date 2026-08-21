@@ -4,20 +4,29 @@
 \alias{dd_run}
 \title{Run the \code{data-dict} binary}
 \usage{
-dd_run(args, ...)
+dd_run(args, echo = FALSE, ...)
 }
 \arguments{
 \item{args}{Character vector of command line arguments.}
 
-\item{...}{Passed on to \code{\link[=system2]{system2()}}, e.g. \code{stdout} to capture output.}
+\item{echo}{Whether to print the binary's output while it runs, on top of
+capturing it.}
+
+\item{...}{Passed on to \code{\link[processx:run]{processx::run()}}, e.g. \code{timeout} or \code{wd}.}
 }
 \value{
-The exit status, invisibly, unless \code{...} redirects the output, in
-which case whatever \code{\link[=system2]{system2()}} returns.
+A list with the exit \code{status} and the captured \code{output}, a character
+vector of lines, invisibly.
 }
 \description{
-Run the \code{data-dict} binary
+Both output streams are captured, interleaved as the binary wrote them.
+With \code{echo = TRUE} they are also printed as they arrive, so a long run
+shows its progress.
+}
+\details{
+A non-zero exit status is an error, carrying the captured output as the
+message.
 }
 \examples{
-if (nzchar(dd_path(check = FALSE))) dd_run("--version")
+if (nzchar(dd_path(check = FALSE))) dd_run("--version")$output
 }

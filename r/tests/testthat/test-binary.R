@@ -22,3 +22,25 @@ test_that("the install directory sits under the cache", {
   withr::local_envvar(R_USER_CACHE_DIR = cache)
   expect_equal(dd_dir(), file.path(cache, "R", "datadict"))
 })
+
+test_that("dd_run captures the binary's output", {
+  skip_if_no_cli()
+  run <- dd_run("--version")
+  expect_equal(run$status, 0L)
+  expect_match(run$output, "data-dict", all = FALSE)
+})
+
+test_that("dd_run can echo while it captures", {
+  skip_if_no_cli()
+  expect_output(run <- dd_run("--version", echo = TRUE), "data-dict")
+  expect_match(run$output, "data-dict", all = FALSE)
+})
+
+test_that("dd_run reports the output on a non-zero exit", {
+  skip_if_no_cli()
+  expect_error(dd_run(c("validate-spec", "/no/such/dict.yaml")), "status 1")
+
+  run <- run_binary(c("validate-spec", "/no/such/dict.yaml"))
+  expect_true(run$status != 0)
+  expect_true(length(run$output) > 0)
+})

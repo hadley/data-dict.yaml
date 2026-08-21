@@ -34,13 +34,20 @@ dd_validate_data <- function(dict = ".",
   # The CLI would overwrite `html` anyway; clearing it first means a stale
   # report can't be mistaken for the one this run failed to write.
   unlink(html)
-  status <- dd_run(args)
+  # Not dd_run(): a dataset that fails validation exits non-zero too, and the
+  # CLI has no exit code that tells the two apart.
+  run <- run_binary(args)
+  status <- run$status
 
-  # The CLI writes no page when the run could not be started at all, and has
-  # already explained why on stderr.
+  # The CLI writes no page when the run could not be started at all.
   if (!file.exists(html)) {
-    stop("data-dict wrote no report (exit status ", status, ").",
-         call. = FALSE)
+    stop(
+      run_failure(
+        paste0("data-dict wrote no report (exit status ", status, "):"),
+        run
+      ),
+      call. = FALSE
+    )
   }
 
   html <- normalizePath(html, winslash = "/")
