@@ -28,11 +28,9 @@ test_that("a corrupted download is rejected", {
   writeLines(paste0(strrep("0", 64), "  ", basename(archive)), sums)
   expect_error(verify_sha256(sums, archive), "Checksum mismatch")
 
-  writeLines(
-    paste0(tools::sha256sum(archive), "  ", basename(archive)),
-    sums
-  )
-  expect_equal(verify_sha256(sums, archive), unname(tools::sha256sum(archive)))
+  hash <- cli::hash_file_sha256(archive)
+  writeLines(paste0(hash, "  ", basename(archive)), sums)
+  expect_equal(verify_sha256(sums, archive), hash)
 })
 
 test_that("dd_install downloads a working binary", {

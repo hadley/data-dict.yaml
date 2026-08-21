@@ -11,8 +11,9 @@ License: MIT + file LICENSE
 URL: https://data-dict.tidyverse.org, https://github.com/tidyverse/data-dict
 BugReports: https://github.com/tidyverse/data-dict/issues
 Depends:
-    R (>= 4.5)
+    R (>= 4.1)
 Imports:
+    cli (>= 3.2.0),
     processx,
     tools,
     utils

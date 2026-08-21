@@ -115,7 +115,7 @@ verify_sha256 <- function(sums, archive) {
   # The file holds a `sha256sum` line: the hash, then the file name.
   line <- trimws(readLines(sums, warn = FALSE)[[1]])
   expected <- strsplit(line, "\\s+")[[1]][[1]]
-  actual <- unname(tools::sha256sum(archive))
+  actual <- cli::hash_file_sha256(archive)
   if (!identical(tolower(expected), tolower(actual))) {
     stop("Checksum mismatch for ", basename(archive),
          "\n  expected: ", expected, "\n  found:    ", actual, call. = FALSE)
