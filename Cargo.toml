@@ -8,14 +8,14 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/tidyverse/data-dict"
 
 [workspace.dependencies]
-data-dict = { path = "crates/data-dict", version = "0.0.1" }
-data-dict-lsp = { path = "crates/data-dict-lsp", version = "0.0.1" }
+data-dict = { path = "crates/data-dict", version = "0.0.2" }
+data-dict-lsp = { path = "crates/data-dict-lsp", version = "0.0.2" }
 clap = { version = "4", features = ["derive"] }
 quarto-yaml = { git = "https://github.com/posit-dev/quarto-yaml" }
 quarto-yaml-validation = { git = "https://github.com/posit-dev/quarto-yaml" }
@@ -28,7 +28,7 @@ arrow-cast = "54"
 arrow-row = "54"
 arrow-schema = "54"
 half = "2"
-data-dict-parquet = { path = "crates/data-dict-parquet", version = "0.0.1" }
+data-dict-parquet = { path = "crates/data-dict-parquet", version = "0.0.2" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 regex = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
