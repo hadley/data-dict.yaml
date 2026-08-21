@@ -1,0 +1,42 @@
+# Called by the dist-generated release workflow; see `publish-jobs` in
+# dist-workspace.toml. dist requires the `.yml` extension and passes the plan.
+name: Publish to PyPI
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  pypi:
+    runs-on: ubuntu-22.04
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # The same artifacts the `host` job releases, from this run rather than
+      # from the release, so publishing can't race release creation.
+      - name: Fetch the release archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-*
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Build the wheels
+        env:
+          PLAN: ${{ inputs.plan }}
+        run: |
+          tag=$(jq -r .announcement_tag <<< "$PLAN")
+          python3 tools/pypi/make_wheels.py \
+            --version "$tag" --artifacts artifacts --out wheels
+
+      # Authenticates over OIDC against the trusted publisher configured on
+      # PyPI, which names release.yml — the top-level caller, not this file.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheels

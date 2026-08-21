@@ -39,6 +39,34 @@ Check that it worked:
 data-dict --version
 ```
 
+## Install with uv or pipx
+
+`data-dict` is on [PyPI](https://pypi.org/project/data-dict/), so the Python
+tool installers can manage it for you:
+
+```bash
+uv tool install data-dict
+```
+
+```bash
+pipx install data-dict
+```
+
+To run it once without installing anything:
+
+```bash
+uvx data-dict validate-spec data-dict.yaml
+```
+
+Later, `uv tool upgrade data-dict` moves to the newest release, and
+`uv tool install data-dict==0.0.2` pins an older one.
+
+The wheels carry the same prebuilt binary as the install script, so there is
+nothing to compile and no Rust toolchain needed. They cover macOS (Apple
+silicon and Intel), Linux (x86-64 and ARM64), and Windows (x86-64). There is no
+wheel for Windows on ARM64: use the install script above, which fetches the
+x86-64 binary.
+
 ## Download a binary
 
 If you'd rather not pipe a script into a shell, grab the archive for your

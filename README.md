@@ -63,8 +63,14 @@ On Windows, in PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/tidyverse/data-dict/releases/latest/download/data-dict-cli-installer.ps1 | iex"
 ```
 
-This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). You can also download
-an archive straight from the [releases
+This puts `data-dict` on your `PATH` (in `~/.cargo/bin`). It is also on PyPI, so
+if you already have [uv](https://docs.astral.sh/uv/) or `pipx`:
+
+```bash
+uv tool install data-dict
+```
+
+You can also download an archive straight from the [releases
 page](https://github.com/tidyverse/data-dict/releases/latest), or build from
 source with [Cargo](https://rustup.rs):
 
@@ -116,7 +122,11 @@ git push origin v0.1.0
 
 `.github/workflows/release.yml` then builds the binaries for every supported
 platform, generates the installers and checksums, and publishes a GitHub
-release. The workflow is generated, not hand-written: after changing
+release. It also calls
+[`.github/workflows/publish-pypi.yml`](.github/workflows/publish-pypi.yml),
+which repacks those same binaries into wheels with
+[`tools/pypi/make_wheels.py`](tools/pypi/make_wheels.py) and publishes them to
+PyPI. The workflow is generated, not hand-written: after changing
 `dist-workspace.toml`, re-run `dist init` (or `dist generate`) with the `dist`
 version pinned in that file, and commit the result. `dist plan` shows what a
 release would produce without building it.
