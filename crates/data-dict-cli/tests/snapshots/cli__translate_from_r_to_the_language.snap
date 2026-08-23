@@ -7,6 +7,7 @@ expression: stdout
     "expr": "nchar(postcode) <= 10",
     "language": "r",
     "canonical": "LENGTH(postcode) <= 10",
+    "fidelity": "divergent",
     "notes": [
       "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
     ],

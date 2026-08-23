@@ -143,8 +143,21 @@ pub fn resolve(name: &str) -> Result<&'static Language, String> {
 /// the fix is to rewrite the rule, not to correct a typo.
 pub(crate) fn untranslatable(what: impl Display, why: &str, at: usize) -> ParseError {
     ParseError {
-        message: format!("{what} cannot be translated: {why}"),
+        message: format!("{UNTRANSLATABLE}{what} — {why}"),
         at,
+    }
+}
+
+/// Marks a [`ParseError`] as a construct with no equivalent rather than a
+/// syntax error, so a caller can report the two differently. Stripped before
+/// the message is shown.
+pub(crate) const UNTRANSLATABLE: &str = "\u{0}";
+
+/// Split an error into its message and whether it was [`untranslatable`].
+pub(crate) fn classify(error: &ParseError) -> (&str, bool) {
+    match error.message.strip_prefix(UNTRANSLATABLE) {
+        Some(rest) => (rest, true),
+        None => (error.message.as_str(), false),
     }
 }
 

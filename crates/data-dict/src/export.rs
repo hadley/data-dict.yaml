@@ -186,6 +186,18 @@ struct ExportRange {
 #[derive(Debug, Serialize)]
 struct ExportAssertion {
     expression: String,
+    /// The language the author wrote in; absent for the dictionary's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<&'static str>,
+    /// The same expression in the data-dict language; present exactly when
+    /// `language` is, since that is the only case where it differs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical: Option<String>,
+    /// How faithfully it was read; absent when exact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fidelity: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     columns: Vec<String>,
@@ -212,6 +224,16 @@ struct ExportDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     todo: Option<String>,
     expression: String,
+    /// The language the author wrote in, and the reading it was given; see
+    /// [`ExportAssertion`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fidelity: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<&'static str>,
     kind: &'static str,
     /// The expression's value type; absent when it couldn't be resolved (a
     /// definition whose expression failed to check, or one on a reference
@@ -784,6 +806,7 @@ fn build_definition(
         Ty::Interval => Some("interval"),
         Ty::Struct | Ty::List | Ty::Any | Ty::Unknown => None,
     });
+    let reading = reading(def.language(), def.expr.as_ref(), table, defs, &def.notes);
     ExportDefinition {
         name: def.name.value.clone(),
         label: def.label.clone(),
@@ -791,6 +814,10 @@ fn build_definition(
         details: prose(&def.details),
         todo: spanned_prose(&def.todo),
         expression: def.text.value.clone(),
+        language: reading.language,
+        canonical: reading.canonical,
+        fidelity: reading.fidelity,
+        notes: reading.notes,
         kind,
         value_type,
         columns,
@@ -852,12 +879,63 @@ fn build_assertion(
         collect_columns(&expr.root, table, defs, &mut columns, &mut definitions);
         translations = translate_expression(&expr.root, table, defs);
     }
+    let reading = reading(
+        assertion.language(),
+        assertion.expr.as_ref(),
+        table,
+        defs,
+        &assertion.notes,
+    );
     ExportAssertion {
         expression: assertion.text.value.clone(),
+        language: reading.language,
+        canonical: reading.canonical,
+        fidelity: reading.fidelity,
+        notes: reading.notes,
         description: prose(&assertion.description),
         columns,
         definitions,
         translations,
+    }
+}
+
+/// What an expression's reading adds to its export record.
+///
+/// Empty throughout for one written in the dictionary's own language: there was
+/// no reading, so there is nothing to report and nothing to compare against.
+struct Reading {
+    language: Option<&'static str>,
+    canonical: Option<String>,
+    fidelity: Option<&'static str>,
+    notes: Vec<&'static str>,
+}
+
+fn reading(
+    language: crate::model::Language,
+    expr: Option<&assert_expr::AssertExpr>,
+    table: &Table,
+    defs: &HashMap<String, DefType>,
+    notes: &[&'static str],
+) -> Reading {
+    if language == crate::model::Language::DataDict {
+        return Reading {
+            language: None,
+            canonical: None,
+            fidelity: None,
+            notes: Vec::new(),
+        };
+    }
+    let canonical = expr
+        .and_then(|expr| assert_expr::lower(expr, &DefEnv::new(table, defs)))
+        .and_then(|ir| emit::emit(&emit::Canonical, &ir).ok())
+        .map(|emitted| emitted.code);
+    Reading {
+        language: Some(language.as_str()),
+        canonical,
+        // A reading is never guarded or unsupported: the reader adds no code of
+        // its own, and an expression with no reading never reaches an export.
+        fidelity: (!notes.is_empty()).then_some("divergent"),
+        notes: notes.to_vec(),
     }
 }
 

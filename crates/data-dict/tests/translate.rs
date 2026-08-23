@@ -187,5 +187,5 @@ fn an_untranslatable_construct_names_itself() {
     let problems = translate(&path, &options).expect_err("no equivalent");
     let rendered = problems.render(common::SNAPSHOT_STYLE).join("\n");
     assert!(rendered.contains("`sapply()`"), "{rendered}");
-    assert!(rendered.contains("cannot be translated"), "{rendered}");
+    assert!(rendered.contains("no equivalent"), "{rendered}");
 }

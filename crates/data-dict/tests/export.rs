@@ -820,3 +820,51 @@ fn definitions_export_snapshot() {
                 expr: order_total * 1.2
     "#}));
 }
+
+/// An expression written in another language exports what the author wrote,
+/// what it was read as, and how faithfully.
+#[test]
+fn an_r_expression_exports_both_forms() {
+    insta::assert_snapshot!(export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: score
+                type: number(quantity)
+                units: points
+                range: [0, 100]
+            constraints:
+              - assert: round(score, 2) == score
+                language: r
+            definitions:
+              - name: high
+                expr: score > 80
+                language: r
+    "#}));
+}
+
+/// An expression in the dictionary's own language needed no reading, so it
+/// carries none of the four keys — `expression` speaks for itself.
+#[test]
+fn a_data_dict_expression_exports_neither_language_nor_canonical() {
+    let json = export_json(indoc! {r#"
+        $version: "0.1.0"
+        $learn_more: http://data-dict.tidyverse.org/
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: score
+                type: number(quantity)
+                units: points
+                range: [0, 100]
+            constraints:
+              - assert: ROUND(score, 2) = score
+    "#});
+    assert!(!json.contains("\"language\""), "{json}");
+    assert!(!json.contains("\"canonical\""), "{json}");
+    assert!(!json.contains("\"fidelity\""), "{json}");
+}

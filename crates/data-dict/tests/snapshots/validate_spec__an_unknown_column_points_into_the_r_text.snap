@@ -1,0 +1,23 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+description: Each row is a survey response.
+tables:
+  - name: survey
+    columns:
+      - name: postcode
+        type: string
+        examples: ["NZ-1010"]
+    constraints:
+      - assert: nchar(postcod) <= 10
+        language: r
+────────────────────────────────────────
+error[S20]: An assertion may only reference columns/definitions from its table.
+  --> dict.yaml:11:23
+   |
+LL |   - name: survey
+...
+LL |       - assert: nchar(postcod) <= 10
+   |                       ^^^^^^^ column `postcod` not found

@@ -367,6 +367,14 @@ columns:
         language: r
 ```
 
+One thing to watch, and it is YAML's doing rather than the language's: a value beginning with `!` is a YAML *tag*, so an expression that starts with one has to be quoted.
+
+```yaml
+constraints:
+  - assert: "!is.na(postcode)"
+    language: r
+```
+
 `language` names a language, not a dialect and not a package: `data-dict` (the default) or `r`. `r` covers the spellings base R, dplyr/stringr, and data.table. Each use (e.g.`nchar` and `str_length`) are read, and nothing has to say which one was meant. Writing `language: data-dict` is always allowed and means exactly what leaving the key out means. The set is closed and grows with the spec, so a `language` a validator can't read is rejected outright rather than left to mean something later.
 
 A table can hold rules written in different languages side by side:
