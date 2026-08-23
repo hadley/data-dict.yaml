@@ -302,7 +302,7 @@ The structural constraints are:
 
 `unique`, `primary_key`, `foreign_key` are not valid on `list` or `struct` columns, and constraints belong to columns; fields within a `struct` can't carry them (see [Struct fields](#struct-fields)).
 
-An assertion is a map with an `assert` key holding a boolean expression that must be true for every row, plus an optional `description`:
+An assertion is a map with an `assert` key holding a boolean expression that must be true for every row, plus an optional `description` and an optional [`language`](#other-languages):
 
 ```yaml
 columns:
@@ -319,7 +319,7 @@ Note that `values` and `range` (see [Types](#types)) already express membership 
 
 ### Table constraints
 
-A table's `constraints` property is a list of assertions, using exactly the same form as a [column assertion](#column-constraints): a map with an `assert` key and an optional `description`. The only difference is scope — a table constraint isn't tied to a single column, so it's the natural home for rules that span columns:
+A table's `constraints` property is a list of assertions, using exactly the same form as a [column assertion](#column-constraints): a map with an `assert` key and an optional `description` and [`language`](#other-languages). The only difference is scope — a table constraint isn't tied to a single column, so it's the natural home for rules that span columns:
 
 ```yaml
 tables:
@@ -335,7 +335,7 @@ Table constraints can only carry assertions; the structural barewords (`primary_
 
 ### Assertions
 
-An `assert` expression is a single-table boolean expression written in data-dict's small SQL-like [expression language](expressions.md). Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns or definitions in the table.
+An `assert` expression is a single-table boolean expression in data-dict's small SQL-like [expression language](expressions.md) — or [written in another language](#other-languages) and read into it. Most are row-level: evaluated against every row, with the constraint holding unless the expression is *false* for some row. Bare names refer to columns or definitions in the table.
 
 Expressions use SQL's three-valued logic, so an expression is `true`, `false`, or `null` (unknown) for a given row — a comparison involving a null operand is `null`, not `false` (`LENGTH(postcode) <= 10` is `null` when `postcode` is null). Following SQL's `CHECK` semantics, a row **passes** when the expression is `true` **or** `null`, and only a `false` result is a violation. So an assertion never doubles as a null check: `LENGTH(postcode) <= 10` constrains the length of the values that *are* present but says nothing about missing ones. Pair it with the `required` constraint (or an explicit `IS NOT NULL`) when the column must also be non-null.
 
@@ -354,6 +354,38 @@ constraints:
 
 [Expressions](expressions.md) documents the language in full: every operator and function with its input and output types, precedence, the `COLUMNS(...)` forms, the type rules a validator enforces, and the grammar.
 
+#### Writing an expression in another language {#other-languages}
+
+Expressions are written in data-dict's own [expression language](expressions.md) by default. An author who already thinks in another language can write the rule there instead, and say so with a `language` key beside the `assert` or `expr` it applies to:
+
+```yaml
+columns:
+  - name: postcode
+    type: string
+    constraints:
+      - assert: nchar(postcode) <= 10
+        language: r
+```
+
+`language` names a language, not a dialect and not a package: `data-dict` (the default) or `r`. `r` covers the spellings base R, dplyr/stringr, and data.table. Each use (e.g.`nchar` and `str_length`) are read, and nothing has to say which one was meant. Writing `language: data-dict` is always allowed and means exactly what leaving the key out means. The set is closed and grows with the spec, so a `language` a validator can't read is rejected outright rather than left to mean something later.
+
+A table can hold rules written in different languages side by side:
+
+```yaml
+tables:
+  - name: survey
+    constraints:
+      - assert: end_date >= start_date
+      - assert: nchar(postcode) <= 10
+        language: r
+```
+
+Whatever language an expression is written in, it is read into the one expression language. The language an author writes in changes how a rule is *spelled*, never what it *means*: `nchar(postcode) <= 10` under `language: r` is the rule `LENGTH(postcode) <= 10`, [three-valued logic](expressions.md#truth-and-null) and all, and not whatever R would do with that line.
+
+A construct whose meaning in its own language differs from the reading it is given. R's `round` rounds halves to even where the language rounds them away from zero. This still reads, and carries a note saying how the two differ ([S36](validation.md#spec-validation-checks)). A construct the language has no equivalent for at all is an error ([S35](validation.md#spec-validation-checks)): the rule has to be rewritten, in either language.
+
+The dictionary keeps what the author wrote. The `assert` text is quoted back verbatim wherever a rule is named, so the line a problem points at is the line in the file. IF the data-dict spelling is wanted too, e.g. to compare two rules written in different languages, or to rewrite a dictionary in one, `data-dict translate --target data-dict` prints it, and the [export document](export.md#assertion) carries it beside the original.
+
 ### Definitions
 
 A table's `definitions` property is a list of named expressions — the metrics, filters, and derivations that consumers should reuse rather than reinvent. Where a [constraint](#table-constraints) states something that must hold of the data, a definition states something that can be computed from it.
@@ -361,7 +393,8 @@ A table's `definitions` property is a list of named expressions — the metrics,
 Each entry is a map with:
 
 * `name` (required): the definition's name. Must be non-empty and unique within the table. Definitions and columns share a namespace: a definition's name must not match any column name in the same table.
-* `expr` (required): an expression in the [expression language](expressions.md). Unlike an assertion, it need not be boolean.
+* `expr` (required): an expression in the [expression language](expressions.md), or [written in another language](#other-languages) and read into it. Unlike an assertion, it need not be boolean.
+* `language`: the language `expr` is written in; see [Writing an expression in another language](#other-languages). Omitted, it is data-dict's own.
 * `label`, `description`, `details`: human-readable documentation for the definition; see [Name, label, description & details](#name-label-description--details).
 * `todo`: a note of work that remains before the definition is complete; see [Todo](#todo).
 

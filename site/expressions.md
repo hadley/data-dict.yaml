@@ -24,6 +24,8 @@ An expression is always written against the columns of one table: bare names are
 
 This page is the reference for the language. It covers [how an expression is evaluated](#evaluation), [truth and null](#truth-and-null), the [types](#types) values carry and the [shapes](#shapes) they come in, how [columns are referred to](#column-references), the [literals](#literals), [operators](#operators), and [functions](#functions) available, [`COLUMNS(...)`](#selecting-multiple-columns) for applying one predicate to many columns, the [type rules](#type-checking) a validator enforces, and the [grammar](#grammar).
 
+An expression can also be *written* in another language — R today — by tagging it with [`language`](spec.md#other-languages). That changes the spelling, not the language: such an expression is read into the one described here, and every rule on this page then applies to it unchanged. This page is the meaning; the tag only says how to get there.
+
 ## Evaluation
 
 **One table, at two grains.** An expression sees the columns of one table. A bare column reference is read one row at a time, and evaluating the expression against every row in turn is the whole of its meaning; an [aggregate](#aggregate-functions) instead folds a column over every row at once, giving one value for the table. Which grain each part of an expression has is settled before any data is read — see [shapes](#shapes).

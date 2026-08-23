@@ -102,7 +102,12 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 
 ```jsonc
 {
-  "expression": "string",         // original `assert` text
+  "expression": "string",         // the `assert` text, as the author wrote it
+  "language?": "r",               // absent when written in the data-dict language
+  "canonical?": "string",         // the same expression in the data-dict language;
+                                  // present exactly when `language` is
+  "fidelity?": "divergent",       // how faithfully it was read; absent when exact
+  "notes?": ["string", ...],      // absent when `fidelity` is
   "description?": "string",
   "columns": ["string", ...],     // every column (and struct field, dotted) the expression references
   "definitions?": ["string", ...], // every definition of the same table it references
@@ -111,6 +116,8 @@ Both `references` and `referenced_by` are derived from `relationships`, not read
 ```
 
 `columns` lists the columns the expression reads, in first-appearance order, with a `COLUMNS(...)` selection expanded to the columns it matches.
+
+`expression` is what the author wrote, verbatim, in whatever language they wrote it. It is the string a diagnostic quotes and the string to search the dictionary for. When that language isn't the dictionary's own, `language` names it and `canonical` gives the same rule in the data-dict language, which is the form every other field on this object is about: `columns`, `translations`, and the validator all work from the one reading. `fidelity` and `notes` grade that reading on the [same scale](expression-execution.md#fidelity) a `Translation` uses, present under the same rule. A reading is never `"guarded"` or `"unsupported"`: a reader adds no code of its own, and an expression with no reading doesn't validate, so it never reaches an export.
 
 ### Translation
 
@@ -136,7 +143,12 @@ A `Definition` is one of a table's [`definitions`](spec.md#definitions) — a na
   "label?": "string",
   "description?": "string",
   "details?": "string",
-  "expression": "string",          // original `expr` text
+  "expression": "string",          // the `expr` text, as the author wrote it
+  "language?": "r",                // absent when written in the data-dict language
+  "canonical?": "string",          // the same expression in the data-dict language;
+                                   // present exactly when `language` is
+  "fidelity?": "divergent",        // how faithfully it was read; absent when exact
+  "notes?": ["string", ...],       // absent when `fidelity` is
   "kind": "filter" | "metric" | "derived",
   // read off the expression's type and shape, as the spec defines: a boolean
   // row-level expression is a filter, an aggregate or constant a metric,
@@ -150,6 +162,8 @@ A `Definition` is one of a table's [`definitions`](spec.md#definitions) — a na
 ```
 
 `columns` and `definitions` list direct references only, in first-appearance order — a definition that builds on another definition names it under `definitions`, and the columns that definition reads appear on its own entry.
+
+`language`, `canonical`, `fidelity` and `notes` carry [what an `Assertion`'s do](#assertion), under the same presence rules.
 
 ### Relationship
 
