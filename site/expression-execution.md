@@ -94,7 +94,28 @@ A source is named by family alone, where a target is named `family(dialect)`. Th
 
 The R surface is exactly what `R(base)`, `R(tidyverse)` and `R(data.table)` emit, and no more. That is a deliberate bound: it makes the surface a finite, testable list rather than "R", and it makes the round trip a property that can be checked — every expression this specification can emit as R must read back as itself.
 
-`data-dict` is a target as well as a source. It has no dialects, so it is written bare, and it is not emitted unless it is asked for: `translate --target data-dict` is how the data-dict spelling of an expression written elsewhere is obtained.
+`data-dict` is a target as well as a source. It has no dialects, so it is written bare. It is left out of the targets emitted by default, since an expression already written in the language has nothing to gain from being printed back — but reading from another language is exactly the case where the data-dict spelling is the interesting one, so `--from` puts it back in. `--target data-dict` asks for it outright.
+
+#### What a round trip normalises
+
+"Reads back as itself" is a claim about meaning, not about spelling. Some constructs have no distinct R form to come back to, and those settle on one reading:
+
+| Written | Emitted as R | Reads back as |
+|---------|--------------|---------------|
+| `s LIKE 'NZ-%'` | `startsWith(s, "NZ-")` | `STARTS_WITH(s, 'NZ-')` |
+| `s LIKE '%.nz'` | `endsWith(s, ".nz")` | `ENDS_WITH(s, '.nz')` |
+| `s LIKE 'exact'` | `s == "exact"` | `s = 'exact'` |
+| `s LIKE 'a%b'` | `grepl("^a.*b$", s)` | `s SIMILAR TO 'a.*b'` |
+
+: {tbl-colwidths="[26,38,36]"}
+
+(The middle column omits the null guard each of these is wrapped in, which is a [separate matter](#fidelity) and reads back the same way either way.)
+
+Each says the same thing as what was written; R simply has one spelling where the language has two, and nothing in the R says which it came from.
+
+Normalising **converges**: the reading is a fixed point, so a dictionary rewritten through this path settles after one pass rather than drifting further on each one.
+
+The larger one is `COLUMNS(...)`. Only `R(tidyverse)` has an idiom that keeps a selection a selection, so only that one round-trips. `R(base)` and `R(data.table)` expand it to a conjunction before emitting, and nothing in the result marks it as having been a selection — so it reads back as the conjunction it now is. Inventing the selection back would put a rule in the dictionary that its author never wrote.
 
 ### Column references
 

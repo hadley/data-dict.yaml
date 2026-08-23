@@ -1,0 +1,26 @@
+---
+source: crates/data-dict-cli/tests/cli.rs
+expression: stdout
+---
+[
+  {
+    "expr": "nchar(postcode) <= 10",
+    "language": "r",
+    "canonical": "LENGTH(postcode) <= 10",
+    "notes": [
+      "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+    ],
+    "table": "survey",
+    "type": "boolean",
+    "columns": [
+      "postcode"
+    ],
+    "translations": [
+      {
+        "target": "data-dict",
+        "code": "LENGTH(postcode) <= 10",
+        "notes": []
+      }
+    ]
+  }
+]

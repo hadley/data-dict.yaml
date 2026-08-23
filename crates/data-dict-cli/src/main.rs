@@ -82,6 +82,9 @@ enum Command {
     Render(RenderArgs),
     /// Translate a dictionary's assertions into R, Python, or SQL
     ///
+    /// `--from` reads the other way, taking an expression written in another
+    /// language; `--target data-dict` prints the data-dict spelling of one.
+    ///
     /// Writes JSON to stdout: one record per expression, carrying the columns
     /// it reads and one entry per target. The code is a bare predicate for you
     /// to embed — see the "Executing expressions" page for the idiom each
@@ -447,6 +450,13 @@ struct TranslateArgs {
     /// Translate this expression instead of the dictionary's assertions
     #[arg(long)]
     expr: Option<String>,
+    /// The language `--expr` is written in, as a bare family name
+    /// [default: data-dict]
+    ///
+    /// Applies to `--expr` alone: a dictionary's assertions each say what
+    /// language they are written in, and no flag overrides that.
+    #[arg(long, requires = "expr")]
+    from: Option<String>,
     /// Indent the JSON
     #[arg(long)]
     pretty: bool,
@@ -464,6 +474,7 @@ fn run_translate(args: TranslateArgs) -> ExitCode {
         targets: args.target,
         table: args.table,
         expr: args.expr,
+        from: args.from,
     };
     let translations = match data_dict::translate::translate(&dict, &options) {
         Ok(translations) => translations,

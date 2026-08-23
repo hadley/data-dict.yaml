@@ -1,0 +1,14 @@
+# expected: clean
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+description: Each row is a survey response.
+tables:
+  - name: survey
+    columns:
+      - name: postcode
+        type: string
+        examples: ["NZ-1010"]
+      - name: score
+        type: number(quantity)
+        units: points
+        range: [0, 100]

@@ -24,6 +24,7 @@ mod expr_lex;
 pub mod join_expr;
 pub mod lower;
 pub mod model;
+pub mod parse;
 pub mod problem;
 pub mod report;
 pub mod translate;

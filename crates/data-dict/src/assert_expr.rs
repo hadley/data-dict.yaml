@@ -44,6 +44,7 @@
 
 mod ir;
 
+pub(crate) use ir::un_like_regex;
 pub use ir::{
     ColumnRef, DatetimeConst, IntervalUnit, LikePattern, NodeKind, Op, Selection, SelectorForm,
     Type, TypedAssertion, TypedExpr, lower,
@@ -202,6 +203,12 @@ const RESERVED: &[&str] = &[
     "and", "or", "not", "is", "null", "between", "in", "like", "similar", "to", "when", "then",
     "else", "end", "true", "false", "inf", "nan", "case", "columns", "now", "interval",
 ];
+
+/// Whether `name` is a [reserved word](RESERVED), and so needs backticks to
+/// stand as a column reference. Case-insensitive, as the keywords are.
+pub fn is_reserved(name: &str) -> bool {
+    RESERVED.iter().any(|word| word.eq_ignore_ascii_case(name))
+}
 
 struct Parser<'a> {
     src: &'a [u8],
