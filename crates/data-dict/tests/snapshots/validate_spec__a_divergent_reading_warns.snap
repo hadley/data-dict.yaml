@@ -1,0 +1,31 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+description: Each row is a survey response.
+tables:
+  - name: survey
+    columns:
+      - name: score
+        type: number(quantity)
+        units: points
+        range: [0, 100]
+    constraints:
+      - assert: round(score, 2) == score
+        language: r
+────────────────────────────────────────
+warning[S36]: An expression written in another language should mean the same thing the dictionary will enforce.
+  --> dict.yaml:12:17
+   |
+LL |   - name: survey
+...
+LL |       - assert: round(score, 2) == score
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^ R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.
+warning[S36]: An expression written in another language should mean the same thing the dictionary will enforce.
+  --> dict.yaml:12:17
+   |
+LL |   - name: survey
+...
+LL |       - assert: round(score, 2) == score
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^ R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half.

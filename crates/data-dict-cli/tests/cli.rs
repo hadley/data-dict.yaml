@@ -866,5 +866,5 @@ fn translate_from_r_refuses_an_untranslatable_construct() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
     assert!(stderr.contains("`sapply()`"), "{stderr}");
-    assert!(stderr.contains("cannot be translated"), "{stderr}");
+    assert!(stderr.contains("no equivalent"), "{stderr}");
 }

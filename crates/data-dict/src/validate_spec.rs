@@ -435,6 +435,7 @@ fn run_assertion_check(
     enclosing: &[&Spanned<String>],
     out: &mut ProblemSet,
 ) {
+    report_divergences(&assertion.notes, &assertion.text, enclosing, out);
     let Some(expr) = &assertion.expr else { return };
     let findings = assert_expr::check(expr, env);
     report_findings(
@@ -446,6 +447,31 @@ fn run_assertion_check(
     );
 
     check_expanded_selections(table, expr, None, &assertion.text, enclosing, out);
+}
+
+/// Report each place the language an expression was written in and the reading
+/// it was given disagree (S36).
+///
+/// A warning, because the expression is well-formed and will be enforced — just
+/// not quite as its own language would have. Nothing else would surface it: the
+/// R sits in the file looking like R and behaving like data-dict.
+fn report_divergences(
+    notes: &[&'static str],
+    text: &Spanned<String>,
+    enclosing: &[&Spanned<String>],
+    out: &mut ProblemSet,
+) {
+    for note in notes {
+        let mut spans: Vec<SourceInfo> = enclosing.iter().map(|s| s.span.clone()).collect();
+        spans.push(text.span.clone());
+        out.push_spec_warning(
+            "S36",
+            "An expression written in another language should mean the same thing the \
+             dictionary will enforce.",
+            *note,
+            spans,
+        );
+    }
 }
 
 /// The `COLUMNS(...)` rules bind the expression as it evaluates, with
@@ -649,6 +675,10 @@ fn validate_definitions(table: &Table, out: &mut ProblemSet) -> HashMap<String, 
             );
         }
     }
+    for def in &table.definitions {
+        report_divergences(&def.notes, &def.text, &[&table.name, &def.name], out);
+    }
+
     check_definition_exprs(table, out)
 }
 

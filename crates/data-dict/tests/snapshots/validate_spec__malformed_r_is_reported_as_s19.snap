@@ -1,0 +1,21 @@
+---
+source: crates/data-dict/tests/validate_spec.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+description: Each row is a survey response.
+tables:
+  - name: survey
+    columns:
+      - name: postcode
+        type: string
+        examples: ["NZ-1010"]
+    constraints:
+      - assert: nchar(postcode
+        language: r
+────────────────────────────────────────
+error[S19]: 
+  --> dict.yaml:11:31
+   |
+LL |       - assert: nchar(postcode
+   |                               ^ `assert` expression does not parse as R: expected `)`

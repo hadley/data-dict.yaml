@@ -114,6 +114,10 @@ pub struct Translation {
     /// `language` is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canonical: Option<String>,
+    /// How faithfully it was read; absent when exact. A reading is never
+    /// guarded or unsupported, so `"divergent"` is the only other answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fidelity: Option<&'static str>,
     /// Where the source language and the reading disagree. Empty for an exact
     /// reading, and always empty for one that needed no reading at all.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -249,10 +253,13 @@ fn translate_one(
     let defs = resolve_definitions(table);
     let env = DefEnv::new(table, &defs);
     let parsed = from.read(source).map_err(|e| {
-        if from.name == parse::default_language().name {
-            format!("expression does not parse: {}", e.message)
+        let (message, untranslatable) = parse::classify(&e);
+        if untranslatable {
+            message.to_string()
+        } else if from.name == parse::default_language().name {
+            format!("expression does not parse: {message}")
         } else {
-            format!("expression does not parse as {}: {}", from.name, e.message)
+            format!("expression does not parse as {}: {message}", from.name)
         }
     })?;
     // An ad-hoc expression need not be a rule, so it need not be boolean.
@@ -271,6 +278,7 @@ fn translate_one(
     if from.name != parse::default_language().name {
         translation.language = Some(from.name);
         translation.canonical = emit::emit(&Canonical, &ir).ok().map(|e| e.code);
+        translation.fidelity = (!parsed.notes.is_empty()).then_some("divergent");
         translation.notes = parsed.notes;
     }
     Ok(translation)
@@ -328,6 +336,7 @@ fn render(
         expr: source.to_string(),
         language: None,
         canonical: None,
+        fidelity: None,
         notes: Vec::new(),
         table: table.name.value.clone(),
         ty: ir.root.ty.name(),

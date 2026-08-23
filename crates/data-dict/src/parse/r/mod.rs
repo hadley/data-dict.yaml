@@ -58,7 +58,7 @@ mod tests {
     #[track_caller]
     fn refused(code: &str) -> String {
         match super::read(code) {
-            Err(e) => e.message,
+            Err(e) => crate::parse::classify(&e).0.to_string(),
             Ok(parsed) => panic!("{code:?} should be refused, read as {:?}", parsed.expr.root),
         }
     }
@@ -309,7 +309,8 @@ mod tests {
     fn a_refusal_reads_differently_from_a_syntax_error() {
         // Both are `ParseError`s, but one says the rule has to be rewritten and
         // the other that the text is malformed.
-        assert!(refused("sapply(x, f)").contains("cannot be translated"));
+        assert!(crate::parse::classify(&super::read("sapply(x, f)").unwrap_err()).1);
+        assert!(!crate::parse::classify(&super::read("nchar(postcode").unwrap_err()).1);
         assert!(refused("nchar(postcode").contains("expected"));
     }
 

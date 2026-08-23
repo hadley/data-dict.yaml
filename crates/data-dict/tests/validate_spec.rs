@@ -3006,3 +3006,232 @@ fn assertion_unknown_name_with_definitions() {
         &["S20", "totl", "columns/definitions"],
     );
 }
+
+// --- expressions written in another language (S35, S36) ------------------
+
+/// The `language` key is accepted wherever an expression is: on a column
+/// constraint, a table constraint, and a definition.
+#[test]
+fn an_expression_may_be_written_in_r_anywhere_one_is_accepted() {
+    assert_valid_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+                constraints:
+                  - assert: nchar(postcode) <= 10
+                    language: r
+            constraints:
+              # A leading `!` starts a YAML tag, so R that begins with one
+              # has to be quoted like any other such value.
+              - assert: "!is.na(postcode)"
+                language: r
+            definitions:
+              - name: has_postcode
+                expr: "!is.na(postcode)"
+                language: r
+    "#});
+}
+
+/// Writing the default out is always allowed, and says exactly what leaving the
+/// key off says.
+#[test]
+fn the_language_key_may_name_the_default_explicitly() {
+    let body = |language: &str| {
+        format!(
+            indoc! {r#"
+                description: Each row is a survey response.
+                tables:
+                  - name: survey
+                    columns:
+                      - name: postcode
+                        type: string
+                        examples: ["NZ-1010"]
+                    constraints:
+                      - assert: postcode IS NOT NULL{}
+            "#},
+            language
+        )
+    };
+    assert_clean_dict(&body(""));
+    assert_clean_dict(&body("\n        language: data-dict"));
+}
+
+/// One reader takes all three R dialects, so nothing has to say which is meant.
+/// This is what justifies naming a source by family alone.
+#[test]
+fn all_three_r_dialects_read_without_being_named() {
+    assert_valid_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: nchar(postcode) <= 10
+                language: r
+              - assert: str_length(postcode) <= 10
+                language: r
+              - assert: fifelse(is.na(postcode), FALSE, TRUE)
+                language: r
+    "#});
+}
+
+/// A construct whose meaning in R differs from the reading it is given is
+/// enforced anyway, with a warning saying how the two differ.
+#[test]
+fn a_divergent_reading_warns() {
+    let diagnostic = warning_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: score
+                type: number(quantity)
+                units: points
+                range: [0, 100]
+            constraints:
+              - assert: round(score, 2) == score
+                language: r
+    "#});
+    diagnostic.assert_contains(&["S36", "rounds halves to even"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// An expression in the dictionary's own language has no reading, so it never
+/// warns however many divergences R would have had.
+#[test]
+fn an_expression_in_the_dictionarys_own_language_never_warns() {
+    assert_clean_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: score
+                type: number(quantity)
+                units: points
+                range: [0, 100]
+            constraints:
+              - assert: ROUND(score, 2) = score
+    "#});
+}
+
+/// R that isn't valid R is a syntax error like any other, and the message says
+/// which language it failed to parse as.
+#[test]
+fn malformed_r_is_reported_as_s19() {
+    let diagnostic = failing_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: nchar(postcode
+                language: r
+    "#});
+    diagnostic.assert_contains(&["S19", "does not parse as R"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// Well-formed R that says something the language can't is a different problem
+/// from a typo, and gets a code of its own.
+#[test]
+fn untranslatable_r_is_reported_as_s35() {
+    let diagnostic = failing_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: sapply(postcode, is.na)
+                language: r
+    "#});
+    diagnostic.assert_contains(&["S35", "`sapply()`", "no equivalent"]);
+    // Not S20: that check is about a table's own columns and definitions, and
+    // an unknown *function* is not one of them.
+    assert!(
+        !diagnostic.rendered.contains("S20"),
+        "{}",
+        diagnostic.rendered
+    );
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// The span invariant: a diagnostic about a name inside an R expression points
+/// into the R the author wrote, not into any data-dict rewrite of it.
+#[test]
+fn an_unknown_column_points_into_the_r_text() {
+    let diagnostic = failing_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: nchar(postcod) <= 10
+                language: r
+    "#});
+    diagnostic.assert_contains(&["S20", "`postcod` not found"]);
+    // The caret has to land on `postcod` within the R, which the snapshot shows.
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// The type rules apply to a reading exactly as to anything else.
+#[test]
+fn r_that_reads_to_a_non_boolean_assertion_is_still_s21() {
+    let diagnostic = failing_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: nchar(postcode)
+                language: r
+    "#});
+    diagnostic.assert_contains(&["S21", "not a boolean"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// The set of languages is closed and the schema holds it, so an unknown one is
+/// structural rather than a check of its own.
+#[test]
+fn an_unknown_language_is_rejected_structurally() {
+    let diagnostic = failing_dict(indoc! {r#"
+        description: Each row is a survey response.
+        tables:
+          - name: survey
+            columns:
+              - name: postcode
+                type: string
+                examples: ["NZ-1010"]
+            constraints:
+              - assert: postcode IS NOT NULL
+                language: perl
+    "#});
+    // The structural checks render with the validator's own codes; `Q-1-12` is
+    // the `S62` of `site/validation.md`.
+    diagnostic.assert_contains(&["Q-1-12", "language"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
