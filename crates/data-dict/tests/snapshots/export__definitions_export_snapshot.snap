@@ -55,6 +55,10 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             {
               "target": "R(data.table)",
               "code": "is_enterprise"
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"is_enterprise\")"
             }
           ]
         }
@@ -108,6 +112,15 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
                 "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
                 "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
               ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.when(pl.col(\"status_cd\") == pl.lit(90)).then(pl.lit(0)).otherwise(pl.col(\"order_total\")).sum()",
+              "notes": [
+                "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there.",
+                "polars folds an empty or all-null column to the identity (0 for `sum`, False for `any`, True for `all`) where data-dict returns null, so such an assertion differs on an empty table.",
+                "polars wraps integer arithmetic at 64 bits, where data-dict reports the overflow (D09) and withdraws the verdict rather than producing a wrong value."
+              ]
             }
           ]
         },
@@ -136,6 +149,10 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             {
               "target": "R(data.table)",
               "code": "is.na(tile_size) | (tile_size %in% c(\"Mid-Market-3\", \"Enterprise-1\"))"
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"tile_size\").is_in([\"Mid-Market-3\", \"Enterprise-1\"])"
             }
           ]
         },
@@ -184,6 +201,14 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
                 "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
                 "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs."
               ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.when(pl.col(\"is_enterprise\")).then(pl.col(\"order_total\")).otherwise(pl.lit(0)).sum()",
+              "notes": [
+                "polars folds an empty or all-null column to the identity (0 for `sum`, False for `any`, True for `all`) where data-dict returns null, so such an assertion differs on an empty table.",
+                "polars wraps integer arithmetic at 64 bits, where data-dict reports the overflow (D09) and withdraws the verdict rather than producing a wrong value."
+              ]
             }
           ]
         },
@@ -211,6 +236,13 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        tab
             {
               "target": "R(data.table)",
               "code": "order_total * 1.2"
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"order_total\") * pl.lit(1.2)",
+              "notes": [
+                "polars wraps integer arithmetic at 64 bits, where data-dict reports the overflow (D09) and withdraws the verdict rather than producing a wrong value."
+              ]
             }
           ]
         }

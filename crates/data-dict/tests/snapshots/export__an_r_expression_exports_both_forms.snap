@@ -64,6 +64,14 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        $le
                 "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
                 "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
               ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"score\").round(2) == pl.col(\"score\")",
+              "notes": [
+                "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there.",
+                "polars rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+              ]
             }
           ]
         }
@@ -110,6 +118,13 @@ expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        $le
               "code": "score > 80L",
               "notes": [
                 "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"score\") > pl.lit(80)",
+              "notes": [
+                "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there."
               ]
             }
           ]

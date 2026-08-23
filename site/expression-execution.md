@@ -89,10 +89,11 @@ A source is named by family alone, where a target is named `family(dialect)`. Th
 |--------|---------|-------|
 | data-dict | `data-dict` | the language itself |
 | R | `r` | every spelling the three `R(...)` targets emit |
+| Python | `python` | the polars expression style `Python(polars)` emits |
 
 : {tbl-colwidths="[20,20,60]"}
 
-The R surface is exactly what `R(base)`, `R(tidyverse)` and `R(data.table)` emit, and no more. That is a deliberate bound: it makes the surface a finite, testable list rather than "R", and it makes the round trip a property that can be checked — every expression this specification can emit as R must read back as itself.
+Each surface is exactly what that family's targets emit, and no more. That is a deliberate bound: it makes the surface a finite, testable list rather than "R", and it makes the round trip a property that can be checked — every expression this specification can emit as R must read back as itself.
 
 `data-dict` is a target as well as a source. It has no dialects, so it is written bare. It is left out of the targets emitted by default, since an expression already written in the language has nothing to gain from being printed back — but reading from another language is exactly the case where the data-dict spelling is the interesting one, so `--from` puts it back in. `--target data-dict` asks for it outright.
 
@@ -115,7 +116,9 @@ Each says the same thing as what was written; R simply has one spelling where th
 
 Normalising **converges**: the reading is a fixed point, so a dictionary rewritten through this path settles after one pass rather than drifting further on each one.
 
-The larger one is `COLUMNS(...)`. Only `R(tidyverse)` has an idiom that keeps a selection a selection, so only that one round-trips. `R(base)` and `R(data.table)` expand it to a conjunction before emitting, and nothing in the result marks it as having been a selection — so it reads back as the conjunction it now is. Inventing the selection back would put a rule in the dictionary that its author never wrote.
+The larger one is `COLUMNS(...)`. `R(tidyverse)` and `Python(polars)` both have an idiom that keeps a selection a selection — `if_all` and `all_horizontal` — so those round-trip. `R(base)` and `R(data.table)` expand it to a conjunction before emitting, and nothing in the result marks it as having been a selection, so it reads back as the conjunction it now is. Inventing the selection back would put a rule in the dictionary that its author never wrote.
+
+Reading polars normalises less than reading R, and for a reason worth naming: polars keeps null and NaN apart the way the language does. `is_null` is false for a NaN, and `is_in`, `is_nan` and the string methods propagate a null rather than answering `False`, so the [guards](#fidelity) the R targets add — and a reader has to recognise — mostly do not arise. Two remain: `n_unique` counts a null among the distinct values, and adding a duration to a date keeps it a date.
 
 ### Column references
 

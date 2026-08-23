@@ -45,6 +45,7 @@
 
 mod canonical;
 mod duckdb;
+mod python;
 mod r;
 
 use std::collections::BTreeSet;
@@ -53,6 +54,9 @@ use crate::assert_expr::{Selection, Type, TypedAssertion, TypedExpr};
 
 pub use canonical::Canonical;
 pub use duckdb::DuckDb;
+pub use python::Polars;
+/// The polars divergences, shared with the [reader](crate::parse::python).
+pub(crate) use python::notes as polars_notes;
 /// The R divergences, shared with the [reader](crate::parse::r) so the two
 /// directions describe them in the same words.
 pub(crate) use r::notes as r_notes;

@@ -36,7 +36,7 @@ Their codes are the `S60` block, reserved for structural checks:
 |------|------|-----|-------------|
 | S60 | Missing required key | E | A mapping is missing a key the spec requires, such as a table without `columns`. |
 | S61 | Wrong value type | E | A value's type is not one the spec allows there, such as a `description` given a list instead of a string. |
-| S62 | Value not allowed | E | A value is not among the fixed set the spec allows there, such as a `display` other than `restricted`, or a [`language`](spec.md#other-languages) other than `data-dict` or `r`. |
+| S62 | Value not allowed | E | A value is not among the fixed set the spec allows there, such as a `display` other than `restricted`, or a [`language`](spec.md#other-languages) other than `data-dict`, `r` or `python`. |
 | S63 | Empty mapping | E | A mapping the spec requires at least one entry in is empty, such as a table with no columns. |
 | S64 | Unknown key | E | A mapping contains a key the spec doesn't define. A misspelled key reports this rather than the `S60` for the key it was meant to be, and the two are reported together when both apply. |
 | S65 | Duplicate key | E | The same key appears twice in one mapping. |

@@ -41,6 +41,7 @@
 //! becomes the dictionary's own statement of the rule, which its author has to
 //! be able to recognise as theirs.
 
+pub mod python;
 pub mod r;
 
 #[cfg(test)]
@@ -110,6 +111,10 @@ pub fn languages() -> &'static [Language] {
             name: "r",
             read: r::read,
         },
+        Language {
+            name: "python",
+            read: python::read,
+        },
     ]
 }
 
@@ -136,6 +141,53 @@ pub fn resolve(name: &str) -> Result<&'static Language, String> {
             ))
         }
     }
+}
+
+/// Turn a pattern that matches *anywhere* into one that matches the whole
+/// string, which is what `SIMILAR TO` does. Shared by the readers, whose target
+/// languages both match anywhere by default.
+///
+/// Two anchored forms come back from the emitters and have their anchors removed
+/// rather than doubled: `^(?:…)$`, which is how a `SIMILAR TO` is written out,
+/// and `^…$`, which is how a `LIKE` pattern's regex is built. Anything else
+/// grows the wildcards that say "anywhere" — inside a group, because a bare
+/// `.*a|b.*` would regroup around the alternation.
+pub(crate) fn unanchor(pattern: &str) -> String {
+    if let Some(inner) = pattern
+        .strip_prefix("^(?:")
+        .and_then(|rest| rest.strip_suffix(")$"))
+    {
+        return inner.to_string();
+    }
+    if let Some(inner) = pattern
+        .strip_prefix('^')
+        .and_then(|rest| rest.strip_suffix('$'))
+        && !has_top_level_alternation(inner)
+    {
+        return inner.to_string();
+    }
+    format!(".*(?:{pattern}).*")
+}
+
+/// Whether `pattern` has a `|` outside every group and character class.
+fn has_top_level_alternation(pattern: &str) -> bool {
+    let mut depth = 0usize;
+    let mut in_class = false;
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                chars.next();
+            }
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '(' if !in_class => depth += 1,
+            ')' if !in_class => depth = depth.saturating_sub(1),
+            '|' if !in_class && depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// A construct that is well-formed in its own language but has no equivalent

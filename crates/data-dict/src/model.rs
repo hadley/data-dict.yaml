@@ -134,6 +134,7 @@ pub enum Language {
     #[default]
     DataDict,
     R,
+    Python,
 }
 
 impl Language {
@@ -141,6 +142,7 @@ impl Language {
         match self {
             Language::DataDict => "data-dict",
             Language::R => "r",
+            Language::Python => "python",
         }
     }
 
@@ -149,6 +151,7 @@ impl Language {
         match self {
             Language::DataDict => "the data-dict language",
             Language::R => "R",
+            Language::Python => "Python",
         }
     }
 
@@ -156,6 +159,7 @@ impl Language {
         match name {
             "data-dict" => Some(Language::DataDict),
             "r" => Some(Language::R),
+            "python" => Some(Language::Python),
             _ => None,
         }
     }
