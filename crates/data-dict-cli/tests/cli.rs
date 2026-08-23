@@ -806,3 +806,65 @@ fn the_page_carries_the_check_catalogue() {
     assert!(html.contains("Duplicate values"), "D02's name is missing");
     assert!(html.contains("Value outside enum"), "D04's name is missing");
 }
+
+/// A clean single-table dictionary, for the `translate` tests.
+fn survey_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/survey.yaml")
+}
+
+fn translate(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_data-dict"))
+        .arg("translate")
+        .arg(survey_fixture())
+        .args(args)
+        .output()
+        .expect("failed to run data-dict")
+}
+
+/// `--from` reads the expression, and `--target data-dict` prints the language's
+/// own spelling of it — the round trip the spec describes.
+#[test]
+fn translate_from_r_to_the_language() {
+    let output = translate(&[
+        "--from",
+        "r",
+        "--expr",
+        "nchar(postcode) <= 10",
+        "--target",
+        "data-dict",
+        "--pretty",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is not valid UTF-8");
+    insta::assert_snapshot!(stdout);
+}
+
+/// `--from` says what `--expr` is written in, so it is meaningless without one:
+/// a dictionary's assertions each carry their own language.
+#[test]
+fn translate_from_without_expr_is_rejected() {
+    let output = translate(&["--from", "r"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
+    assert!(stderr.contains("--expr"), "{stderr}");
+}
+
+#[test]
+fn translate_from_an_unknown_language() {
+    let output = translate(&["--from", "perl", "--expr", "score > 0"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
+    assert!(stderr.contains("unknown expression language"), "{stderr}");
+    assert!(stderr.contains("data-dict, r"), "{stderr}");
+}
+
+/// R that says something the language can't names the construct and says the
+/// rule has to be rewritten, rather than reporting a syntax error.
+#[test]
+fn translate_from_r_refuses_an_untranslatable_construct() {
+    let output = translate(&["--from", "r", "--expr", "sapply(score, is.na)"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr is not valid UTF-8");
+    assert!(stderr.contains("`sapply()`"), "{stderr}");
+    assert!(stderr.contains("cannot be translated"), "{stderr}");
+}
