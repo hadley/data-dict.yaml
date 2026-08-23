@@ -18,6 +18,6 @@ error[Q-1-12]: A value must be one of its schema's allowed values.
   --> dict.yaml:12:19
    |
 LL |         language: perl
-   |                   ^^^^ Value must be one of: "data-dict", "r", got '"perl"'
+   |                   ^^^^ Value must be one of: "data-dict", "r", "python", got '"perl"'
    |
    = help: Check the schema for allowed values?

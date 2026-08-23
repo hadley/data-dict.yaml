@@ -375,6 +375,7 @@ fn read(
     let parsed = match language {
         Language::DataDict => AssertExpr::parse(text).map(|expr| (expr, Vec::new())),
         Language::R => crate::parse::r::read(text).map(|p| (p.expr, p.notes)),
+        Language::Python => crate::parse::python::read(text).map(|p| (p.expr, p.notes)),
     };
     match parsed {
         Ok((expr, notes)) => (Some(expr), notes),

@@ -133,7 +133,7 @@ object:
                                 # semantic: lowering never has to carry an
                                 # expression in a language it can't parse.
                                 language:
-                                  enum: [data-dict, r]
+                                  enum: [data-dict, r, python]
                                 description: string
                     examples:
                       arrayOf: any
@@ -154,7 +154,7 @@ object:
                     assert: string
                     # See the column-level `constraints` above.
                     language:
-                      enum: [data-dict, r]
+                      enum: [data-dict, r, python]
                     description: string
 
             # Named expressions (metrics, filters, derived values). Name
@@ -177,7 +177,7 @@ object:
                     # The language `expr` is written in; see the column-level
                     # `constraints` above.
                     language:
-                      enum: [data-dict, r]
+                      enum: [data-dict, r, python]
                     label: string
                     description: string
                     details: string

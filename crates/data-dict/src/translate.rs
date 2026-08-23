@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::assert_expr::{self, AssertExpr, DefType, Root, TypedAssertion};
-use crate::emit::{self, Canonical, DuckDb, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
+use crate::emit::{self, Canonical, DuckDb, Polars, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target};
 use crate::export::collect_columns;
 use crate::model::{DataDict, Table};
 use crate::parse::{self, Language};
@@ -34,6 +34,7 @@ pub(crate) fn registry() -> Vec<Box<dyn Target>> {
         Box::new(R_TIDYVERSE),
         Box::new(R_BASE),
         Box::new(R_DATA_TABLE),
+        Box::new(Polars),
     ]
 }
 

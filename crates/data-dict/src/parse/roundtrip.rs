@@ -1,4 +1,4 @@
-//! The oracle: every expression the language can emit as R reads back as itself.
+//! The oracle: every expression the language can emit reads back as itself.
 //!
 //! This is the claim `site/expression-execution.md#sources` makes, and the
 //! reason the readable surface is bounded by what the emitters produce rather
@@ -18,7 +18,7 @@
 //! path is stable rather than drifting a little further on each pass.
 
 use crate::assert_expr::{AssertExpr, Root, TypedAssertion, check_root, lower, tests::TestEnv};
-use crate::emit::{Canonical, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target, emit};
+use crate::emit::{Canonical, Polars, R_BASE, R_DATA_TABLE, R_TIDYVERSE, Target, emit};
 
 /// Every expression the R emitter's own tests cover, plus the constructs they
 /// reach only in combination. Each is written in the language.
@@ -116,7 +116,7 @@ const CORPUS: &[&str] = &[
 ///   a conjunction before it is emitted. Nothing in the R marks it as having been
 ///   a selection, and inventing one back would put a rule in the dictionary that
 ///   the author didn't write.
-const NORMALISED: &[&str] = &[
+const R_NORMALISED: &[&str] = &[
     "s LIKE 'NZ-%'",
     "s LIKE '%.nz'",
     "s LIKE 'exact'",
@@ -127,6 +127,18 @@ const NORMALISED: &[&str] = &[
     "COLUMNS('q[34]') IS NOT NULL",
     "COLUMNS(*) IS NOT NULL",
     "COLUMNS([q3, q4]) IS NOT NULL",
+];
+
+/// polars keeps a selection a selection and needs no guards, so only the `LIKE`
+/// spellings normalise.
+const POLARS_NORMALISED: &[&str] = &[
+    "s LIKE 'NZ-%'",
+    "s LIKE '%.nz'",
+    "s LIKE 'exact'",
+    "s NOT LIKE 'NZ-%'",
+    "s LIKE 'a%b'",
+    "s LIKE 'a_b'",
+    "s LIKE 'a.b%c'",
 ];
 
 fn ir(source: &str) -> TypedAssertion {
@@ -150,20 +162,36 @@ fn read_to_canonical(code: &str) -> String {
 
 #[test]
 fn every_r_emission_reads_back_as_itself() {
-    let targets: [(&str, &dyn Target); 3] = [
-        ("R(tidyverse)", &R_TIDYVERSE),
-        ("R(base)", &R_BASE),
-        ("R(data.table)", &R_DATA_TABLE),
-    ];
+    round_trip(
+        "r",
+        &[
+            ("R(tidyverse)", &R_TIDYVERSE),
+            ("R(base)", &R_BASE),
+            ("R(data.table)", &R_DATA_TABLE),
+        ],
+        R_NORMALISED,
+    );
+}
+
+/// polars needs almost no guards, so the only normalisation it has is the one
+/// every target shares: a literal `LIKE` pattern has no spelling of its own.
+#[test]
+fn every_polars_emission_reads_back_as_itself() {
+    round_trip("python", &[("Python(polars)", &Polars)], POLARS_NORMALISED);
+}
+
+fn round_trip(language: &str, targets: &[(&str, &dyn Target)], normalised: &[&str]) {
+    let read = crate::parse::resolve(language).expect("a readable language");
     for source in CORPUS {
         let original = ir(source);
         let canonical = emit(&Canonical, &original).expect("emits").code;
         for (name, target) in targets {
             // A target that refuses this construct has nothing to read back.
-            let Ok(emitted) = emit(target, &original) else {
+            let Ok(emitted) = emit(*target, &original) else {
                 continue;
             };
-            let parsed = super::r::read(&emitted.code)
+            let parsed = read
+                .read(&emitted.code)
                 .unwrap_or_else(|e| panic!("{name} {source:?} -> {:?}: {e:?}", emitted.code));
             let findings = check_root(&parsed.expr, &TestEnv, Root::Any);
             assert!(
@@ -174,19 +202,20 @@ fn every_r_emission_reads_back_as_itself() {
             let reread = lower(&parsed.expr, &TestEnv)
                 .unwrap_or_else(|| panic!("{name} {source:?} -> {:?}", emitted.code));
 
-            let second = emit(target, &reread).expect("emits").code;
-            if NORMALISED.contains(source) {
+            let second = emit(*target, &reread).expect("emits").code;
+            if normalised.contains(source) {
                 // Normalising converges: the second pass is a fixed point.
-                let again =
-                    super::r::read(&second).unwrap_or_else(|e| panic!("{name} {second:?}: {e:?}"));
+                let again = read
+                    .read(&second)
+                    .unwrap_or_else(|e| panic!("{name} {second:?}: {e:?}"));
                 let again = lower(&again.expr, &TestEnv).expect("lowers");
                 assert_eq!(
-                    emit(target, &again).expect("emits").code,
+                    emit(*target, &again).expect("emits").code,
                     second,
                     "{name} keeps changing {source:?}"
                 );
             } else {
-                // 1. Emitting again reproduces the R exactly.
+                // 1. Emitting again reproduces the code exactly.
                 assert_eq!(
                     second, emitted.code,
                     "{name} is not idempotent on {source:?}"

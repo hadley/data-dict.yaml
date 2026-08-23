@@ -568,7 +568,7 @@ impl Mapper<'_> {
                 pattern.span.0,
             ));
         };
-        let anchored = unanchor(text);
+        let anchored = crate::parse::unanchor(text);
         Ok(Expr {
             kind: ExprKind::SimilarTo {
                 operand: Box::new(self.expr(subject)?),
@@ -884,52 +884,4 @@ fn positional(args: &[RArg]) -> Result<Vec<&RExpr>, ParseError> {
         ));
     }
     Ok(args.iter().map(|a| &a.value).collect())
-}
-
-/// Turn a pattern that matches *anywhere* into one that matches the whole
-/// string, which is what `SIMILAR TO` does.
-///
-/// Two anchored forms come back from the emitters and have their anchors
-/// removed rather than doubled: `^(?:…)$`, which is how a `SIMILAR TO` is
-/// written for R, and `^…$`, which is how a `LIKE` pattern's regex is built.
-/// Anything else grows the wildcards that say "anywhere" — inside a group,
-/// because a bare `.*a|b.*` would regroup around the alternation.
-fn unanchor(pattern: &str) -> String {
-    if let Some(inner) = pattern
-        .strip_prefix("^(?:")
-        .and_then(|rest| rest.strip_suffix(")$"))
-    {
-        return inner.to_string();
-    }
-    if let Some(inner) = pattern
-        .strip_prefix('^')
-        .and_then(|rest| rest.strip_suffix('$'))
-        // `^a|b$` is `(^a)|(b$)`, so its anchors are not the whole pattern's
-        // and removing them would change what it matches.
-        && !has_top_level_alternation(inner)
-    {
-        return inner.to_string();
-    }
-    format!(".*(?:{pattern}).*")
-}
-
-/// Whether `pattern` has a `|` outside every group and character class.
-fn has_top_level_alternation(pattern: &str) -> bool {
-    let mut depth = 0usize;
-    let mut in_class = false;
-    let mut chars = pattern.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\\' => {
-                chars.next();
-            }
-            '[' if !in_class => in_class = true,
-            ']' if in_class => in_class = false,
-            '(' if !in_class => depth += 1,
-            ')' if !in_class => depth = depth.saturating_sub(1),
-            '|' if !in_class && depth == 0 => return true,
-            _ => {}
-        }
-    }
-    false
 }

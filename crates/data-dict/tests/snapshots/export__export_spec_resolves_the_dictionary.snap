@@ -151,6 +151,13 @@ expression: export_json(RICH_DICT)
                   "notes": [
                     "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
                   ]
+                },
+                {
+                  "target": "Python(polars)",
+                  "code": "pl.col(\"weight\") > pl.lit(0)",
+                  "notes": [
+                    "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there."
+                  ]
                 }
               ]
             }
@@ -188,6 +195,10 @@ expression: export_json(RICH_DICT)
             {
               "target": "R(data.table)",
               "code": "!is.na(pet_id) & !is.na(owner_id)"
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.all_horizontal(pl.col(\"^.*(?:_id$).*$\").is_not_null())"
             }
           ]
         }
