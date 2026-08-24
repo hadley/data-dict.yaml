@@ -1,3 +1,3 @@
-# datadict (development version)
+# datadict 0.1.0
 
 * Initial CRAN submission.
