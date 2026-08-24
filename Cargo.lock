@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "data-dict"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "annotate-snippets",
  "arrow-array",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "data-dict-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "clap",
  "data-dict",
@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "data-dict-lsp"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "data-dict",
  "serde_json",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "data-dict-parquet"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "arrow-array",
  "arrow-buffer",

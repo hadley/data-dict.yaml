@@ -11,3 +11,4 @@ site/_site
 .posit/assistant/settings.json
 site/examples/rendered/
 .tmp/
+__pycache__/

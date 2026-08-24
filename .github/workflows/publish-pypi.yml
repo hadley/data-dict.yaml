@@ -1,0 +1,75 @@
+# Repacks the release archives into wheels (see `tools/pypi/make_wheels.py`)
+# and publishes them to PyPI.
+#
+# Deliberately a top-level workflow rather than a dist `publish-jobs` entry:
+# PyPI's trusted publishing does not support reusable workflows, and the PEP 740
+# attestation carries the *calling* workflow's ref, which PyPI then rejects.
+#
+# `workflow_run` rather than `release: published`, because dist creates the
+# release with `GITHUB_TOKEN` and GitHub does not trigger workflows from events
+# a `GITHUB_TOKEN` created.
+name: Publish to PyPI
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish
+        required: true
+
+jobs:
+  resolve:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')) }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+        run: |
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease -q '"prerelease=\(.isPrerelease)"' >> "$GITHUB_OUTPUT"
+
+  pypi:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.prerelease == 'false' }}
+    runs-on: ubuntu-22.04
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+    steps:
+      # The default ref, so the wheel builder comes from the default branch and
+      # a broken publish can be fixed without cutting a new tag. Only the
+      # archives, fetched below, come from the tag.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Fetch the release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts
+
+      - name: Build the wheels
+        run: |
+          python3 tools/pypi/make_wheels.py \
+            --version "$TAG" --artifacts artifacts --out wheels
+
+      # Authenticates over OIDC against the trusted publisher configured on
+      # PyPI, which names this file.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheels
+          skip-existing: true
