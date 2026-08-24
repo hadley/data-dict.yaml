@@ -6,3 +6,4 @@
 ^datadict_.*\.tar\.gz$
 ^\.cache$
 ^\.gitignore$
+^cran-comments\.md$
