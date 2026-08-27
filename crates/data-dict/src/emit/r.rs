@@ -297,48 +297,55 @@ impl Target for R {
     }
 }
 
-const NAN_COMPARISON: Fidelity = Fidelity::Divergent(
-    "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
-);
+/// Where R and the language disagree, stated once.
+///
+/// Each of these is a fact about the two languages, not about a direction of
+/// travel, so [reading R](crate::parse::r) attaches the same words. Keeping one
+/// copy is what makes the two directions provably consistent.
+pub(crate) mod notes {
+    pub const NAN_COMPARISON: &str = "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.";
 
-const NAN_IS_MISSING: Fidelity = Fidelity::Divergent(
-    "`is.na` is TRUE for a NaN, where data-dict counts a NaN as a value and answers false for `IS NULL`.",
-);
+    pub const NAN_IS_MISSING: &str = "`is.na` is TRUE for a NaN, where data-dict counts a NaN as a value and answers false for `IS NULL`.";
 
-const NAN_DROPPED: Fidelity = Fidelity::Divergent(
-    "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs.",
-);
+    pub const NAN_DROPPED: &str = "`na.rm = TRUE` drops a NaN along with the nulls, where data-dict folds it in — so an aggregate over a column holding one differs.";
 
-/// R's doubles agree with the language (`7 %% 0` is `NaN`), but its integers
-/// don't, and a column read as `integer` takes that path.
-const MODULO_ZERO: Fidelity = Fidelity::Divergent(
-    "R yields NA for an integer modulus by zero (`7L %% 0L`), where data-dict yields a NaN.",
-);
+    /// R's doubles agree with the language (`7 %% 0` is `NaN`), but its integers
+    /// don't, and a column read as `integer` takes that path.
+    pub const MODULO_ZERO: &str =
+        "R yields NA for an integer modulus by zero (`7L %% 0L`), where data-dict yields a NaN.";
 
-const ROUNDING: Fidelity = Fidelity::Divergent(
-    "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half.",
-);
+    pub const ROUNDING: &str = "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half.";
+
+    pub const REGEX_PCRE: &str =
+        "R's `grepl` matches with PCRE, where data-dict uses RE2; the syntaxes differ in corners.";
+
+    pub const REGEX_ICU: &str = "stringr matches with ICU regular expressions, where data-dict uses RE2; the syntaxes differ in corners.";
+
+    pub const EMPTY_FOLD: &str = "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.";
+
+    pub const OVERFLOW: &str = "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.";
+}
+
+const NAN_COMPARISON: Fidelity = Fidelity::Divergent(notes::NAN_COMPARISON);
+
+const NAN_IS_MISSING: Fidelity = Fidelity::Divergent(notes::NAN_IS_MISSING);
+
+const NAN_DROPPED: Fidelity = Fidelity::Divergent(notes::NAN_DROPPED);
+
+const MODULO_ZERO: Fidelity = Fidelity::Divergent(notes::MODULO_ZERO);
+
+const ROUNDING: Fidelity = Fidelity::Divergent(notes::ROUNDING);
 
 /// The regex note, per dialect: stringr matches with ICU, `grepl` with PCRE.
 const REGEX: [Fidelity; 3] = [
-    Fidelity::Divergent(
-        "R's `grepl` matches with PCRE, where data-dict uses RE2; the syntaxes differ in corners.",
-    ),
-    Fidelity::Divergent(
-        "stringr matches with ICU regular expressions, where data-dict uses RE2; the syntaxes differ in corners.",
-    ),
-    Fidelity::Divergent(
-        "R's `grepl` matches with PCRE, where data-dict uses RE2; the syntaxes differ in corners.",
-    ),
+    Fidelity::Divergent(notes::REGEX_PCRE),
+    Fidelity::Divergent(notes::REGEX_ICU),
+    Fidelity::Divergent(notes::REGEX_PCRE),
 ];
 
-const EMPTY_FOLD: Fidelity = Fidelity::Divergent(
-    "R folds an empty or all-null column to the identity (0, FALSE, TRUE, Inf) where data-dict returns null — and data-dict gives an infinity only for a column that really holds one — so an aggregate assertion differs on such a column.",
-);
+const EMPTY_FOLD: Fidelity = Fidelity::Divergent(notes::EMPTY_FOLD);
 
-const OVERFLOW: Fidelity = Fidelity::Divergent(
-    "R has no 64-bit integers, so arithmetic data-dict reports as an overflow (D09) yields a double here.",
-);
+const OVERFLOW: Fidelity = Fidelity::Divergent(notes::OVERFLOW);
 
 /// Whether this arithmetic shifts a date or datetime by an interval, which
 /// needs the shifted operand promoted before the duration is added.

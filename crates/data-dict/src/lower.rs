@@ -6,13 +6,13 @@
 //! rather than panicking — they should be unreachable.
 
 use quarto_source_map::SourceInfo;
-use quarto_yaml::YamlWithSourceInfo;
+use quarto_yaml::{YamlHashEntry, YamlWithSourceInfo};
 
 use crate::assert_expr::AssertExpr;
 use crate::join_expr::JoinExpr;
 use crate::model::{
     Alias, Assertion, Cardinality, Column, Constraint, DataDict, Definition, GlossaryEntry,
-    Relationship, Representation, Scalar, Source, Spanned, Table, Version,
+    Language, Relationship, Representation, Scalar, Source, Spanned, Table, Version,
 };
 use crate::problem::{Problem, ProblemSet, Severity, subspan};
 
@@ -333,27 +333,87 @@ fn lower_assertion(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opti
         .and_then(|d| d.yaml.as_str())
         .map(str::to_string);
     let span = assert_entry.value_span.clone();
+    let language = lower_language(entries);
 
-    let expr = match AssertExpr::parse(text) {
-        Ok(expr) => Some(expr),
-        Err(err) => {
-            let at = err.at.min(text.len());
-            let sub = subspan(&span, at, at).unwrap_or_else(|| span.clone());
-            problems.push(Problem::spec(
-                "S19",
-                Severity::Error,
-                format!("`assert` expression does not parse: {}", err.message),
-                sub,
-            ));
-            None
-        }
-    };
+    let (expr, notes) = read(text, language.as_ref(), "`assert`", &span, problems);
 
     Some(Assertion {
         text: Spanned::new(text.to_string(), span),
+        language,
         expr,
         description,
+        notes,
     })
+}
+
+/// The `language` key, if the entry carries one. The schema has already limited
+/// it to a name [`Language::from_name`] knows, so an unrecognised one here can
+/// only mean the two have drifted apart.
+fn lower_language(entries: &[YamlHashEntry]) -> Option<Spanned<Language>> {
+    let entry = entries
+        .iter()
+        .find(|e| e.key.yaml.as_str() == Some("language"))?;
+    let name = entry.value.yaml.as_str()?;
+    let language = Language::from_name(name)?;
+    Some(Spanned::new(language, entry.value_span.clone()))
+}
+
+/// Read an expression in the language it says it is written in.
+///
+/// A failure to parse is S19 wherever it comes from, pointing at the failing
+/// token inside the string; a construct with no equivalent here is S35. Both
+/// leave `expr` as `None`, mirroring the S04 handling of a bad `join`. The
+/// divergences a reading collected come back to be reported as S36.
+fn read(
+    text: &str,
+    language: Option<&Spanned<Language>>,
+    what: &str,
+    span: &SourceInfo,
+    problems: &mut ProblemSet,
+) -> (Option<AssertExpr>, Vec<&'static str>) {
+    let language = language.map_or(Language::DataDict, |l| l.value);
+    let parsed = match language {
+        Language::DataDict => AssertExpr::parse(text).map(|expr| (expr, Vec::new())),
+        Language::R => crate::parse::r::read(text).map(|p| (p.expr, p.notes)),
+        Language::Python => crate::parse::python::read(text).map(|p| (p.expr, p.notes)),
+    };
+    match parsed {
+        Ok((expr, notes)) => (Some(expr), notes),
+        Err(err) => {
+            let at = err.at.min(text.len());
+            let sub = subspan(span, at, at).unwrap_or_else(|| span.clone());
+            let (message, untranslatable) = crate::parse::classify(&err);
+            if untranslatable {
+                // Well-formed in its own language, but saying something this one
+                // can't. A different problem from a typo, and a different fix:
+                // the rule has to be rewritten, not corrected.
+                problems.push_spec_error(
+                    "S35",
+                    "An expression may only use constructs the data-dict expression language \
+                     can state.",
+                    message,
+                    [sub],
+                );
+                problems.hint_last(format!(
+                    "Rewrite the rule using a supported construct, in {} or in the data-dict \
+                     language.",
+                    language.label()
+                ));
+            } else {
+                let as_language = match language {
+                    Language::DataDict => String::new(),
+                    other => format!(" as {}", other.label()),
+                };
+                problems.push(Problem::spec(
+                    "S19",
+                    Severity::Error,
+                    format!("{what} expression does not parse{as_language}: {message}"),
+                    sub,
+                ));
+            }
+            (None, Vec::new())
+        }
+    }
 }
 
 /// Lower a single `definitions` entry into a [`Definition`], parsing its
@@ -383,20 +443,8 @@ fn lower_definition(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opt
             .map(str::to_string)
     };
 
-    let expr = match AssertExpr::parse(text) {
-        Ok(expr) => Some(expr),
-        Err(err) => {
-            let at = err.at.min(text.len());
-            let sub = subspan(&span, at, at).unwrap_or_else(|| span.clone());
-            problems.push(Problem::spec(
-                "S19",
-                Severity::Error,
-                format!("definition expression does not parse: {}", err.message),
-                sub,
-            ));
-            None
-        }
-    };
+    let language = lower_language(entries);
+    let (expr, notes) = read(text, language.as_ref(), "definition", &span, problems);
 
     let todo = entries
         .iter()
@@ -406,11 +454,13 @@ fn lower_definition(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opt
     Some(Definition {
         name: Spanned::new(name.to_string(), name_entry.value_span.clone()),
         text: Spanned::new(text.to_string(), span),
+        language,
         expr,
         label: string("label"),
         description: string("description"),
         details: string("details"),
         todo,
+        notes,
     })
 }
 

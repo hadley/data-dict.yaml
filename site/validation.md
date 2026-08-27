@@ -36,7 +36,7 @@ Their codes are the `S60` block, reserved for structural checks:
 |------|------|-----|-------------|
 | S60 | Missing required key | E | A mapping is missing a key the spec requires, such as a table without `columns`. |
 | S61 | Wrong value type | E | A value's type is not one the spec allows there, such as a `description` given a list instead of a string. |
-| S62 | Value not allowed | E | A value is not among the fixed set the spec allows there, such as a `display` other than `default`, `hidden`, or `restricted`. |
+| S62 | Value not allowed | E | A value is not among the fixed set the spec allows there, such as a `display` other than `restricted`, or a [`language`](spec.md#other-languages) other than `data-dict`, `r` or `python`. |
 | S63 | Empty mapping | E | A mapping the spec requires at least one entry in is empty, such as a table with no columns. |
 | S64 | Unknown key | E | A mapping contains a key the spec doesn't define. A misspelled key reports this rather than the `S60` for the key it was meant to be, and the two are reported together when both apply. |
 | S65 | Duplicate key | E | The same key appears twice in one mapping. |
@@ -70,7 +70,7 @@ These are the semantic checks: the document is shaped correctly, and they ask wh
 | S16 | Misplaced single-table description | W | A dictionary with exactly one table carries `label`, `description`, or `details` on that table; for a single-table dictionary these belong at the top level. |
 | S17 | Malformed version | E | The top-level `version` does not give exactly one of `number`, `date`, or `hash`; its `number` is not three dot-separated numeric components (`MAJOR.MINOR.PATCH`) with an optional pre-release/build suffix; or its `date` is not a valid ISO 8601 date (`YYYY-MM-DD`). |
 | S18 | Missing `$version` | E | The document omits the required top-level `$version` key. |
-| S19 | Malformed expression | E | An expression fails to parse (a syntax error in the [expression language](expressions.md)). |
+| S19 | Malformed expression | E | An expression fails to parse: a syntax error in the [expression language](expressions.md), or in the [language the expression declares](spec.md#other-languages). |
 | S20 | Unknown name in an expression | E | An expression uses an unknown column or definition, a `COLUMNS([...])` list uses an unknown column, or a field access uses an unknown field. |
 | S21 | Ill-typed expression | E | An expression is syntactically valid but semantically wrong: an operator or function applied to the wrong operand type (including a column a `COLUMNS(...)` selects, and an argument outside a signature's [type class](expressions.md#type-classes), such as `SUM` of a string), a wrong function arity, a non-boolean top-level `assert` expression, more than one `COLUMNS(...)`, a malformed `SIMILAR TO` / `COLUMNS('...')` regex, a field access on anything but a `struct` (including through a `list`), or a bare `struct` or `list` column used where a value is needed (anywhere but `IS [NOT] NULL` and `COUNT`, which ask only whether a value is null). |
 | S22 | Empty column selection | W | A `COLUMNS('<regex>')` in an expression matches no columns on the table. |
@@ -86,10 +86,12 @@ These are the semantic checks: the document is shaped correctly, and they ask wh
 | S32 | Unsupported spec version | E | The document's `$version` names a spec version this validator can't accept: it is not a valid version number, it predates the first spec version (`0.1.0`), or it is newer than the version the validator supports (currently `0.1.0`). A newer version means the tool is older than the document — upgrade `data-dict`. Versions between the first and the supported one are accepted. |
 | S33 | Definition shadows column | E | A definition's `name` matches a column name in the same table; definitions and columns share a namespace, so a reference to that name would be ambiguous. |
 | S34 | Circular definition reference | E | Following the definition references from a definition leads back to the definition itself. |
+| S35 | Untranslatable expression | E | An expression written in [another language](spec.md#other-languages) uses a construct the data-dict expression language has no equivalent for, so the rule it states can't be recorded. The offending construct is named; rewrite it, in either language. A function outside the language's [readable surface](expression-execution.md#sources) reports this rather than S20, which is about a table's own columns and definitions. |
+| S36 | Divergent expression translation | W | An expression written in [another language](spec.md#other-languages) uses a construct whose meaning there differs from the reading it is given, so the dictionary enforces something slightly different from what was written. The reading's [class is Divergent](expression-execution.md#fidelity) and the note says how the two differ. |
 
 : {tbl-colwidths="[7,23,5,65]"}
 
-(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers what the schema can't reach, including the keys of the map form. The schema deliberately keeps admitting a number or boolean among the list items so that S24 reports an unquoted category itself, rather than the reader meeting a structural "expected array, got object" from a failed branch match. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest.)
+(That each of an `enum`'s `values` is a scalar, and each label in the map form a string, is constrained structurally by the schema rather than by an `S` check; S24 covers what the schema can't reach, including the keys of the map form. The schema deliberately keeps admitting a number or boolean among the list items so that S24 reports an unquoted category itself, rather than the reader meeting a structural "expected array, got object" from a failed branch match. The `version` map's allowed keys and their value types are likewise structural, with S17 covering the rest. An expression's `language` is structural too: the set of languages is fixed by the spec, so a value outside it is reported by the schema, and lowering never has to hold text in a language it can't parse.)
 
 ## Metadata-validation checks
 
@@ -149,7 +151,7 @@ The foreign-key check (D05) is governed by the same comparability rule, identity
 
 ### Assertions {#assertions}
 
-An `assert` expression is checked for form at the spec level (S19–S23, S30) and evaluated against the data here. Only an expression that passed every spec check is evaluated, so D07–D09 never report a problem with the expression itself — only with the data it describes.
+An `assert` expression is checked for form at the spec level (S19–S23, S30, and S35–S36 for one [written in another language](spec.md#other-languages)) and evaluated against the data here. Only an expression that passed every spec check is evaluated, so D07–D09 never report a problem with the expression itself — only with the data it describes.
 
 `NOW()` is bound once for the whole `validate-data` run, so every assertion in the run agrees on the current time. [Executing expressions](expression-execution.md) is the reference for what evaluation means.
 

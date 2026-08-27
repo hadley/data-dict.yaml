@@ -41,6 +41,13 @@ expression: "translate_json(indoc!\n{r#\"\n        description: Each row is an o
         "notes": [
           "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
         ]
+      },
+      {
+        "target": "Python(polars)",
+        "code": "pl.col(\"is_enterprise\") & (pl.col(\"order_total\") > pl.lit(0))",
+        "notes": [
+          "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there."
+        ]
       }
     ]
   }

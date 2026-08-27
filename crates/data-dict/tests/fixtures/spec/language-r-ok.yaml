@@ -1,0 +1,38 @@
+# expected: valid, with S36 warnings — every expression is written in R, and
+# each carries a note where R's meaning and the reading it is given differ.
+# The notes are type-independent (a reader runs before type checking), so a
+# `is.na` on a string column is noted for NaN even though a string has none.
+$version: 0.1.0
+$learn_more: https://data-dict.tidyverse.org/
+description: Each row is one response to the annual survey.
+tables:
+  - name: survey
+    columns:
+      - name: respondent_id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [1001, 1002, 1003]
+      - name: postcode
+        description: New Zealand postcode, as given by the respondent.
+        type: string
+        examples: ["1010", "8011", "9016"]
+        constraints:
+          - assert: nchar(postcode) <= 10
+            language: r
+      - name: q3
+        description: Whether the respondent completed the long form.
+        type: boolean
+      - name: q4
+        type: string
+        examples: ["Strongly agree", "Neutral"]
+    constraints:
+      # A leading `!` starts a YAML tag, so R beginning with one is quoted.
+      - assert: "!is.na(respondent_id)"
+        language: r
+      - assert: fifelse(q3, !is.na(q4), TRUE)
+        language: r
+    definitions:
+      - name: completed
+        description: Respondents who answered the long form.
+        expr: "!is.na(q4)"
+        language: r

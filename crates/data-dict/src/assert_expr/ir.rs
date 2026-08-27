@@ -331,6 +331,36 @@ impl Op {
         })
     }
 
+    /// The language's own spelling, in the upper case the spec writes it in.
+    /// The inverse of [`Op::from_name`]; keep the two in step.
+    pub fn name(self) -> &'static str {
+        match self {
+            Op::Length => "LENGTH",
+            Op::Lower => "LOWER",
+            Op::Upper => "UPPER",
+            Op::Trim => "TRIM",
+            Op::StartsWith => "STARTS_WITH",
+            Op::EndsWith => "ENDS_WITH",
+            Op::Abs => "ABS",
+            Op::Floor => "FLOOR",
+            Op::Ceil => "CEIL",
+            Op::Round => "ROUND",
+            Op::Mod => "MOD",
+            Op::IsFinite => "IS_FINITE",
+            Op::IsInfinite => "IS_INFINITE",
+            Op::IsNan => "IS_NAN",
+            Op::Min => "MIN",
+            Op::Max => "MAX",
+            Op::Sum => "SUM",
+            Op::Avg => "AVG",
+            Op::Count => "COUNT",
+            Op::RowCount => "ROW_COUNT",
+            Op::CountDistinct => "COUNT_DISTINCT",
+            Op::Any => "ANY",
+            Op::All => "ALL",
+        }
+    }
+
     /// Whether this folds a column into one value, which decides the node's
     /// [`Shape`] and, for the whole expression, whether a violation can name a
     /// row at all.
@@ -370,6 +400,18 @@ impl IntervalUnit {
             "weeks" => IntervalUnit::Weeks,
             _ => return None,
         })
+    }
+
+    /// The language's own spelling. The inverse of [`IntervalUnit::from_name`];
+    /// keep the two in step.
+    pub fn name(self) -> &'static str {
+        match self {
+            IntervalUnit::Seconds => "seconds",
+            IntervalUnit::Minutes => "minutes",
+            IntervalUnit::Hours => "hours",
+            IntervalUnit::Days => "days",
+            IntervalUnit::Weeks => "weeks",
+        }
     }
 
     /// How many seconds one of these lasts. All five are fixed-length, which is
@@ -842,6 +884,34 @@ fn like_pattern(pattern: &str) -> LikePattern {
     }
     re.push('$');
     LikePattern::Regex(re)
+}
+
+/// Recover the `LIKE` pattern a [`LikePattern::Regex`] was built from, for a
+/// backend that spells `LIKE` the way the language does. The inverse of the
+/// regex arm of [`like_pattern`], and defined only for what that arm produces:
+/// `None` for anything else, so a caller falls back rather than guessing.
+pub(crate) fn un_like_regex(re: &str) -> Option<String> {
+    let body = re.strip_prefix('^')?.strip_suffix('$')?;
+    let mut out = String::new();
+    let mut chars = body.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            // `regex::escape` emits a backslash before the character itself.
+            '\\' => out.push(chars.next()?),
+            '.' => match chars.clone().next() {
+                Some('*') => {
+                    chars.next();
+                    out.push('%');
+                }
+                _ => out.push('_'),
+            },
+            // Any other metacharacter means this regex didn't come from a
+            // `LIKE` pattern.
+            '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$' => return None,
+            other => out.push(other),
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]

@@ -79,6 +79,47 @@ Seven of the eight targets are defined by something outside this specification: 
 
 `SQL(ANSI)` is the exception, and [has a grammar of its own](#ansi) — there is no "ANSI engine" to define it.
 
+### Sources
+
+Translation also runs the other way. An expression [tagged with a `language`](spec.md#other-languages) is *read* from that language into the data-dict language, and `translate --from` reads an ad-hoc one the same way.
+
+A source is named by family alone, where a target is named `family(dialect)`. The asymmetry is real rather than an oversight: an emitter has to choose one spelling and so must be told which, while a reader can accept every spelling in the family at once. `nchar` and `str_length` are different names, so the text already says which idiom it is; there is no R expression whose meaning depends on being told it is base rather than tidyverse.
+
+| Family | Written | Reads |
+|--------|---------|-------|
+| data-dict | `data-dict` | the language itself |
+| R | `r` | every spelling the three `R(...)` targets emit |
+| Python | `python` | the polars expression style `Python(polars)` emits |
+
+: {tbl-colwidths="[20,20,60]"}
+
+Each surface is exactly what that family's targets emit, and no more. That is a deliberate bound: it makes the surface a finite, testable list rather than "R", and it makes the round trip a property that can be checked — every expression this specification can emit as R must read back as itself.
+
+`data-dict` is a target as well as a source. It has no dialects, so it is written bare. It is left out of the targets emitted by default, since an expression already written in the language has nothing to gain from being printed back — but reading from another language is exactly the case where the data-dict spelling is the interesting one, so `--from` puts it back in. `--target data-dict` asks for it outright.
+
+#### What a round trip normalises
+
+"Reads back as itself" is a claim about meaning, not about spelling. Some constructs have no distinct R form to come back to, and those settle on one reading:
+
+| Written | Emitted as R | Reads back as |
+|---------|--------------|---------------|
+| `s LIKE 'NZ-%'` | `startsWith(s, "NZ-")` | `STARTS_WITH(s, 'NZ-')` |
+| `s LIKE '%.nz'` | `endsWith(s, ".nz")` | `ENDS_WITH(s, '.nz')` |
+| `s LIKE 'exact'` | `s == "exact"` | `s = 'exact'` |
+| `s LIKE 'a%b'` | `grepl("^a.*b$", s)` | `s SIMILAR TO 'a.*b'` |
+
+: {tbl-colwidths="[26,38,36]"}
+
+(The middle column omits the null guard each of these is wrapped in, which is a [separate matter](#fidelity) and reads back the same way either way.)
+
+Each says the same thing as what was written; R simply has one spelling where the language has two, and nothing in the R says which it came from.
+
+Normalising **converges**: the reading is a fixed point, so a dictionary rewritten through this path settles after one pass rather than drifting further on each one.
+
+The larger one is `COLUMNS(...)`. `R(tidyverse)` and `Python(polars)` both have an idiom that keeps a selection a selection — `if_all` and `all_horizontal` — so those round-trip. `R(base)` and `R(data.table)` expand it to a conjunction before emitting, and nothing in the result marks it as having been a selection, so it reads back as the conjunction it now is. Inventing the selection back would put a rule in the dictionary that its author never wrote.
+
+Reading polars normalises less than reading R, and for a reason worth naming: polars keeps null and NaN apart the way the language does. `is_null` is false for a NaN, and `is_in`, `is_nan` and the string methods propagate a null rather than answering `False`, so the [guards](#fidelity) the R targets add — and a reader has to recognise — mostly do not arise. Two remain: `n_unique` counts a null among the distinct values, and adding a duration to a date keeps it a date.
+
 ### Column references
 
 Each family writes a column reference the way code in that family usually does, so the output drops into the idiom without editing:
@@ -108,6 +149,14 @@ Emitted code is required to agree with the [reference implementation](#evaluatio
 : {tbl-colwidths="[18,82]"}
 
 Refusal is per target, never per expression. A rule that can't be written in `SQL(ANSI)` still translates to the other seven.
+
+The same scale grades a [reading](#sources), with two of the four classes unreachable. `nchar(x)` is Exact. `round(x)` is Divergent, since R rounds halves to even; so is a bare `x %in% c(1, 2)`, since R's `%in%` answers `FALSE` for an `NA` subject where the language's `IN` gives null.
+
+**A reading is never Guarded.** Guarded means the translation adds code the expression didn't ask for, and a reader never does that: it records what the author wrote, and adding a guard would make the dictionary state a rule nobody typed. Where a construct's meaning differs, the difference is reported rather than silently repaired. This is the one place the two directions are not mirror images, and the reason is that they are read by different audiences — emitted code is for a machine to run, where a guard is invisible and welcome, while a reading becomes the dictionary's own statement of the rule, which a person has to be able to recognise as theirs.
+
+**A reading is never Unsupported either.** Outbound, one target's refusal costs nothing, because the other seven still translate. Inbound there is nowhere else to go: a construct with no reading is a rule the dictionary cannot state at all, so it is a validation error ([S35](validation.md#spec-validation-checks)) and the dictionary does not validate until the rule is rewritten. So anything that reaches an evaluation, a translation, or an export was read Exactly or Divergently.
+
+A Divergent reading is reported as a warning ([S36](validation.md#spec-validation-checks)). It is a difference between what the author wrote and what the dictionary will enforce, it is knowable before any data is read, and nothing else would surface it.
 
 #### Standing divergences
 
@@ -187,11 +236,29 @@ A translation's `fidelity` is the weakest [class](#fidelity) among the construct
 
 The `columns` list is what makes the output composable: a caller knows which columns to select, load, or index before evaluating the predicate, without parsing the code. A target that [refuses](#fidelity) is `"unsupported"` and carries an error in place of `code`.
 
+A record for an expression that was [read from another language](#sources) says so. `language` names it, `canonical` gives the same expression in the data-dict language, and `fidelity`/`notes` grade the reading — on the same scale as a target's, and by the same presence rule: `fidelity` only when it isn't `"exact"`, `notes` only when `fidelity` is.
+
+```jsonc
+{
+  "expr": "round(score) >= 50",
+  "language": "r",
+  "canonical": "ROUND(score) >= 50",
+  "fidelity": "divergent",
+  "notes": ["R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."],
+  "table": "survey",
+  "type": "boolean",
+  "columns": [{ "table": "survey", "column": "score" }],
+  "translations": [ /* as above */ ]
+}
+```
+
 ### One expression at a time
 
 The unit of translation is one expression. By default every assertion in the dictionary is translated; `--table` narrows that to one table, and `--expr` translates an ad-hoc expression instead.
 
 An `--expr` expression is parsed, resolved and type-checked exactly like an assertion, with one relaxation: it need not be boolean. `a + b` translates, and its type is reported. Its column names resolve against one table — the only table if the dictionary has one, and otherwise the table named by `--table`.
+
+`--from` says what language `--expr` is written in. It applies to `--expr` alone: a dictionary's assertions each carry their own [`language`](spec.md#other-languages), which is the author's statement about the author's file, and no flag overrides it — a dictionary that validated differently depending on how the command was invoked would be no dictionary at all.
 
 ## `SQL(ANSI)` {#ansi}
 

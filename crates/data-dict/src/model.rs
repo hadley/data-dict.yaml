@@ -98,11 +98,71 @@ impl DataDict {
 /// span, the parsed form (`None` if it failed to parse — S19 is emitted then),
 /// and an optional description. Mirrors how [`Relationship`] holds both the
 /// `join` text and its parsed `JoinExpr`.
+///
+/// `text` is always the author's own, in whatever language they wrote it. That
+/// is forced rather than chosen: [`AssertExpr`]'s nodes carry byte offsets into
+/// the string they were parsed from, and every located expression diagnostic
+/// resolves those against `text`. A canonical rewrite here would point every
+/// span into the wrong string.
 #[derive(Debug, Clone)]
 pub struct Assertion {
     pub text: Spanned<String>,
+    /// The language `text` is written in, when the author said so. The span is
+    /// the `language` value's, for a diagnostic that points at it.
+    pub language: Option<Spanned<Language>>,
     pub expr: Option<AssertExpr>,
     pub description: Option<String>,
+    /// Where the source language and the reading disagree; empty for an
+    /// expression that needed no reading. Each is reported as S36.
+    pub notes: Vec<&'static str>,
+}
+
+impl Assertion {
+    /// The language this was written in, defaulting to the dictionary's own.
+    pub fn language(&self) -> Language {
+        self.language
+            .as_ref()
+            .map_or(Language::DataDict, |l| l.value)
+    }
+}
+
+/// A language an expression may be written in, as the `language` key names it.
+/// The set is closed and the schema enforces it, so lowering never has to hold
+/// text in a language it can't parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Language {
+    #[default]
+    DataDict,
+    R,
+    Python,
+}
+
+impl Language {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Language::DataDict => "data-dict",
+            Language::R => "r",
+            Language::Python => "python",
+        }
+    }
+
+    /// How to name it in prose, where the key's own spelling reads oddly.
+    pub fn label(self) -> &'static str {
+        match self {
+            Language::DataDict => "the data-dict language",
+            Language::R => "R",
+            Language::Python => "Python",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Language> {
+        match name {
+            "data-dict" => Some(Language::DataDict),
+            "r" => Some(Language::R),
+            "python" => Some(Language::Python),
+            _ => None,
+        }
+    }
 }
 
 /// A table-level definition: a named expression (a metric, filter, or derived
@@ -112,11 +172,24 @@ pub struct Assertion {
 pub struct Definition {
     pub name: Spanned<String>,
     pub text: Spanned<String>,
+    /// The language `text` is written in; see [`Assertion::language`].
+    pub language: Option<Spanned<Language>>,
     pub expr: Option<AssertExpr>,
     pub label: Option<String>,
     pub description: Option<String>,
     pub details: Option<String>,
     pub todo: Option<Spanned<String>>,
+    /// Where the source language and the reading disagree; see [`Assertion`].
+    pub notes: Vec<&'static str>,
+}
+
+impl Definition {
+    /// The language this was written in, defaulting to the dictionary's own.
+    pub fn language(&self) -> Language {
+        self.language
+            .as_ref()
+            .map_or(Language::DataDict, |l| l.value)
+    }
 }
 
 #[derive(Debug, Clone)]

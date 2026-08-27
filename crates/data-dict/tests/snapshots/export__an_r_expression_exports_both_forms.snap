@@ -1,0 +1,135 @@
+---
+source: crates/data-dict/tests/export.rs
+expression: "export_json(indoc!\n{r#\"\n        $version: \"0.1.0\"\n        $learn_more: http://data-dict.tidyverse.org/\n        description: Each row is a survey response.\n        tables:\n          - name: survey\n            columns:\n              - name: score\n                type: number(quantity)\n                units: points\n                range: [0, 100]\n            constraints:\n              - assert: round(score, 2) == score\n                language: r\n            definitions:\n              - name: high\n                expr: score > 80\n                language: r\n    \"#})"
+---
+{
+  "$version": "0.1.0",
+  "description": "<p>Each row is a survey response.</p>",
+  "learn_more": "http://data-dict.tidyverse.org/",
+  "tables": [
+    {
+      "name": "survey",
+      "columns": [
+        {
+          "name": "score",
+          "type": "number(quantity)",
+          "units": "points",
+          "range": {
+            "min": 0,
+            "max": 100
+          }
+        }
+      ],
+      "constraints": [
+        {
+          "expression": "round(score, 2) == score",
+          "language": "r",
+          "canonical": "ROUND(score, 2) = score",
+          "fidelity": "divergent",
+          "notes": [
+            "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+            "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+          ],
+          "columns": [
+            "score"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "round(\"score\", 2) = \"score\"",
+              "notes": [
+                "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "round(score, 2L) == score",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+              ]
+            },
+            {
+              "target": "R(base)",
+              "code": "round(score, 2L) == score",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+              ]
+            },
+            {
+              "target": "R(data.table)",
+              "code": "round(score, 2L) == score",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there.",
+                "R rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+              ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"score\").round(2) == pl.col(\"score\")",
+              "notes": [
+                "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there.",
+                "polars rounds halves to even, where data-dict rounds them away from zero, so results differ on an exact half."
+              ]
+            }
+          ]
+        }
+      ],
+      "definitions": [
+        {
+          "name": "high",
+          "expression": "score > 80",
+          "language": "r",
+          "canonical": "score > 80",
+          "fidelity": "divergent",
+          "notes": [
+            "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+          ],
+          "kind": "filter",
+          "type": "boolean",
+          "columns": [
+            "score"
+          ],
+          "translations": [
+            {
+              "target": "SQL(duckdb)",
+              "code": "\"score\" > 80",
+              "notes": [
+                "DuckDB compares a NaN as equal to itself and greater than every number, where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "R(tidyverse)",
+              "code": "score > 80L",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "R(base)",
+              "code": "score > 80L",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "R(data.table)",
+              "code": "score > 80L",
+              "notes": [
+                "R reads a NaN as missing, so comparing against one gives NA where data-dict answers false; a row holding one passes here and is reported there."
+              ]
+            },
+            {
+              "target": "Python(polars)",
+              "code": "pl.col(\"score\") > pl.lit(80)",
+              "notes": [
+                "polars compares a NaN as an ordinary value and makes it equal to itself, where data-dict answers false for every comparison a NaN reaches; a row holding one passes here and is reported there."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -127,6 +127,13 @@ object:
                               required: [assert]
                               properties:
                                 assert: string
+                                # The language `assert` is written in. The set
+                                # is closed and grows with the spec, so an
+                                # unreadable value is structural rather than
+                                # semantic: lowering never has to carry an
+                                # expression in a language it can't parse.
+                                language:
+                                  enum: [data-dict, r, python]
                                 description: string
                     examples:
                       arrayOf: any
@@ -145,6 +152,9 @@ object:
                   required: [assert]
                   properties:
                     assert: string
+                    # See the column-level `constraints` above.
+                    language:
+                      enum: [data-dict, r, python]
                     description: string
 
             # Named expressions (metrics, filters, derived values). Name
@@ -164,6 +174,10 @@ object:
                         - string
                         - null
                     expr: string
+                    # The language `expr` is written in; see the column-level
+                    # `constraints` above.
+                    language:
+                      enum: [data-dict, r, python]
                     label: string
                     description: string
                     details: string
