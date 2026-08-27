@@ -1,0 +1,9 @@
+^datadict\.Rproj$
+^\.Rproj\.user$
+^\.Rhistory$
+^\.claude$
+^.*\.Rcheck$
+^datadict_.*\.tar\.gz$
+^\.cache$
+^\.gitignore$
+^cran-comments\.md$

@@ -95,6 +95,22 @@ Prebuilt binaries are available for:
 The Linux binaries are statically linked against musl, so they have no libc
 dependency and run on any distribution, glibc or musl.
 
+## From R
+
+The `datadict` R package (in `r/` in the repository) installs the binary into
+R's user cache directory and calls it for you:
+
+```r
+pak::pak("tidyverse/data-dict/r")
+datadict::dd_install()
+datadict::dd_validate_data("path/to/project")
+```
+
+`dd_install()` downloads the release archive for your platform, checks it
+against the published `.sha256`, and unpacks `data-dict` into
+`tools::R_user_dir("datadict", "cache")`. `dd_validate_data()` runs
+`validate-data`, writes the HTML report, and opens it in your browser.
+
 ## Build from source
 
 On any other platform, build it yourself with
