@@ -199,6 +199,8 @@ function RelationshipsDiagram() {
           <button id="showall" type="button" hidden
             title="Put every table back on the board">show all</button>
           <button id="tidy" type="button" disabled title="Lay the tables out again">tidy</button>
+          <button id="minimal" type="button" aria-pressed="false"
+            title="Show each table as its name only">minimal</button>
           <div id="diagram-search">
             <input id="find" type="search" placeholder="Find a column…"
               autocomplete="off" spellcheck="false" aria-label="Find a column" />
