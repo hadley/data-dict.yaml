@@ -63,7 +63,12 @@
     document.body.append(el);
   }
 
+  /* The report page's findings are its content, not a build failure, so the
+     panel would only repeat what the page already says. */
+  const isDictPage = typeof loadDict === "function";
+
   async function report() {
+    if (!isDictPage) return;
     let result;
     try {
       result = await (await fetch("/problems", { cache: "no-store" })).json();
@@ -105,7 +110,7 @@
 
   function rebuilt() {
     // The report page has no `loadDict` to swap through, so it always reloads.
-    if (typeof loadDict !== "function" || !onTablePage()) return location.reload();
+    if (!isDictPage || !onTablePage()) return location.reload();
     // A failed swap must not leave a half-updated page: fall back to the
     // reload it replaced.
     swap().then(report, () => location.reload());
