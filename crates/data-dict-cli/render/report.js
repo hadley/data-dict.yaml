@@ -221,13 +221,18 @@ function StepTableGroup({ table, steps }) {
   </tbody>`;
 }
 
+/* The roster lists data-level checks only: the metadata checks a data run
+   implies (a column exists, a source is declared) are means to the data
+   checks, and a reader of the report cares about what the data failed. */
 function StepsCard({ steps, filter }) {
-  const shown = filter ? steps.filter((step) => step.outcome === filter) : steps;
+  const dataSteps = steps.filter((step) => !step.code.startsWith("M"));
+  const shown = filter ? dataSteps.filter((step) => step.outcome === filter) : dataSteps;
+  if (!shown.length) return null;
   return html`<section class="rsection">
     <h2>Checks</h2>
     ${filter
       ? html`<p class="rsection-note">Showing the ${fmtNum(shown.length)} of${" "}
-          ${fmtNum(steps.length)} checks that ${OUTCOMES[filter]}.</p>`
+          ${fmtNum(dataSteps.length)} checks that ${OUTCOMES[filter]}.</p>`
       : null}
     <div class="tlist-wrap">
       <table class="tlist slist">
