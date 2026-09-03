@@ -143,8 +143,20 @@
 }
 .stepfill.full { right: -0.5px; min-width: 0; }
 
-/* A table's whole-run meter sits inline in the band that names it. */
-.groupmeter { display: inline-block; vertical-align: middle; margin-left: 12px; }
+/* The verdict square beside a step's name: green passed, red failed, and
+   nothing (but its space) for a step that reached no verdict. */
+.verdsq {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+.verdsq.pass { background: var(--good); }
+.verdsq.fail { background: var(--fail-bar); }
+.verdsq.off { visibility: hidden; }
+
+/* A table's whole-run meter sits in the meter column of the band that names
+   it, in line with the step meters below. */
 
 /* Sortable column heads look like the plain heads they replace. */
 .sorthead {
@@ -152,6 +164,8 @@
   font: inherit; color: inherit; cursor: pointer;
 }
 .sorthead:hover { color: var(--ink); }
+.sortind { margin-left: 2px; }
+.sortind.off { visibility: hidden; }
 
 .slist-filter {
   margin: 0 0 10px; padding: 5px 10px;
@@ -176,6 +190,20 @@
   flex-wrap: wrap;
   margin: 0 0 8px;
 }
+/* The step page's header as one card: the target, the check, its verdict, the
+   rule it checked, and the row counts. Heading and rule share a size so the
+   block reads as one statement. */
+.stephead {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 16px 18px;
+  margin: 0 0 16px;
+}
+.stephead .srep-head { margin: 0; }
+.stephead h2 { font-size: var(--text-lg); font-weight: 650; margin: 0; }
+.stephead .srep-expected { flex-basis: 100%; margin: 6px 0 0; }
+.stephead .verdict-meta { margin-top: 8px; }
 .srep-step {
   margin-left: auto;
   font-family: var(--font-mono);

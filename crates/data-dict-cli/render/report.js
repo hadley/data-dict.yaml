@@ -156,13 +156,12 @@ function stepLabel(step) {
     : checkName(step.code);
 }
 
-/* The label, linking to the step's own page, with the code quiet in
-   parentheses linking to every step and problem that share it. */
+/* The label as plain text — the row itself links to the step's page — with
+   the code quiet in parentheses linking to every step and problem that share
+   it. */
 function StepCheck({ step }) {
   return html`<span>
-    <a href="#step/${step.id}"
-      onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#step/${step.id}`); }}
-    >${stepLabel(step)}</a>
+    ${stepLabel(step)}
     ${" "}<a class="scode" href="#code/${step.code}"
       onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#code/${step.code}`); }}
     >(${step.code})</a>
@@ -192,8 +191,6 @@ function StepMeter({ step }) {
 const SORTS = {
   check: (step) => stepLabel(step),
   target: (step) => (step.columns || []).join(", "),
-  outcome: (step) => OUTCOMES[step.outcome],
-  rows: (step) => step.row_count,
   failed: (step) => step.failed_row_count,
 };
 
@@ -216,24 +213,30 @@ function sortSteps(steps, sort) {
   });
 }
 
+/* The indicator's space is reserved whether or not the column is sorted, so
+   clicking a head doesn't shift the others. */
 function SortHead({ label, sortKey, sort, onSort, numeric }) {
   const active = sort && sort.key === sortKey;
   return html`<th class=${numeric ? "num" : null}>
     <button class="sorthead" onClick=${() => onSort(cycleSort(sort, sortKey))}>
-      ${label}${active ? (sort.dir === 1 ? " ▴" : " ▾") : ""}
+      ${label}<span class=${active ? "sortind" : "sortind off"}>${active && sort.dir === -1 ? "▾" : "▴"}</span>
     </button>
   </th>`;
 }
 
+/* A step's verdict as a coloured square beside its name: green passed, red
+   failed. An unevaluated step gets no square, but keeps its space so the
+   names stay aligned. */
 function StepRow({ step }) {
   const failed = step.failed_row_count;
   const evaluated = step.outcome !== "unevaluated";
   const first = (problemsByStep.get(step.id) || [])[0];
   return html`<tr data-href="#step/${step.id}" title=${first ? first.message : null}>
-    <td class="scheck"><${StepCheck} step=${step} /></td>
+    <td class="scheck">
+      <span class=${step.outcome === "unevaluated" ? "verdsq off" : `verdsq ${step.outcome}`}></span>
+      <${StepCheck} step=${step} />
+    </td>
     <td><${StepTarget} step=${step} /></td>
-    <td><span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span></td>
-    <td class="num">${evaluated && step.row_count != null ? fmtNum(step.row_count) : "—"}</td>
     <td class="num">${evaluated && failed != null ? fmtNum(failed) : "—"}</td>
     <td><${StepMeter} step=${step} /></td>
   </tr>`;
@@ -242,18 +245,27 @@ function StepRow({ step }) {
 /* One table's run of steps, headed by the band that names it. A table whose data
    could not be read leaves every step of it unevaluated, so the reason is given
    once here rather than repeated down every row. */
-/* The table's verdict as one bar: the share of its evaluated checks that
-   failed, so a table reads at a glance before its steps do. */
-function TableMeter({ counts }) {
-  const evaluated = counts.pass + counts.fail;
-  if (!evaluated) return null;
+/* The table's verdict as one bar: the rows its steps checked and failed,
+   summed, so the band weighs the table the way each row of the roster does. */
+function tableRows(steps) {
+  let rows = 0, failed = 0;
+  for (const step of steps) {
+    if (step.row_count == null) continue;
+    rows += step.row_count;
+    failed += step.failed_row_count || 0;
+  }
+  return { rows, failed };
+}
+
+function TableMeter({ rows, failed }) {
+  if (!rows) return null;
   return html`<div class="stepmeter groupmeter">
     <div class="steptrack"
-      onMouseEnter=${(e) => showTip(barTip("failed", counts.fail, evaluated), e)}
+      onMouseEnter=${(e) => showTip(barTip("failed", failed, rows), e)}
       onMouseMove=${moveTip} onMouseLeave=${hideTip}>
-      ${counts.fail > 0 &&
-        html`<div class=${`stepfill${counts.fail >= evaluated ? " full" : ""}`}
-          style=${`width:${(counts.fail / evaluated) * 100}%`} />`}
+      ${failed > 0 &&
+        html`<div class=${`stepfill${failed >= rows ? " full" : ""}`}
+          style=${`width:${(failed / rows) * 100}%`} />`}
     </div>
   </div>`;
 }
@@ -263,26 +275,26 @@ function StepTableGroup({ table, steps, sort }) {
   const unreadable = REPORT.problems.find(
     (p) => p.table === table && (p.code === "M04" || p.code === "M05")
   );
-  const tally = [
-    `${fmtNum(steps.length)} ${steps.length === 1 ? "check" : "checks"}`,
-    counts.fail ? `${fmtNum(counts.fail)} failed` : null,
-  ].filter(Boolean);
+  const { rows, failed } = tableRows(steps);
+  const tally = rows ? `${fmtNum(failed)}/${fmtNum(rows)} rows failed` : null;
   return html`<tbody class="tgroup"
     onClick=${(e) => {
       if (e.target.closest("a, button")) return;
       const tr = e.target.closest("tr[data-href]");
       if (tr) go(tr.dataset.href);
     }}>
-    <tr class="grouphead"><td colspan="6">
-      <span class="grouphead-name">${table}</span>
-      ${" "}<span class="grouphead-tally">${tally.join(" · ")}</span>
-      <${TableMeter} counts=${counts} />
-      ${counts.unevaluated && unreadable
-        ? html`${" "}<span class="grouphead-note">— ${
-            unreadable.code === "M04" ? "no source declared" : "data could not be read"
-          }, ${fmtNum(counts.unevaluated)} not evaluated</span>`
-        : null}
-    </td></tr>
+    <tr class="grouphead">
+      <td colspan="3">
+        <span class="grouphead-name">${table}</span>
+        ${tally ? html`${" "}<span class="grouphead-tally">${tally}</span>` : null}
+        ${counts.unevaluated && unreadable
+          ? html`${" "}<span class="grouphead-note">— ${
+              unreadable.code === "M04" ? "no source declared" : "data could not be read"
+            }, ${fmtNum(counts.unevaluated)} not evaluated</span>`
+          : null}
+      </td>
+      <td><${TableMeter} rows=${rows} failed=${failed} /></td>
+    </tr>
     ${sortSteps(steps, sort).map((step) => html`<${StepRow} key=${step.id} step=${step} />`)}
   </tbody>`;
 }
@@ -314,8 +326,6 @@ function StepsCard({ steps, filter }) {
             <thead><tr>
               <${SortHead} label="Check" sortKey="check" sort=${sort} onSort=${setSort} />
               <${SortHead} label="Target" sortKey="target" sort=${sort} onSort=${setSort} />
-              <${SortHead} label="Outcome" sortKey="outcome" sort=${sort} onSort=${setSort} />
-              <${SortHead} label="Rows" sortKey="rows" sort=${sort} onSort=${setSort} numeric=${true} />
               <${SortHead} label="Failed" sortKey="failed" sort=${sort} onSort=${setSort} numeric=${true} />
               <th></th>
             </tr></thead>
@@ -366,25 +376,25 @@ function StepPage({ id }) {
   const step = stepsById.get(Number(id));
   if (!step) return html`<p class="rsection-note">No such step.</p>`;
   const problems = problemsByStep.get(step.id) || [];
+  const expected = problems.find((problem) => problem.expected)?.expected;
   return html`<section class="rsection">
-    <div class="srep-head">
-      <h2>${stepLabel(step)}${" "}<a class="scode" href="#code/${step.code}"
-        onClick=${(e) => { e.preventDefault(); go(`#code/${step.code}`); }}
-      >(${step.code})</a></h2>
-      <span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span>
+    <div class="stephead">
+      <div class="srep-head">
+        <h2><${TargetPath} table=${step.table} columns=${step.columns || []} />${" "}
+          ${stepLabel(step)}${" "}<a class="scode" href="#code/${step.code}"
+          onClick=${(e) => { e.preventDefault(); go(`#code/${step.code}`); }}
+        >(${step.code})</a></h2>
+        <span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span>
+        ${expected ? html`<p class="srep-expected"><${Ticks} text=${expected} /></p>` : null}
+      </div>
+      <p class="verdict-meta">
+        ${step.row_count != null
+          ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
+          : "no rows counted"}
+      </p>
     </div>
-    <p class="srep-where"><${TargetPath} table=${step.table} columns=${step.columns || []} /></p>
-    <p class="verdict-meta">
-      ${step.row_count != null
-        ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
-        : "no rows counted"}
-    </p>
-    ${step.location
-      ? html`<details class="srep-def"><summary>Definition</summary>
-          <${YamlExcerpt} location=${step.location} /></details>`
-      : null}
     ${problems.map((problem) => html`<${ProblemCard} key=${problem.index}
-      problem=${problem} showStep=${false} />`)}
+      problem=${problem} showStep=${false} stepContext=${true} />`)}
     ${!problems.length && step.outcome === "pass"
       ? html`<p class="rsection-note">This check found nothing.</p>`
       : null}

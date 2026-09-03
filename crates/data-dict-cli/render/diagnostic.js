@@ -194,31 +194,39 @@ function RowTable({ rows, values }) {
   </table>`;
 }
 
-/* What a problem can say about the rows that broke it, dispatching on what it
-   carries rather than on its code: a check reports what its evidence supports,
-   and some prove a count without naming a row. */
-function OffendingRows({ problem }) {
+/* Why a problem names no rows, said inside its card: an assertion is one
+   verdict about the whole table, and some checks prove a count without naming
+   a row. */
+function RowsNote({ problem }) {
   const rows = problem.rows || [];
   const count = problem.count;
-  const withheld = "redacted" in problem && problem.redacted;
   if (problem.kind === "assertion_false") {
     return html`<p class="rows-note">This assertion is one verdict about the whole
       table, so no row is named.</p>`;
   }
+  if (problem.kind === "assertion_overflow" && problem.row != null) return null;
+  if (rows.length || count == null) return null;
+  return html`<p class="rows-note">
+    <strong>${fmtNum(count)} ${count === 1 ? "row" : "rows"} failed.</strong>
+    ${" "}This check counted them without naming them.</p>`;
+}
+
+/* The rows that broke a problem, as their own card. Dispatch is on what the
+   problem carries rather than on its code: a check reports what its evidence
+   supports, and some prove a count without naming a row (see RowsNote). */
+function OffendingRows({ problem }) {
+  const rows = problem.rows || [];
+  const count = problem.count;
+  const withheld = "redacted" in problem && problem.redacted;
   if (problem.kind === "assertion_overflow" && problem.row != null) {
-    return html`<div>
+    return html`<article class="srep is-${problem.severity}">
       <div class="rows-head"><h3>Offending row</h3></div>
       <${RowTable} rows=${[problem.row]} values=${null} />
       <p class="rows-note">Evaluation stopped at the first overflow.</p>
-    </div>`;
+    </article>`;
   }
-  if (!rows.length) {
-    if (count == null) return null;
-    return html`<p class="rows-note">
-      <strong>${fmtNum(count)} ${count === 1 ? "row" : "rows"} failed.</strong>
-      ${" "}This check counted them without naming them.</p>`;
-  }
-  return html`<div>
+  if (!rows.length) return null;
+  return html`<article class="srep is-${problem.severity}">
     <div class="rows-head">
       <h3>Offending rows</h3>
       ${withheld && html`<span class="key restricted">values withheld</span>`}
@@ -231,7 +239,7 @@ function OffendingRows({ problem }) {
       html`<p class="redacted-note">A column here is${" "}
         <code class="tick">display: restricted</code>, so its values are withheld.
         The row numbers are exact.</p>`}
-  </div>`;
+  </article>`;
 }
 
 /* ---- One problem, whole ------------------------------------------------- */
@@ -243,34 +251,40 @@ function OffendingRows({ problem }) {
    The excerpt is drawn even for a redacted problem: it shows the column's
    *declaration*, which the author wrote and the terminal already prints, not
    any value the data held. */
-function ProblemCard({ problem, showStep }) {
+/* `stepContext` is set on a step's own page, where the header block above the
+   card already names the check, the code, the rule, and the target — the card
+   keeps only what the header doesn't say. */
+function ProblemCard({ problem, showStep, stepContext }) {
   const columns = problem.columns || [];
-  return html`<article class="srep is-${problem.severity}">
-    <div class="srep-head">
-      <span class="key ${problem.severity === "error" ? "fail" : "warn"}"
-        >${problem.severity}</span>
-      <${CodeChip} code=${problem.code} />
-      <span class="scheck-name">${checkName(problem.code)}</span>
-      ${showStep && problem.step != null &&
-        html`<a class="srep-step" href="#step/${problem.step}"
-          onClick=${(e) => { e.preventDefault(); go(`#step/${problem.step}`); }}
-          >step ${problem.step} →</a>`}
-    </div>
-    ${problem.expected &&
-      html`<h2 class="srep-expected"><${Ticks} text=${problem.expected} /></h2>`}
-    <p class="srep-message">
-      <span class="srep-found">found:</span> <${Ticks} text=${problem.message} />
-    </p>
-    ${problem.table &&
-      html`<p class="srep-where">
-        <${TargetPath} table=${problem.table} columns=${columns} />
-      </p>`}
-    <${KindFacts} problem=${problem} />
-    <${YamlExcerpt} location=${problem.location} context=${problem.context} />
-    ${problem.hint && html`<p class="srep-hint"><${Ticks} text=${problem.hint} /></p>`}
-    ${problem.suggestion && html`<${SuggestionDiff} suggestion=${problem.suggestion} />`}
+  return html`<${preact.Fragment}>
+    <article class="srep is-${problem.severity}">
+      <div class="srep-head">
+        <span class="key ${problem.severity === "error" ? "fail" : "warn"}"
+          >${problem.severity}</span>
+        ${!stepContext && html`<${CodeChip} code=${problem.code} />
+          <span class="scheck-name">${checkName(problem.code)}</span>`}
+        ${showStep && problem.step != null &&
+          html`<a class="srep-step" href="#step/${problem.step}"
+            onClick=${(e) => { e.preventDefault(); go(`#step/${problem.step}`); }}
+            >step ${problem.step} →</a>`}
+      </div>
+      ${!stepContext && problem.expected &&
+        html`<h2 class="srep-expected"><${Ticks} text=${problem.expected} /></h2>`}
+      <p class="srep-message">
+        <span class="srep-found">found:</span> <${Ticks} text=${problem.message} />
+      </p>
+      ${!stepContext && problem.table &&
+        html`<p class="srep-where">
+          <${TargetPath} table=${problem.table} columns=${columns} />
+        </p>`}
+      <${KindFacts} problem=${problem} />
+      <${YamlExcerpt} location=${problem.location} context=${problem.context} />
+      ${problem.hint && html`<p class="srep-hint"><${Ticks} text=${problem.hint} /></p>`}
+      ${problem.suggestion && html`<${SuggestionDiff} suggestion=${problem.suggestion} />`}
+      <${RowsNote} problem=${problem} />
+    </article>
     <${OffendingRows} problem=${problem} />
-  </article>`;
+  <//>`;
 }
 
 /* A table and the columns a check was about. Column names are used verbatim: a
