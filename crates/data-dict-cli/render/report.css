@@ -96,7 +96,7 @@
 .grouphead-tally { color: var(--ink-soft); }
 .grouphead-note { color: var(--warn); }
 
-.sid { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); }
+.scode { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); text-decoration: none; }
 .scheck { white-space: nowrap; }
 .scheck-name { color: var(--ink-soft); font-size: var(--text-sm); }
 .starget { font-family: var(--font-mono); font-size: var(--text-sm); }
@@ -168,6 +168,8 @@
 .srep-message { margin: 0 0 10px; color: var(--ink-soft); max-width: 76ch; }
 .srep-found { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-faint); }
 .srep-where { font-family: var(--font-mono); font-size: var(--text-sm); margin: 0 0 10px; }
+.srep-def { margin: 0 0 10px; max-width: 76ch; color: var(--ink-soft); }
+.srep-def p { margin: 6px 0 0; }
 .srep-hint { margin: 10px 0 0; color: var(--ink-soft); max-width: 76ch; }
 .srep-hint::before {
   content: "help: ";

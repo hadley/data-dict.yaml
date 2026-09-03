@@ -134,20 +134,33 @@ function Verdict({ filter, onFilter }) {
 
 /* ---- The roster of checks ------------------------------------------------ */
 
-/* What a step checked. An assertion is its own target and leads; the columns it
-   reads sit below it, since the expression is what a reader recognises. */
+/* What a step checked. An assertion names the columns it reads and carries its
+   expression on the check itself, since the columns are what a reader scans
+   for. */
 function StepTarget({ step }) {
   const columns = step.columns || [];
-  if (step.assertion) {
-    return html`<span class="starget">
-      <span class="starget-assert">${step.assertion}</span>
-      ${columns.length ? html`<span class="starget-cols">${columns.join(", ")}</span>` : null}
-    </span>`;
-  }
   if (!columns.length) {
     return html`<span class="starget"><span class="swhole">whole table</span></span>`;
   }
   return html`<span class="starget">${columns.join(", ")}</span>`;
+}
+
+/* A step's check, said the way a reader would: the name first — with the
+   assertion it ran, for an assertion step — and the code quiet in parentheses.
+   The name links to the step's own page; the code to every step and problem
+   that share it. */
+function StepCheck({ step }) {
+  const label = step.assertion
+    ? `${checkName(step.code)}: ${step.assertion}`
+    : checkName(step.code);
+  return html`<span>
+    <a href="#step/${step.id}"
+      onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#step/${step.id}`); }}
+    >${label}</a>
+    ${" "}<a class="scode" href="#code/${step.code}"
+      onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#code/${step.code}`); }}
+    >(${step.code})</a>
+  </span>`;
 }
 
 /* The share of rows a step failed. Drawn only when there are rows to weigh, so
@@ -173,9 +186,7 @@ function StepRow({ step }) {
   const evaluated = step.outcome !== "unevaluated";
   const first = (problemsByStep.get(step.id) || [])[0];
   return html`<tr data-href="#step/${step.id}" title=${first ? first.message : null}>
-    <td class="num sid">${step.id}</td>
-    <td class="scheck"><${CodeChip} code=${step.code} />
-      ${" "}<span class="scheck-name">${checkName(step.code)}</span></td>
+    <td class="scheck"><${StepCheck} step=${step} /></td>
     <td><${StepTarget} step=${step} /></td>
     <td><span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span></td>
     <td class="num">${evaluated && step.row_count != null ? fmtNum(step.row_count) : "—"}</td>
@@ -208,7 +219,7 @@ function StepTableGroup({ table, steps }) {
       const tr = e.target.closest("tr[data-href]");
       if (tr) go(tr.dataset.href);
     }}>
-    <tr class="grouphead"><td colspan="7">
+    <tr class="grouphead"><td colspan="6">
       <span class="grouphead-name">${table}</span>
       ${" "}<span class="grouphead-tally">${tally.join(" · ")}</span>
       ${counts.unevaluated && unreadable
@@ -237,7 +248,7 @@ function StepsCard({ steps, filter }) {
     <div class="tlist-wrap">
       <table class="tlist slist">
         <thead><tr>
-          <th class="num">#</th><th>Check</th><th>Target</th>
+          <th>Check</th><th>Target</th>
           <th>Outcome</th><th class="num">Rows</th><th class="num">Failed</th><th></th>
         </tr></thead>
         ${tableOrder(shown).map((table) => html`<${StepTableGroup} key=${table} table=${table}
@@ -281,24 +292,37 @@ function BackLink({ label }) {
 /* One step: what it checked, how it fared, and every problem pointing at it. A
    passing step's page is short, and legitimately so — it says what was checked
    and that nothing was found. */
+/* The catalogue's description of a check, as the report can show it: its links
+   point into validation.md, which the page doesn't carry, so they render as
+   their text. */
+const checkDef = (code) =>
+  ((CHECKS[code] || {}).description || "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+
 function StepPage({ id }) {
   const step = stepsById.get(Number(id));
   if (!step) return html`<p class="rsection-note">No such step.</p>`;
   const problems = problemsByStep.get(step.id) || [];
+  const def = checkDef(step.code);
+  const label = step.assertion
+    ? `${checkName(step.code)}: ${step.assertion}`
+    : checkName(step.code);
   return html`<section class="rsection">
     <div class="srep-head">
-      <h2>Step ${step.id}</h2>
-      <${CodeChip} code=${step.code} />
-      <span class="scheck-name">${checkName(step.code)}</span>
+      <h2>${label}${" "}<a class="scode" href="#code/${step.code}"
+        onClick=${(e) => { e.preventDefault(); go(`#code/${step.code}`); }}
+      >(${step.code})</a></h2>
       <span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span>
     </div>
     <p class="srep-where"><${TargetPath} table=${step.table} columns=${step.columns || []} /></p>
-    ${step.assertion && html`<p class="srep-where">${step.assertion}</p>`}
     <p class="verdict-meta">
       ${step.row_count != null
         ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
         : "no rows counted"}
     </p>
+    ${def
+      ? html`<details class="srep-def"><summary>Definition</summary>
+          <p><${Ticks} text=${def} /></p></details>`
+      : null}
     ${problems.map((problem) => html`<${ProblemCard} key=${problem.index}
       problem=${problem} showStep=${false} />`)}
     ${!problems.length && step.outcome === "pass"

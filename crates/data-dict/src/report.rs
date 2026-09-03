@@ -392,11 +392,13 @@ pub(crate) fn table_assertions(table: &Table) -> Vec<(&crate::model::Assertion, 
 const VALIDATION_MD: &str = include_str!("../../../site/validation.md");
 
 /// What one check is called and how loudly it speaks, so a consumer can name a
-/// code it only ever sees as `D04`.
+/// code it only ever sees as `D04`. `description` is the full rule as
+/// validation.md's description column states it, markdown included.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Check {
     pub name: &'static str,
     pub severity: Severity,
+    pub description: &'static str,
 }
 
 /// Every check in `site/validation.md`, by code. Read out of that document's
@@ -414,7 +416,15 @@ pub fn checks() -> BTreeMap<&'static str, Check> {
                 "W" => Severity::Warning,
                 _ => return None,
             };
-            is_check_code(code).then_some((code, Check { name, severity }))
+            let description = cells.next()?.trim();
+            is_check_code(code).then_some((
+                code,
+                Check {
+                    name,
+                    severity,
+                    description,
+                },
+            ))
         })
         .collect()
 }
@@ -661,13 +671,10 @@ mod tests {
                 checks.keys().collect::<Vec<_>>()
             );
         }
-        assert_eq!(
-            checks["D02"],
-            Check {
-                name: "Duplicate values",
-                severity: Severity::Error
-            }
-        );
+        let d02 = &checks["D02"];
+        assert_eq!(d02.name, "Duplicate values");
+        assert_eq!(d02.severity, Severity::Error);
+        assert!(d02.description.contains("unique"), "{d02:?}");
         assert_eq!(checks["M03"].severity, Severity::Warning);
     }
 }
