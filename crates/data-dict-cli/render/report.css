@@ -124,7 +124,7 @@
 .stepmeter { width: 110px; }
 .steptrack {
   height: 9px;
-  background: var(--good-soft);
+  background: var(--good);
   border: 0.5px solid var(--rule);
   box-sizing: border-box;
   position: relative;
@@ -142,6 +142,23 @@
   box-sizing: border-box;
 }
 .stepfill.full { right: -0.5px; min-width: 0; }
+
+/* A table's whole-run meter sits inline in the band that names it. */
+.groupmeter { display: inline-block; vertical-align: middle; margin-left: 12px; }
+
+/* Sortable column heads look like the plain heads they replace. */
+.sorthead {
+  background: none; border: none; padding: 0;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.sorthead:hover { color: var(--ink); }
+
+.slist-filter {
+  margin: 0 0 10px; padding: 5px 10px;
+  border: 1px solid var(--rule); border-radius: 6px;
+  font: inherit; background: var(--float, #fff); color: var(--ink);
+  min-width: 240px;
+}
 
 /* ---- One problem --------------------------------------------------------*/
 

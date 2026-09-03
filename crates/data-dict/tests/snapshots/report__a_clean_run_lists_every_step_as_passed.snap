@@ -20,7 +20,13 @@ source: crates/data-dict/tests/report.rs
       "table": "otters",
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 3,
+        "start_column": 10,
+        "end_line": 3,
+        "end_column": 16
+      }
     },
     {
       "id": 2,
@@ -31,7 +37,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
     },
     {
       "id": 3,
@@ -42,7 +54,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
     },
     {
       "id": 4,
@@ -53,7 +71,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
     },
     {
       "id": 5,
@@ -64,7 +88,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 11,
+        "start_column": 14,
+        "end_line": 11,
+        "end_column": 20
+      }
     },
     {
       "id": 6,
@@ -76,7 +106,13 @@ source: crates/data-dict/tests/report.rs
       "assertion": "weight > 0",
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 15,
+        "start_column": 20,
+        "end_line": 15,
+        "end_column": 30
+      }
     }
   ],
   "problems": []

@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use chrono::{SecondsFormat, Utc};
-use quarto_source_map::SourceContext;
+use quarto_source_map::{SourceContext, SourceInfo};
 
 use crate::Level;
 use crate::model::{Column, Constraint, Table};
@@ -65,6 +65,10 @@ pub struct Step {
     /// counted, so it reports no counts at all.
     #[serde(skip)]
     uncounted: bool,
+    /// The declaration the step checks, resolved to a `location` only at
+    /// serialization, where the [`SourceContext`] is at hand.
+    #[serde(skip)]
+    span: Option<SourceInfo>,
 }
 
 /// What a step checks, within its table. The variants keep targets that share a
@@ -156,6 +160,7 @@ impl Steps {
             "M04",
             Vec::new(),
             None,
+            Some(table.name.span.clone()),
         )];
         for col in &table.columns {
             column_steps(
@@ -174,19 +179,28 @@ impl Steps {
                 .map(|col| col.name.value.clone())
                 .collect();
             if !key_columns.is_empty() {
+                let span = table
+                    .columns
+                    .iter()
+                    .find(|col| col.has(Constraint::PrimaryKey))
+                    .map(|col| col.name.span.clone());
                 pending.push((
                     StepKey::new(name, StepTarget::PrimaryKey),
                     "D02",
                     key_columns,
                     None,
+                    span,
                 ));
             }
+            let targets = table_assertions(table);
             for (position, (text, columns)) in assertions.iter().enumerate() {
+                let span = targets.get(position).map(|(a, _)| a.text.span.clone());
                 pending.push((
                     StepKey::new(name, StepTarget::Assertion(position)),
                     "D07",
                     columns.clone(),
                     Some(text.clone()),
+                    span,
                 ));
             }
         }
@@ -197,7 +211,7 @@ impl Steps {
         // columns sorts by the first of them; one about no column (an aggregate
         // assertion reading none) sorts last.
         let order = column_order(table);
-        pending.sort_by_key(|(key, code, columns, _)| {
+        pending.sort_by_key(|(key, code, columns, ..)| {
             let rank = match key.target {
                 StepTarget::Table => 0,
                 _ => columns
@@ -208,8 +222,8 @@ impl Steps {
             (rank, code.starts_with('D'), *code)
         });
 
-        for (key, code, columns, assertion) in pending {
-            self.add(key, code, columns, assertion);
+        for (key, code, columns, assertion, span) in pending {
+            self.add(key, code, columns, assertion, span);
         }
     }
 
@@ -219,6 +233,7 @@ impl Steps {
         code: &'static str,
         columns: Vec<String>,
         assertion: Option<String>,
+        span: Option<SourceInfo>,
     ) {
         if self.index.contains_key(&key) {
             return;
@@ -235,6 +250,7 @@ impl Steps {
             failed_row_count: None,
             all_rows_fail: false,
             uncounted: false,
+            span,
         });
     }
 
@@ -282,8 +298,14 @@ impl Steps {
 }
 
 /// A step yet to be registered: its key, the code it reports, the columns it
-/// covers, and an assertion's text.
-type Pending = (StepKey, &'static str, Vec<String>, Option<String>);
+/// covers, an assertion's text, and the declaration it checks.
+type Pending = (
+    StepKey,
+    &'static str,
+    Vec<String>,
+    Option<String>,
+    Option<SourceInfo>,
+);
 
 /// The steps of one column and, recursively, of its fields — a field is a
 /// declared column too, named by its dotted path. Only a top-level column
@@ -301,6 +323,7 @@ fn column_steps(
         "M01",
         vec![dotted.clone()],
         None,
+        Some(col.name.span.clone()),
     ));
     if level == Level::Data {
         if path.len() == 1 {
@@ -310,6 +333,7 @@ fn column_steps(
                     "D01",
                     vec![dotted.clone()],
                     None,
+                    Some(col.name.span.clone()),
                 ));
             }
             if col.has(Constraint::Unique) {
@@ -318,6 +342,7 @@ fn column_steps(
                     "D02",
                     vec![dotted.clone()],
                     None,
+                    Some(col.name.span.clone()),
                 ));
             }
             if col.has(Constraint::ForeignKey) {
@@ -326,6 +351,7 @@ fn column_steps(
                     "D05",
                     vec![dotted.clone()],
                     None,
+                    Some(col.name.span.clone()),
                 ));
             }
         }
@@ -335,6 +361,7 @@ fn column_steps(
                 "D04",
                 vec![dotted],
                 None,
+                Some(col.name.span.clone()),
             ));
         }
     }
@@ -502,8 +529,18 @@ struct ReportOut<'a> {
     version: &'static str,
     run: &'a Run,
     status: Status,
-    steps: &'a [Step],
+    steps: Vec<StepOut<'a>>,
     problems: Vec<ProblemOut<'a>>,
+}
+
+/// A step plus the location of the declaration it checks, which only resolves
+/// against a [`SourceContext`].
+#[derive(serde::Serialize)]
+struct StepOut<'a> {
+    #[serde(flatten)]
+    step: &'a Step,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<SpanLocation>,
 }
 
 /// A problem plus the parts of it that only resolve against a
@@ -564,7 +601,16 @@ impl serde::Serialize for Report<'_> {
             version: REPORT_VERSION,
             run: &self.run,
             status: self.problems.status(),
-            steps: self.problems.steps.items(),
+            steps: self
+                .problems
+                .steps
+                .items()
+                .iter()
+                .map(|step| StepOut {
+                    step,
+                    location: step.span.as_ref().and_then(|span| span_location(span, ctx)),
+                })
+                .collect(),
             problems,
         }
         .serialize(serializer)

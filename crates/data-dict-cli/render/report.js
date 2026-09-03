@@ -102,7 +102,10 @@ function VerdictStat({ label, count, on, onToggle }) {
 
 function Verdict({ filter, onFilter }) {
   const { run, status, steps, problems } = REPORT;
-  const counts = stepCounts(steps);
+  /* Like the roster, the verdict weighs data-level checks only: the metadata
+     checks a data run implies are means, not findings. */
+  const dataSteps = steps.filter((step) => !step.code.startsWith("M"));
+  const counts = stepCounts(dataSteps);
   const errors = problems.filter((p) => p.severity === "error").length;
   const warnings = problems.length - errors;
   const plural = (n, one) => `${fmtNum(n)} ${n === 1 ? one : one + "s"}`;
@@ -112,15 +115,15 @@ function Verdict({ filter, onFilter }) {
       <h2>${VERDICTS[status]}</h2>
       <p class="verdict-meta">
         ${plural(errors, "error")}, ${plural(warnings, "warning")}
-        ${steps.length
-          ? ` · ${fmtNum(counts.pass)} of ${plural(steps.length, "check")} passed`
+        ${dataSteps.length
+          ? ` · ${fmtNum(counts.pass)} of ${plural(dataSteps.length, "check")} passed`
           : ""}
       </p>
       <p class="verdict-meta">
         ${run.level} level${run.table ? ` · table ${run.table}` : ""} ·
         ${" "}${run.dictionary} · ${run.generated_at}
       </p>
-      ${steps.length
+      ${dataSteps.length
         ? html`<div class="vstats">
             ${Object.keys(OUTCOMES).map((outcome) => html`<${VerdictStat} key=${outcome}
               label=${OUTCOMES[outcome]} count=${counts[outcome]}
@@ -145,18 +148,21 @@ function StepTarget({ step }) {
   return html`<span class="starget">${columns.join(", ")}</span>`;
 }
 
-/* A step's check, said the way a reader would: the name first — with the
-   assertion it ran, for an assertion step — and the code quiet in parentheses.
-   The name links to the step's own page; the code to every step and problem
-   that share it. */
-function StepCheck({ step }) {
-  const label = step.assertion
+/* A step's check as a reader says it: the name first, with the assertion it
+   ran for an assertion step. */
+function stepLabel(step) {
+  return step.assertion
     ? `${checkName(step.code)}: ${step.assertion}`
     : checkName(step.code);
+}
+
+/* The label, linking to the step's own page, with the code quiet in
+   parentheses linking to every step and problem that share it. */
+function StepCheck({ step }) {
   return html`<span>
     <a href="#step/${step.id}"
       onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#step/${step.id}`); }}
-    >${label}</a>
+    >${stepLabel(step)}</a>
     ${" "}<a class="scode" href="#code/${step.code}"
       onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#code/${step.code}`); }}
     >(${step.code})</a>
@@ -181,6 +187,44 @@ function StepMeter({ step }) {
   </div>`;
 }
 
+/* The columns the roster can sort by. `null` sorts last at either direction,
+   so an unevaluated step sinks rather than masquerading as zero. */
+const SORTS = {
+  check: (step) => stepLabel(step),
+  target: (step) => (step.columns || []).join(", "),
+  outcome: (step) => OUTCOMES[step.outcome],
+  rows: (step) => step.row_count,
+  failed: (step) => step.failed_row_count,
+};
+
+/* A click cycles a column ascending, descending, and back to the dictionary
+   order the roster starts in. */
+function cycleSort(sort, key) {
+  if (!sort || sort.key !== key) return { key, dir: 1 };
+  return sort.dir === 1 ? { key, dir: -1 } : null;
+}
+
+function sortSteps(steps, sort) {
+  if (!sort) return steps;
+  const value = SORTS[sort.key];
+  return [...steps].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    if (va == null || vb == null) return va == null ? (vb == null ? 0 : 1) : -1;
+    const cmp = typeof va === "number" ? va - vb : va.localeCompare(vb);
+    return cmp * sort.dir;
+  });
+}
+
+function SortHead({ label, sortKey, sort, onSort, numeric }) {
+  const active = sort && sort.key === sortKey;
+  return html`<th class=${numeric ? "num" : null}>
+    <button class="sorthead" onClick=${() => onSort(cycleSort(sort, sortKey))}>
+      ${label}${active ? (sort.dir === 1 ? " ▴" : " ▾") : ""}
+    </button>
+  </th>`;
+}
+
 function StepRow({ step }) {
   const failed = step.failed_row_count;
   const evaluated = step.outcome !== "unevaluated";
@@ -190,13 +234,7 @@ function StepRow({ step }) {
     <td><${StepTarget} step=${step} /></td>
     <td><span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span></td>
     <td class="num">${evaluated && step.row_count != null ? fmtNum(step.row_count) : "—"}</td>
-    <td class="num">${
-      evaluated && failed != null
-        ? html`${fmtNum(failed)}${failed > 0 && step.row_count
-            ? html` <span class="scheck-name">${fmtPct(failed / step.row_count)}</span>`
-            : null}`
-        : "—"
-    }</td>
+    <td class="num">${evaluated && failed != null ? fmtNum(failed) : "—"}</td>
     <td><${StepMeter} step=${step} /></td>
   </tr>`;
 }
@@ -204,7 +242,23 @@ function StepRow({ step }) {
 /* One table's run of steps, headed by the band that names it. A table whose data
    could not be read leaves every step of it unevaluated, so the reason is given
    once here rather than repeated down every row. */
-function StepTableGroup({ table, steps }) {
+/* The table's verdict as one bar: the share of its evaluated checks that
+   failed, so a table reads at a glance before its steps do. */
+function TableMeter({ counts }) {
+  const evaluated = counts.pass + counts.fail;
+  if (!evaluated) return null;
+  return html`<div class="stepmeter groupmeter">
+    <div class="steptrack"
+      onMouseEnter=${(e) => showTip(barTip("failed", counts.fail, evaluated), e)}
+      onMouseMove=${moveTip} onMouseLeave=${hideTip}>
+      ${counts.fail > 0 &&
+        html`<div class=${`stepfill${counts.fail >= evaluated ? " full" : ""}`}
+          style=${`width:${(counts.fail / evaluated) * 100}%`} />`}
+    </div>
+  </div>`;
+}
+
+function StepTableGroup({ table, steps, sort }) {
   const counts = stepCounts(steps);
   const unreadable = REPORT.problems.find(
     (p) => p.table === table && (p.code === "M04" || p.code === "M05")
@@ -222,13 +276,14 @@ function StepTableGroup({ table, steps }) {
     <tr class="grouphead"><td colspan="6">
       <span class="grouphead-name">${table}</span>
       ${" "}<span class="grouphead-tally">${tally.join(" · ")}</span>
+      <${TableMeter} counts=${counts} />
       ${counts.unevaluated && unreadable
         ? html`${" "}<span class="grouphead-note">— ${
             unreadable.code === "M04" ? "no source declared" : "data could not be read"
           }, ${fmtNum(counts.unevaluated)} not evaluated</span>`
         : null}
     </td></tr>
-    ${steps.map((step) => html`<${StepRow} key=${step.id} step=${step} />`)}
+    ${sortSteps(steps, sort).map((step) => html`<${StepRow} key=${step.id} step=${step} />`)}
   </tbody>`;
 }
 
@@ -236,25 +291,40 @@ function StepTableGroup({ table, steps }) {
    implies (a column exists, a source is declared) are means to the data
    checks, and a reader of the report cares about what the data failed. */
 function StepsCard({ steps, filter }) {
-  const dataSteps = steps.filter((step) => !step.code.startsWith("M"));
+  const [sort, setSort] = useState(null);
+  const [query, setQuery] = useState("");
+  let dataSteps = steps.filter((step) => !step.code.startsWith("M"));
+  if (query) {
+    const needle = query.toLowerCase();
+    dataSteps = dataSteps.filter((step) =>
+      (step.columns || []).some((column) => column.toLowerCase().includes(needle)));
+  }
   const shown = filter ? dataSteps.filter((step) => step.outcome === filter) : dataSteps;
-  if (!shown.length) return null;
   return html`<section class="rsection">
     <h2>Checks</h2>
+    <input class="slist-filter" type="search" placeholder="Filter to a column…"
+      value=${query} onInput=${(e) => setQuery(e.target.value)} />
     ${filter
       ? html`<p class="rsection-note">Showing the ${fmtNum(shown.length)} of${" "}
           ${fmtNum(dataSteps.length)} checks that ${OUTCOMES[filter]}.</p>`
       : null}
-    <div class="tlist-wrap">
-      <table class="tlist slist">
-        <thead><tr>
-          <th>Check</th><th>Target</th>
-          <th>Outcome</th><th class="num">Rows</th><th class="num">Failed</th><th></th>
-        </tr></thead>
-        ${tableOrder(shown).map((table) => html`<${StepTableGroup} key=${table} table=${table}
-          steps=${shown.filter((step) => step.table === table)} />`)}
-      </table>
-    </div>
+    ${shown.length
+      ? html`<div class="tlist-wrap">
+          <table class="tlist slist">
+            <thead><tr>
+              <${SortHead} label="Check" sortKey="check" sort=${sort} onSort=${setSort} />
+              <${SortHead} label="Target" sortKey="target" sort=${sort} onSort=${setSort} />
+              <${SortHead} label="Outcome" sortKey="outcome" sort=${sort} onSort=${setSort} />
+              <${SortHead} label="Rows" sortKey="rows" sort=${sort} onSort=${setSort} numeric=${true} />
+              <${SortHead} label="Failed" sortKey="failed" sort=${sort} onSort=${setSort} numeric=${true} />
+              <th></th>
+            </tr></thead>
+            ${tableOrder(shown).map((table) => html`<${StepTableGroup} key=${table} table=${table}
+              sort=${sort}
+              steps=${shown.filter((step) => step.table === table)} />`)}
+          </table>
+        </div>`
+      : html`<p class="rsection-note">No checks match.</p>`}
   </section>`;
 }
 
@@ -292,23 +362,13 @@ function BackLink({ label }) {
 /* One step: what it checked, how it fared, and every problem pointing at it. A
    passing step's page is short, and legitimately so — it says what was checked
    and that nothing was found. */
-/* The catalogue's description of a check, as the report can show it: its links
-   point into validation.md, which the page doesn't carry, so they render as
-   their text. */
-const checkDef = (code) =>
-  ((CHECKS[code] || {}).description || "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-
 function StepPage({ id }) {
   const step = stepsById.get(Number(id));
   if (!step) return html`<p class="rsection-note">No such step.</p>`;
   const problems = problemsByStep.get(step.id) || [];
-  const def = checkDef(step.code);
-  const label = step.assertion
-    ? `${checkName(step.code)}: ${step.assertion}`
-    : checkName(step.code);
   return html`<section class="rsection">
     <div class="srep-head">
-      <h2>${label}${" "}<a class="scode" href="#code/${step.code}"
+      <h2>${stepLabel(step)}${" "}<a class="scode" href="#code/${step.code}"
         onClick=${(e) => { e.preventDefault(); go(`#code/${step.code}`); }}
       >(${step.code})</a></h2>
       <span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span>
@@ -319,9 +379,9 @@ function StepPage({ id }) {
         ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
         : "no rows counted"}
     </p>
-    ${def
+    ${step.location
       ? html`<details class="srep-def"><summary>Definition</summary>
-          <p><${Ticks} text=${def} /></p></details>`
+          <${YamlExcerpt} location=${step.location} /></details>`
       : null}
     ${problems.map((problem) => html`<${ProblemCard} key=${problem.index}
       problem=${problem} showStep=${false} />`)}

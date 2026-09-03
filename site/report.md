@@ -105,7 +105,8 @@ A column named by a `columns` entry is written as its dotted path when it is a s
   "assertion?": "weight > 0",    // the expression, for an assertion step
   "outcome": "pass" | "fail" | "unevaluated",
   "row_count?": 91043,           // rows of the table the step covered
-  "failed_row_count?": 2         // rows that failed; passed is the difference
+  "failed_row_count?": 2,        // rows that failed; passed is the difference
+  "location?": { … }             // the declaration the step checks, as a problem's `location`
 }
 ```
 

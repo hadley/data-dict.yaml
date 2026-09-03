@@ -20,7 +20,13 @@ source: crates/data-dict/tests/report.rs
       "table": "otters",
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 3,
+        "start_column": 10,
+        "end_line": 3,
+        "end_column": 16
+      }
     },
     {
       "id": 2,
@@ -31,7 +37,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
     },
     {
       "id": 3,
@@ -42,7 +54,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "fail",
       "row_count": 2,
-      "failed_row_count": 1
+      "failed_row_count": 1,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
     },
     {
       "id": 4,
@@ -53,7 +71,13 @@ source: crates/data-dict/tests/report.rs
       ],
       "outcome": "pass",
       "row_count": 2,
-      "failed_row_count": 0
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 10,
+        "start_column": 14,
+        "end_line": 10,
+        "end_column": 20
+      }
     },
     {
       "id": 5,
@@ -65,7 +89,13 @@ source: crates/data-dict/tests/report.rs
       "assertion": "weight > 1.5",
       "outcome": "fail",
       "row_count": 2,
-      "failed_row_count": 1
+      "failed_row_count": 1,
+      "location": {
+        "start_line": 14,
+        "start_column": 20,
+        "end_line": 14,
+        "end_column": 32
+      }
     }
   ],
   "problems": [
