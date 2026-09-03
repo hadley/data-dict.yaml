@@ -104,7 +104,8 @@
   }
 
   function rebuilt() {
-    if (!onTablePage()) return location.reload();
+    // The report page has no `loadDict` to swap through, so it always reloads.
+    if (typeof loadDict !== "function" || !onTablePage()) return location.reload();
     // A failed swap must not leave a half-updated page: fall back to the
     // reload it replaced.
     swap().then(report, () => location.reload());

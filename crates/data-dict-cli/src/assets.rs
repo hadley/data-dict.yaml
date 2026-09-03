@@ -86,7 +86,7 @@ fn part(file: &str) -> (&'static str, &'static str) {
 
 /// One page: its template, the parts it embeds, and the documents a build fills
 /// it with.
-struct Page {
+pub(crate) struct Page {
     file: &'static str,
     embedded: &'static str,
     /// The `PARTS` files this page embeds, in the order the template does.
@@ -143,8 +143,27 @@ const REPORT_PAGE: Page = Page {
         "report.js",
     ],
     docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}", "{{CHECKS_JSON}}"],
-    live: false,
+    live: true,
 };
+
+/// The page each `--live` mode serves. `Report` carries the run's arguments:
+/// the level to validate at and the table to restrict to, if any.
+pub(crate) enum LivePage {
+    Dict,
+    Report {
+        level: data_dict::Level,
+        table: Option<String>,
+    },
+}
+
+impl LivePage {
+    pub(crate) fn page(&self) -> &'static Page {
+        match self {
+            LivePage::Dict => &DICT_PAGE,
+            LivePage::Report { .. } => &REPORT_PAGE,
+        }
+    }
+}
 
 const PAGES: &[&Page] = &[&DICT_PAGE, &REPORT_PAGE];
 
@@ -191,19 +210,19 @@ impl Assets {
 
     /// The stylesheet files of the page `--live` serves, for it to tell a
     /// CSS-only change apart from one that needs the page rebuilt.
-    pub fn css_files(&self) -> Vec<PathBuf> {
+    pub fn css_files(&self, page: &LivePage) -> Vec<PathBuf> {
         let Assets::Dir(dir) = self else {
             return Vec::new();
         };
-        DICT_PAGE.css().map(|file| dir.join(file)).collect()
+        page.page().css().map(|file| dir.join(file)).collect()
     }
 
     /// The stylesheet of the page `--live` serves, as one document in template
     /// order. Served on its own so a CSS edit can be swapped into the page
     /// without a reload.
-    pub fn css(&self) -> io::Result<String> {
+    pub fn css(&self, page: &LivePage) -> io::Result<String> {
         let mut css = String::new();
-        for file in DICT_PAGE.css() {
+        for file in page.page().css() {
             css.push_str(&self.read(file, part(file).1)?);
             css.push('\n');
         }
@@ -227,9 +246,15 @@ impl Assets {
     /// Build the validation report page around a report and the dictionary text
     /// its spans are measured against, both already escaped for embedding. The
     /// page carries the check catalogue too, so it can name a code offline.
-    pub fn render_report_page(&self, report_json: &str, source_json: &str) -> io::Result<String> {
+    /// `live` adds the reload client, as it does for the dictionary page.
+    pub fn render_report_page(
+        &self,
+        report_json: &str,
+        source_json: &str,
+        live: bool,
+    ) -> io::Result<String> {
         let checks = embed_json(&data_dict::checks());
-        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], false)
+        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], live)
     }
 
     /// `docs` are the page's documents in the order [`Page::docs`] names their
@@ -316,7 +341,7 @@ mod tests {
     /// `{}`, for the tests that only care about the parts around them.
     fn build(assets: &Assets, page: &Page, live: bool) -> String {
         if page.file == REPORT_PAGE.file {
-            assets.render_report_page("{}", "{}").unwrap()
+            assets.render_report_page("{}", "{}", live).unwrap()
         } else {
             assets.render_dict_page("{}", live).unwrap()
         }
@@ -357,11 +382,12 @@ mod tests {
         assert!(build(&embedded, &DICT_PAGE, true).contains("EventSource"));
     }
 
-    /// The report page is never served by `--live`, so it carries no client
-    /// however it is built.
+    /// The report page carries the live client only when `--live` serves it,
+    /// like the dictionary page.
     #[test]
-    fn the_report_page_never_carries_the_live_client() {
-        assert!(!build(&Assets::Embedded, &REPORT_PAGE, true).contains("EventSource"));
+    fn the_report_page_carries_the_live_client_only_when_live() {
+        assert!(!build(&Assets::Embedded, &REPORT_PAGE, false).contains("EventSource"));
+        assert!(build(&Assets::Embedded, &REPORT_PAGE, true).contains("EventSource"));
     }
 
     /// The report page has no relationship diagram, so it leaves the layout
@@ -402,20 +428,30 @@ mod tests {
     fn css_lists_the_stylesheets_in_template_order() {
         let dir = Assets::Dir(PathBuf::from("x"));
         assert_eq!(
-            dir.css_files(),
+            dir.css_files(&LivePage::Dict),
             ["app.css", "diagram.css", "tables.css"]
                 .iter()
                 .map(|file| PathBuf::from("x").join(file))
                 .collect::<Vec<_>>()
         );
-        assert!(Assets::Embedded.css_files().is_empty());
+        assert_eq!(
+            dir.css_files(&LivePage::Report {
+                level: data_dict::Level::Data,
+                table: None,
+            }),
+            ["app.css", "tables.css", "report.css"]
+                .iter()
+                .map(|file| PathBuf::from("x").join(file))
+                .collect::<Vec<_>>()
+        );
+        assert!(Assets::Embedded.css_files(&LivePage::Dict).is_empty());
     }
 
     /// The standalone stylesheet is the same CSS the page embeds, so a swap
     /// shows what a reload would.
     #[test]
     fn the_standalone_stylesheet_matches_the_embedded_one() {
-        let css = Assets::Embedded.css().unwrap();
+        let css = Assets::Embedded.css(&LivePage::Dict).unwrap();
         let page = build(&Assets::Embedded, &DICT_PAGE, false);
         for file in DICT_PAGE.css() {
             let embedded = part(file).1;

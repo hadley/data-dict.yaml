@@ -148,6 +148,16 @@ struct ValidateArgs {
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
+    /// Serve the report and reload the browser when the dictionary, its source
+    /// data, or the page's own assets change
+    ///
+    /// The page is served from memory and never written to disk, so `--live`
+    /// takes no `--html`. It stops on ctrl-c.
+    #[arg(long, conflicts_with = "json", conflicts_with = "html")]
+    live: bool,
+    /// Port for `--live` (default: the first free port from 7590)
+    #[arg(long, requires = "live", value_name = "PORT")]
+    port: Option<u16>,
     #[command(flatten)]
     out: ReportArgs,
 }
@@ -163,7 +173,7 @@ struct ReportArgs {
     html: Option<PathBuf>,
     /// Build the page from the CSS and JS in this directory instead of the
     /// copies compiled in
-    #[arg(long, hide = true, value_name = "DIR", requires = "html")]
+    #[arg(long, hide = true, value_name = "DIR")]
     assets: Option<PathBuf>,
 }
 
@@ -512,6 +522,16 @@ fn run_validate(args: ValidateArgs, level: Level, validate: ValidateFn) -> ExitC
             return ExitCode::FAILURE;
         }
     };
+    if args.live {
+        // As with `render --live`, only `--live` looks for the page's assets
+        // on disk: editing them should not need a rebuild.
+        let assets = args
+            .out
+            .assets
+            .clone()
+            .map_or_else(Assets::detect, Assets::Dir);
+        return live::run_report(&dict, level, args.table.clone(), args.port, assets);
+    }
     let table = args.table.as_deref();
     let problems = validate(&dict, table);
     report(&dict, level, table, problems, &args.out)
@@ -585,6 +605,7 @@ fn write_report_page(
     let page = assets.render_report_page(
         &assets::escape_embedded(json),
         &assets::embed_json(&source.unwrap_or_default()),
+        false,
     )?;
     std::fs::write(path, page)
 }
