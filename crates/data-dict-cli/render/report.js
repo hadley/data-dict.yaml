@@ -75,8 +75,7 @@ function stepCounts(steps) {
 const stepsById = new Map(REPORT.steps.map((step) => [step.id, step]));
 
 /* The problems each step accounts for. A problem with no `step` — every spec
-   problem, and an undocumented column — belongs to no step and is reached
-   through the problems list instead. */
+   problem, and an undocumented column — belongs to no step. */
 const problemsByStep = new Map();
 REPORT.problems.forEach((problem, index) => {
   problem.index = index;
@@ -341,7 +340,6 @@ function App() {
   if (!route) {
     body = html`<div>
       <${Verdict} filter=${filter} onFilter=${setFilter} />
-      ${REPORT.problems.length ? html`<${ProblemsCard} problems=${REPORT.problems} />` : null}
       ${REPORT.steps.length ? html`<${StepsCard} steps=${REPORT.steps} filter=${filter} />` : null}
     </div>`;
   } else if (route.view === "step") {
