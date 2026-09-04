@@ -328,10 +328,12 @@ fn lower_assertion(node: &YamlWithSourceInfo, problems: &mut ProblemSet) -> Opti
         .iter()
         .find(|e| e.key.yaml.as_str() == Some("assert"))?;
     let text = assert_entry.value.yaml.as_str()?;
-    let description = node
-        .get_hash_value("description")
-        .and_then(|d| d.yaml.as_str())
-        .map(str::to_string);
+    let description = node.get_hash_value("description").and_then(|d| {
+        Some(Spanned::new(
+            d.yaml.as_str()?.to_string(),
+            d.source_info.clone(),
+        ))
+    });
     let span = assert_entry.value_span.clone();
     let language = lower_language(entries);
 

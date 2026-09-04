@@ -111,7 +111,9 @@ pub struct Assertion {
     /// the `language` value's, for a diagnostic that points at it.
     pub language: Option<Spanned<Language>>,
     pub expr: Option<AssertExpr>,
-    pub description: Option<String>,
+    /// The span is the `description` value's, so an excerpt can show the line
+    /// beside the `assert` it belongs to.
+    pub description: Option<Spanned<String>>,
     /// Where the source language and the reading disagree; empty for an
     /// expression that needed no reading. Each is reported as S36.
     pub notes: Vec<&'static str>,
@@ -326,6 +328,15 @@ impl Scalar {
 impl Column {
     pub fn has(&self, c: Constraint) -> bool {
         self.constraints.iter().any(|x| x.value == c)
+    }
+
+    /// The span of the first of `cs` the column carries, for pointing a step
+    /// or a problem at the constraint itself rather than at the column's name.
+    pub fn constraint_span(&self, cs: &[Constraint]) -> Option<&SourceInfo> {
+        self.constraints
+            .iter()
+            .find(|c| cs.contains(&c.value))
+            .map(|c| &c.span)
     }
 
     /// True if the column is unique-by-row: explicitly `unique` or

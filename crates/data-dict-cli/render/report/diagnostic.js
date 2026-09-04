@@ -57,29 +57,26 @@ function KindFacts({ problem }) {
    The excerpt is drawn even for a redacted problem: it shows the column's
    *declaration*, which the author wrote and the terminal already prints, not
    any value the data held. */
-/* `stepContext` is set on a step's own page, where the header block above the
-   card already names the check, the code, the rule, and the target — the card
-   keeps only what the header doesn't say. */
-function ProblemCard({ problem, showStep, stepContext }) {
+function ProblemCard({ problem, showStep }) {
   const columns = problem.columns || [];
   return html`<${preact.Fragment}>
     <article class="srep is-${problem.severity}">
       <div class="srep-head">
         <span class="key ${problem.severity === "error" ? "fail" : "warn"}"
           >${problem.severity}</span>
-        ${!stepContext && html`<${CodeChip} code=${problem.code} />
-          <span class="scheck-name">${checkName(problem.code)}</span>`}
+        <${CodeChip} code=${problem.code} />
+        <span class="scheck-name">${checkName(problem.code)}</span>
         ${showStep && problem.step != null &&
           html`<a class="srep-step" href="#step/${problem.step}"
             onClick=${(e) => { e.preventDefault(); go(`#step/${problem.step}`); }}
             >step ${problem.step} →</a>`}
       </div>
-      ${!stepContext && problem.expected &&
+      ${problem.expected &&
         html`<h2 class="srep-expected"><${Ticks} text=${problem.expected} /></h2>`}
       <p class="srep-message">
         <span class="srep-found">found:</span> <${Ticks} text=${problem.message} />
       </p>
-      ${!stepContext && problem.table &&
+      ${problem.table &&
         html`<p class="srep-where">
           <${TargetPath} table=${problem.table} columns=${columns} />
         </p>`}

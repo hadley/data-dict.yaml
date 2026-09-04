@@ -171,20 +171,23 @@
   flex-wrap: wrap;
   margin: 0 0 8px;
 }
-/* The step page's header as one card: the target, the check, its verdict, the
-   rule it checked, and the row counts. Heading and rule share a size so the
-   block reads as one statement. */
-.stephead {
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: var(--paper);
-  padding: 16px 18px;
-  margin: 0 0 16px;
+/* The step page's summary card: the row counts and the failure meter on one
+   line, with the dictionary excerpt below. */
+.stepsum { display: flex; align-items: center; gap: 14px; }
+.stepsum .verdict-meta { margin: 0; }
+/* The excerpt sits behind an expando: the counts are the summary, the
+   dictionary's lines are there when wanted. */
+.excerpt-expando summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  margin-top: 8px;
 }
-.stephead .srep-head { margin: 0; }
-.stephead h2 { font-size: var(--text-lg); font-weight: 650; margin: 0; }
-.stephead .srep-expected { flex-basis: 100%; margin: 6px 0 0; }
-.stephead .verdict-meta { margin-top: 8px; }
+/* The target in the step page's h1, set in mono and eased down so the check's
+   own words beside it stay readable. */
+.stitle-target { font-family: var(--font-mono); font-size: 0.8em; }
+/* What the step checked, on the line below the target it checked it on. */
+.stitle-sub { margin: 3px 0 0; color: var(--ink-soft); font-size: var(--text-lg); }
 .srep-step {
   margin-left: auto;
   font-family: var(--font-mono);

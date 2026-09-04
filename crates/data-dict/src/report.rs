@@ -23,6 +23,7 @@ use crate::model::{Column, Constraint, Table};
 use crate::problem::{
     Problem, ProblemSet, Severity, SpanLocation, Status, Suggestion, span_location,
 };
+use crate::validate_data::assertion_context;
 
 /// The version of the report document format itself, not of any dictionary.
 pub const REPORT_VERSION: &str = "0.1.0";
@@ -73,6 +74,11 @@ pub struct Step {
     /// serialization, where the [`SourceContext`] is at hand.
     #[serde(skip)]
     span: Option<SourceInfo>,
+    /// The nodes enclosing `span` — the table, the column, an assertion's
+    /// `description` line — resolved to `context` alongside it, so a step
+    /// that found nothing can still show where its rule is declared.
+    #[serde(skip)]
+    context: Vec<SourceInfo>,
 }
 
 /// What a step checks, within its table. The variants keep targets that share a
@@ -166,10 +172,11 @@ impl Steps {
             None,
             None,
             Some(table.name.span.clone()),
+            Vec::new(),
         )];
         for col in &table.columns {
             column_steps(
-                name,
+                table,
                 col,
                 level,
                 &mut vec![col.name.value.clone()],
@@ -184,30 +191,33 @@ impl Steps {
                 .map(|col| col.name.value.clone())
                 .collect();
             if !key_columns.is_empty() {
-                let span = table
+                let key_col = table
                     .columns
                     .iter()
-                    .find(|col| col.has(Constraint::PrimaryKey))
-                    .map(|col| col.name.span.clone());
+                    .find(|col| col.has(Constraint::PrimaryKey));
                 pending.push((
                     StepKey::new(name, StepTarget::PrimaryKey),
                     "D02",
                     key_columns,
                     None,
                     None,
-                    span,
+                    key_col.and_then(|col| col.constraint_span(&[Constraint::PrimaryKey]).cloned()),
+                    key_col.map_or_else(Vec::new, |col| {
+                        vec![table.name.span.clone(), col.name.span.clone()]
+                    }),
                 ));
             }
             let targets = table_assertions(table);
             for (position, (text, columns)) in assertions.iter().enumerate() {
-                let target = targets.get(position);
+                let target = targets.get(position).copied();
                 pending.push((
                     StepKey::new(name, StepTarget::Assertion(position)),
                     "D07",
                     columns.clone(),
                     Some(text.clone()),
-                    target.and_then(|(a, _)| a.description.clone()),
+                    target.and_then(|(a, _)| a.description.as_ref().map(|d| d.value.clone())),
                     target.map(|(a, _)| a.text.span.clone()),
+                    target.map_or_else(Vec::new, |(a, col)| assertion_context(table, col, a)),
                 ));
             }
         }
@@ -229,11 +239,12 @@ impl Steps {
             (rank, code.starts_with('D'), *code)
         });
 
-        for (key, code, columns, assertion, description, span) in pending {
-            self.add(key, code, columns, assertion, description, span);
+        for (key, code, columns, assertion, description, span, context) in pending {
+            self.add(key, code, columns, assertion, description, span, context);
         }
     }
 
+    #[expect(clippy::too_many_arguments)]
     fn add(
         &mut self,
         key: StepKey,
@@ -242,6 +253,7 @@ impl Steps {
         assertion: Option<String>,
         description: Option<String>,
         span: Option<SourceInfo>,
+        context: Vec<SourceInfo>,
     ) {
         if self.index.contains_key(&key) {
             return;
@@ -260,6 +272,7 @@ impl Steps {
             all_rows_fail: false,
             uncounted: false,
             span,
+            context,
         });
     }
 
@@ -307,8 +320,8 @@ impl Steps {
 }
 
 /// A step yet to be registered: its key, the code it reports, the columns it
-/// covers, an assertion's text and the author's description of it, and the
-/// declaration it checks.
+/// covers, an assertion's text and the author's description of it, the
+/// declaration it checks, and the nodes enclosing that declaration.
 type Pending = (
     StepKey,
     &'static str,
@@ -316,68 +329,81 @@ type Pending = (
     Option<String>,
     Option<String>,
     Option<SourceInfo>,
+    Vec<SourceInfo>,
 );
 
 /// The steps of one column and, recursively, of its fields — a field is a
 /// declared column too, named by its dotted path. Only a top-level column
 /// carries constraints, so only it gets the constraint-driven steps.
 fn column_steps(
-    table: &str,
+    table: &Table,
     col: &Column,
     level: Level,
     path: &mut Vec<String>,
     out: &mut Vec<Pending>,
 ) {
+    let name = table.name.value.as_str();
     let dotted = path.join(".");
+    // A constraint-driven step points at the constraint itself, with the table
+    // and the column's name as its enclosing nodes; a struct field's would
+    // also take its parent chain, which the recursion doesn't thread.
+    let table_ctx = vec![table.name.span.clone()];
+    let column_ctx = vec![table.name.span.clone(), col.name.span.clone()];
+    let constraint = |cs: &[Constraint]| col.constraint_span(cs).cloned();
     out.push((
-        StepKey::new(table, StepTarget::Column(path.clone())),
+        StepKey::new(name, StepTarget::Column(path.clone())),
         "M01",
         vec![dotted.clone()],
         None,
         None,
         Some(col.name.span.clone()),
+        table_ctx,
     ));
     if level == Level::Data {
         if path.len() == 1 {
             if col.is_required_implied() {
                 out.push((
-                    StepKey::new(table, StepTarget::Required(dotted.clone())),
+                    StepKey::new(name, StepTarget::Required(dotted.clone())),
                     "D01",
                     vec![dotted.clone()],
                     None,
                     None,
-                    Some(col.name.span.clone()),
+                    constraint(&[Constraint::Required, Constraint::PrimaryKey]),
+                    column_ctx.clone(),
                 ));
             }
             if col.has(Constraint::Unique) {
                 out.push((
-                    StepKey::new(table, StepTarget::Unique(dotted.clone())),
+                    StepKey::new(name, StepTarget::Unique(dotted.clone())),
                     "D02",
                     vec![dotted.clone()],
                     None,
                     None,
-                    Some(col.name.span.clone()),
+                    constraint(&[Constraint::Unique]),
+                    column_ctx.clone(),
                 ));
             }
             if col.has(Constraint::ForeignKey) {
                 out.push((
-                    StepKey::new(table, StepTarget::ForeignKey(dotted.clone())),
+                    StepKey::new(name, StepTarget::ForeignKey(dotted.clone())),
                     "D05",
                     vec![dotted.clone()],
                     None,
                     None,
-                    Some(col.name.span.clone()),
+                    constraint(&[Constraint::ForeignKey]),
+                    column_ctx.clone(),
                 ));
             }
         }
         if col.is_enum() && col.values.is_some() {
             out.push((
-                StepKey::new(table, StepTarget::Enum(path.clone())),
+                StepKey::new(name, StepTarget::Enum(path.clone())),
                 "D04",
                 vec![dotted],
                 None,
                 None,
-                Some(col.name.span.clone()),
+                col.values.as_ref().map(|values| values.span.clone()),
+                column_ctx.clone(),
             ));
         }
     }
@@ -549,14 +575,16 @@ struct ReportOut<'a> {
     problems: Vec<ProblemOut<'a>>,
 }
 
-/// A step plus the location of the declaration it checks, which only resolves
-/// against a [`SourceContext`].
+/// A step plus the location of the declaration it checks and the nodes
+/// enclosing it, which only resolve against a [`SourceContext`].
 #[derive(serde::Serialize)]
 struct StepOut<'a> {
     #[serde(flatten)]
     step: &'a Step,
     #[serde(skip_serializing_if = "Option::is_none")]
     location: Option<SpanLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    context: Vec<SpanLocation>,
 }
 
 /// A problem plus the parts of it that only resolve against a
@@ -625,6 +653,11 @@ impl serde::Serialize for Report<'_> {
                 .map(|step| StepOut {
                     step,
                     location: step.span.as_ref().and_then(|span| span_location(span, ctx)),
+                    context: step
+                        .context
+                        .iter()
+                        .filter_map(|span| span_location(span, ctx))
+                        .collect(),
                 })
                 .collect(),
             problems,

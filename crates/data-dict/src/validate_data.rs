@@ -597,8 +597,10 @@ fn list_rows(rows: &[usize], count: usize) -> String {
 }
 
 /// The table, the column for a column-level assertion, and the `assert` text
-/// itself as the highlight.
-fn assertion_context(
+/// itself as the highlight. The author's `description` line rides along as
+/// context — not an enclosing node, but part of the declaration, so the
+/// excerpt shows it whole.
+pub(crate) fn assertion_context(
     table: &Table,
     col: Option<&Column>,
     assertion: &Assertion,
@@ -606,6 +608,9 @@ fn assertion_context(
     let mut spans = vec![table.name.span.clone()];
     if let Some(col) = col {
         spans.push(col.name.span.clone());
+    }
+    if let Some(description) = &assertion.description {
+        spans.push(description.span.clone());
     }
     spans.push(assertion.text.span.clone());
     spans

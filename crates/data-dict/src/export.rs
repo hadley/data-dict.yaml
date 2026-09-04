@@ -892,7 +892,7 @@ fn build_assertion(
         canonical: reading.canonical,
         fidelity: reading.fidelity,
         notes: reading.notes,
-        description: prose(&assertion.description),
+        description: spanned_prose(&assertion.description),
         columns,
         definitions,
         translations,

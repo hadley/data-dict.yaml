@@ -21,12 +21,6 @@ const VERDICTS = {
    use. */
 const VERDICT_SQUARE = { ok: "pass", warning: "warn", error: "fail" };
 
-/* The three verdicts as a reader meets them. "not evaluated" is two plain words
-   because a step that reached no verdict has not passed, and the label is the
-   only place that can say so. */
-const OUTCOMES = { pass: "passed", fail: "failed", unevaluated: "not evaluated" };
-const OUTCOME_CLASS = { pass: "pass", fail: "fail", unevaluated: "uneval" };
-
 /* ---- Routing --------------------------------------------------------------
    Hash routes, so the back button and a pasted link both work. The raw hash is
    split before it is decoded: a table name may contain the separator, and
@@ -82,35 +76,50 @@ function BackLink({ label }) {
     <span class="chev"><${Icon} svg=${ICONS.back} /></span><span>${label}</span></a>`;
 }
 
-/* One step: what it checked, how it fared, and every problem pointing at it. A
-   passing step's page is short, and legitimately so — it says what was checked
-   and that nothing was found. */
+/* The step page's title block: the h1 names the target beside its verdict
+   square and carries the way back to the report in its chevron; the line
+   below says what was checked, in the author's words where they wrote them. */
+function StepTitle({ step }) {
+  const columns = step.columns || [];
+  const target = step.table + (columns.length ? `.${columns.join(", ")}` : "");
+  return html`<div class="stitle">
+    <h1><a class="homelink" href="#" title="Back to the report"
+        onClick=${(e) => { e.preventDefault(); goHome(); }}
+      ><span class="chev"><${Icon} svg=${ICONS.back} /></span></a
+      ><span class="sqname"><${VerdictSquare} outcome=${step.outcome} /><span class="stitle-target">${target}</span></span></h1>
+    <p class="stitle-sub">${stepLabel(step)}</p>
+  </div>`;
+}
+
+/* One step: how many rows were weighed, where the rule sits in the dictionary,
+   and the rows that broke it. The excerpt is the first problem's — a step's
+   problems share its target, so one location speaks for the step — falling
+   back to the step's own spans when nothing failed, so a passing step shows
+   its declaration too. */
 function StepPage({ id }) {
   const step = stepsById.get(Number(id));
   if (!step) return html`<p class="rsection-note">No such step.</p>`;
   const problems = problemsByStep.get(step.id) || [];
-  const expected = problems.find((problem) => problem.expected)?.expected;
+  const located = problems.find((problem) => problem.location);
+  const location = located ? located.location : step.location;
+  const context = located ? located.context : step.context;
   return html`<section class="rsection">
-    <div class="stephead">
-      <div class="srep-head">
-        <h2><${TargetPath} table=${step.table} columns=${step.columns || []} />${" "}
-          ${stepLabel(step)}${" "}<a class="scode" href="#code/${step.code}"
-          onClick=${(e) => { e.preventDefault(); go(`#code/${step.code}`); }}
-        >(${step.code})</a></h2>
-        <span class="key ${OUTCOME_CLASS[step.outcome]}">${OUTCOMES[step.outcome]}</span>
-        ${expected ? html`<p class="srep-expected"><${Ticks} text=${expected} /></p>` : null}
-      </div>
-      <p class="verdict-meta">
-        ${step.row_count != null
+    <article class="srep${problems[0] ? ` is-${problems[0].severity}` : ""}">
+      <div class="stepsum">
+        <span class="verdict-meta">${step.row_count != null
           ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
-          : "no rows counted"}
-      </p>
-    </div>
-    ${problems.map((problem) => html`<${ProblemCard} key=${problem.index}
-      problem=${problem} showStep=${false} stepContext=${true} />`)}
-    ${!problems.length && step.outcome === "pass"
-      ? html`<p class="rsection-note">This check found nothing.</p>`
-      : null}
+          : "no rows counted"}</span>
+        <${StepMeter} step=${step} />
+      </div>
+      ${location ? html`<details class="excerpt-expando">
+        <summary>Constraint declaration</summary>
+        <${YamlExcerpt} location=${location} context=${context} />
+      </details>` : null}
+    </article>
+    ${problems.map((problem) => html`<${preact.Fragment} key=${problem.index}>
+      <${OffendingRows} problem=${problem} />
+      <${RowsNote} problem=${problem} />
+    <//>`)}
   </section>`;
 }
 
@@ -147,6 +156,10 @@ function App() {
   /* Escape leaves a detail view, at the ladder's page priority. */
   useEffect(() => (route ? onEscape(20, () => (goHome(), true)) : undefined), [route]);
 
+  /* A step page's h1 is the step's own story; every other detail page keeps
+     the way back as its heading. */
+  const storyStep = route && route.view === "step" ? stepsById.get(Number(route.key)) : null;
+
   let body;
   if (!route) {
     body = html`<div>
@@ -172,9 +185,11 @@ function App() {
   return html`<div>
     <header class="pagehead">
       <div class="head-title">
-        <h1>${route
-          ? html`<${BackLink} label=${BASE_TITLE} />`
-          : html`<span class="sqname"><${VerdictSquare} outcome=${VERDICT_SQUARE[REPORT.status]} />${VERDICTS[REPORT.status]}</span>`}</h1>
+        ${storyStep
+          ? html`<${StepTitle} step=${storyStep} />`
+          : html`<h1>${!route
+            ? html`<span class="sqname"><${VerdictSquare} outcome=${VERDICT_SQUARE[REPORT.status]} />${VERDICTS[REPORT.status]}</span>`
+            : html`<${BackLink} label=${BASE_TITLE} />`}</h1>`}
       </div>
       <div class="head-actions"><${ThemeToggle} /></div>
     </header>
