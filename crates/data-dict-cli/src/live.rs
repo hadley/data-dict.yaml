@@ -188,7 +188,9 @@ fn build_report(dict: &Path, assets: &Assets, level: Level, table: Option<&str>)
             page: Some((html, json, assets.css(&kind).unwrap_or_default())),
             sources: Some(source_paths(dict, None)),
             failed: problems.status().failed(),
-            text,
+            // The report carries the run's findings, so they aren't repeated
+            // on stderr; only a build with no page keeps its text.
+            text: Vec::new(),
         },
         Err(err) => {
             text.push(format!("could not read the page's assets: {err}"));

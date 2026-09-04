@@ -566,10 +566,12 @@ fn run_render_report(args: RenderReportArgs) -> ExitCode {
     }
     let table = args.table.as_deref();
     let problems = data_dict::validate_data(&dict, table);
-    for line in problems.render(stderr_style()) {
-        eprintln!("{line}");
-    }
+    // The report carries the diagnostics, so stderr only hears about a run
+    // that produced no report.
     if problems.preflight().is_some() {
+        for line in problems.render(stderr_style()) {
+            eprintln!("{line}");
+        }
         eprintln!("no report written: the run could not be started");
         return ExitCode::FAILURE;
     }
