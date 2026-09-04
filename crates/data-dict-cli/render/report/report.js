@@ -131,6 +131,19 @@ function ProblemPage({ index }) {
   </section>`;
 }
 
+/* One dataset's failed rows with every column, gathered into the report's
+   `failed_rows` at validation time. */
+function FailedRowsPage({ table }) {
+  const entry = (REPORT.failed_rows || []).find((e) => e.table === table);
+  if (!entry) return html`<p class="rsection-note">No failed rows.</p>`;
+  const failures = cellFailures(REPORT.problems.filter((p) => p.table === table));
+  return html`<section class="rsection">
+    <h2 class="rsection-title">${table}</h2>
+    <${FailedRowsCard} rows=${entry.rows} keys=${entry.keys} values=${entry.values}
+      count=${entry.count} redacted=${entry.redacted} severity="error" failures=${failures} />
+  </section>`;
+}
+
 /* Everything the run has to say about one table, or one check. Both are the join
    the report leaves to its consumer, drawn as a page. */
 function FilteredPage({ title, steps, problems }) {
@@ -170,14 +183,12 @@ function App() {
     body = html`<${StepPage} id=${route.key} />`;
   } else if (route.view === "problem") {
     body = html`<${ProblemPage} index=${route.key} />`;
+  } else if (route.view === "rows") {
+    body = html`<${FailedRowsPage} table=${route.key} />`;
   } else if (route.view === "table") {
     body = html`<${FilteredPage} title=${route.key}
       steps=${REPORT.steps.filter((s) => s.table === route.key)}
       problems=${REPORT.problems.filter((p) => p.table === route.key)} />`;
-  } else if (route.view === "code") {
-    body = html`<${FilteredPage} title=${`${route.key} — ${checkName(route.key)}`}
-      steps=${REPORT.steps.filter((s) => s.code === route.key)}
-      problems=${REPORT.problems.filter((p) => p.code === route.key)} />`;
   } else {
     body = html`<p class="rsection-note">No such view.</p>`;
   }

@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use quarto_source_map::SourceInfo;
 
 use crate::model::{Assertion, Column, Constraint, DataDict, Table};
-use crate::problem::{Problem, ProblemKind, ProblemSet, Severity, ValueRow};
+use crate::problem::{FailedTableRows, Problem, ProblemKind, ProblemSet, Severity, ValueRow};
 use crate::report::{Failed, StepKey, StepTarget, in_dictionary_order, table_assertions};
 use crate::validate_meta::CheckResult;
 use crate::{Level, ReadTables};
@@ -156,8 +156,102 @@ pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
                 problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
             }
         },
-        foreign_key_issues,
+        |dict, readable, problems| {
+            foreign_key_issues(dict, readable, problems);
+            failed_rows_export(dict, readable, problems);
+        },
     )
+}
+
+/// Gather the first few failing rows of each table — every declared column,
+/// not just the ones a check names — for the report's failed-rows page. The
+/// rows are the union of every row the table's problems named, ascending and
+/// capped; a restricted column, and a nested one a per-row value can't name,
+/// is left out, restriction flagging `redacted`.
+fn failed_rows_export(dict: &DataDict, readable: &ReadTables, out: &mut ProblemSet) {
+    for table in &dict.tables {
+        let Some((path, columns)) = readable.get(&table.name.value) else {
+            continue;
+        };
+        let mut rows: Vec<usize> = out
+            .items
+            .iter()
+            .filter(|p| p.table.as_deref() == Some(table.name.value.as_str()))
+            .filter_map(|p| sample_rows(&p.kind))
+            .flatten()
+            .copied()
+            .collect();
+        rows.sort_unstable();
+        rows.dedup();
+        let count = rows.len();
+        rows.truncate(SAMPLE_LIMIT);
+        if rows.is_empty() {
+            continue;
+        }
+        let restricted = |name: &str| {
+            table
+                .columns
+                .iter()
+                .any(|c| c.name.value == name && is_restricted(c))
+        };
+        let redacted = columns.iter().any(|name| restricted(name));
+        let names: Vec<String> = table
+            .columns
+            .iter()
+            .filter(|c| c.fields.is_none())
+            .map(|c| c.name.value.clone())
+            .filter(|name| columns.contains(name) && !restricted(name))
+            .collect();
+        let key: Vec<bool> = names
+            .iter()
+            .map(|name| {
+                table
+                    .columns
+                    .iter()
+                    .any(|c| c.name.value == *name && c.has(Constraint::PrimaryKey))
+            })
+            .collect();
+        let zero_based: Vec<usize> = rows.iter().map(|row| row - 1).collect();
+        match data_dict_parquet::values_at_rows(path, &names, &zero_based) {
+            Ok(fetched) => {
+                // No key columns left to name: an empty list, so the key is
+                // omitted rather than serialized as a list of empty objects.
+                let any_key = key.iter().any(|&is| is);
+                let mut keys = Vec::new();
+                let mut values = Vec::new();
+                for value in fetched {
+                    let entry: Vec<_> = names.iter().cloned().zip(value).collect();
+                    if any_key {
+                        keys.push(
+                            entry
+                                .iter()
+                                .enumerate()
+                                .filter(|(j, _)| key[*j])
+                                .map(|(_, e)| e.clone())
+                                .collect(),
+                        );
+                    }
+                    values.push(
+                        entry
+                            .into_iter()
+                            .enumerate()
+                            .filter(|(j, _)| !key[*j])
+                            .map(|(_, e)| e)
+                            .collect(),
+                    );
+                }
+                out.failed_rows.push(FailedTableRows {
+                    table: table.name.value.clone(),
+                    count,
+                    rows,
+                    keys,
+                    values,
+                    redacted,
+                });
+            }
+            Err(e) => out.push(Problem::preflight(ProblemKind::Parquet, e.to_string())),
+        }
+    }
 }
 
 /// Run the value-level checks for the dictionary's `table` against the data,

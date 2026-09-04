@@ -27,11 +27,9 @@ function Ticks({ text }) {
     .map((part, i) => (i % 2 ? html`<code class="tick">${part}</code>` : part));
 }
 
-/* A check's code, linking to every step and problem that share it. */
+/* A check's code, named by the catalogue on hover. */
 function CodeChip({ code }) {
-  return html`<a class="code-chip" href="#code/${code}"
-    onClick=${(e) => { e.preventDefault(); go(`#code/${code}`); }}
-    title="${checkName(code)}">${code}</a>`;
+  return html`<span class="code-chip" title="${checkName(code)}">${code}</span>`;
 }
 
 /* ---- The kind's own keys ------------------------------------------------- */

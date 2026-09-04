@@ -573,6 +573,8 @@ struct ReportOut<'a> {
     status: Status,
     steps: Vec<StepOut<'a>>,
     problems: Vec<ProblemOut<'a>>,
+    #[serde(skip_serializing_if = "<[crate::problem::FailedTableRows]>::is_empty")]
+    failed_rows: &'a [crate::problem::FailedTableRows],
 }
 
 /// A step plus the location of the declaration it checks and the nodes
@@ -661,6 +663,7 @@ impl serde::Serialize for Report<'_> {
                 })
                 .collect(),
             problems,
+            failed_rows: &self.problems.failed_rows,
         }
         .serialize(serializer)
     }

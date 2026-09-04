@@ -638,6 +638,23 @@ impl Problem {
     }
 }
 
+/// The first few failing rows of one table, across every check that named
+/// rows, with every declared column's values — the report's failed-rows page.
+/// `count` is how many distinct rows failed before `rows` was capped. A
+/// restricted column is withheld entirely, flagging `redacted`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FailedTableRows {
+    pub table: String,
+    pub count: usize,
+    pub rows: Vec<usize>,
+    /// The primary key each listed row held, split out so a consumer can set
+    /// it apart from the other columns; absent when the table declares none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<ValueRow>,
+    pub values: Vec<ValueRow>,
+    pub redacted: bool,
+}
+
 /// Every problem found while validating a document, with the [`SourceContext`]
 /// needed to render the span-located ones. Levels push into a `ProblemSet` as
 /// they run; the driver descends to the next level only while [`status`] is not
@@ -645,6 +662,7 @@ impl Problem {
 ///
 /// [`status`]: ProblemSet::status
 #[derive(Debug)]
+
 pub struct ProblemSet {
     pub items: Vec<Problem>,
     pub source: SourceContext,
@@ -652,6 +670,9 @@ pub struct ProblemSet {
     /// spec-level run, whose checks read the document as a whole rather than
     /// any declared target.
     pub steps: Steps,
+    /// Per-table failing rows with every column, gathered only by a data-level
+    /// run; empty at the earlier levels.
+    pub failed_rows: Vec<FailedTableRows>,
     /// The document every span in this set is a span of. [`SourceContext`] can
     /// return a file but not name which one is the dictionary, so the id is
     /// kept alongside it.
@@ -667,6 +688,7 @@ impl ProblemSet {
             items: Vec::new(),
             source,
             steps: Steps::default(),
+            failed_rows: Vec::new(),
             root,
         }
     }

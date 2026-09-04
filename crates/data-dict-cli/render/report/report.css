@@ -50,7 +50,7 @@
 .rtable .col-meter { width: 130px; }
 .rtable td { overflow: hidden; text-overflow: ellipsis; }
 
-.scode { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); text-decoration: none; }
+.scode { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); }
 .scheck-name { color: var(--ink-soft); font-size: var(--text-sm); }
 .starget { font-family: var(--font-mono); font-size: var(--text-sm); }
 .starget-assert { display: block; color: var(--ink); }
@@ -212,10 +212,7 @@
   font-size: var(--text-sm);
   font-weight: 700;
   color: var(--accent1);
-  text-decoration: none;
 }
-.code-chip:hover { text-decoration: underline; }
-.code-chip:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
 /* A backtick span in a diagnostic's own wording. */
 code.tick {
   font-family: var(--font-mono);
@@ -279,12 +276,19 @@ code.tick {
 
 /* The wrap scrolls; at ~1.94em a row (text-sm, 3px padding, grid line) it
    shows ten rows under the sticky header. */
-.rowtable-wrap { overflow-y: auto; max-height: 21.5em; margin: 12px 0 0; }
+.rowtable-wrap { overflow: auto; max-height: 21.5em; margin: 12px 0 0; }
 .rowtable { border-collapse: collapse; font-size: var(--text-sm); }
 .rowtable th, .rowtable td {
   border: 1px solid var(--row-line);
   padding: 3px 10px;
   text-align: left;
+}
+/* A wide table scrolls sideways; a long value clips rather than wraps. */
+.rowtable td {
+  white-space: nowrap;
+  max-width: 24em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rowtable th {
   position: sticky;
@@ -304,6 +308,8 @@ code.tick {
 /* The seam between the primary key and the values the check is about. */
 .rowtable .val-start { border-left: 4px solid var(--rule); }
 .rowtable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* A cell a problem blames; the tooltip says why. */
+.rowtable td.bad { background: var(--bad-soft); cursor: default; }
 .rownum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-faint); text-align: right; }
 .rows-cap, .rows-note, .redacted-note {
   color: var(--ink-soft);

@@ -234,5 +234,26 @@ source: crates/data-dict/tests/report.rs
         }
       ]
     }
+  ],
+  "failed_rows": [
+    {
+      "table": "otters",
+      "count": 2,
+      "rows": [
+        1,
+        2
+      ],
+      "values": [
+        {
+          "name": "otter",
+          "weight": "1.0"
+        },
+        {
+          "name": "seal",
+          "weight": "2.0"
+        }
+      ],
+      "redacted": false
+    }
   ]
 }

@@ -990,6 +990,42 @@ fn duplicate_primary_key_is_not_repeated_as_keys() {
     );
 }
 
+/// The report's failed-rows page reads every declared column at the failing
+/// rows: the key split out, the failing column null where it failed.
+#[test]
+fn failed_rows_export_reads_every_column() {
+    let yaml = build_keyed_column("");
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.failed_rows.as_slice(),
+            [data_dict::FailedTableRows { table, count: 1, rows, keys, values, redacted: false }]
+                if table == "t" && rows == &[2] && sampled(keys) == ["20"]
+                    && sampled(values) == ["null"]
+        ),
+        "got {:?}",
+        result.failed_rows
+    );
+}
+
+/// A restricted column appears in neither `keys` nor `values`, and its
+/// presence flags the entry redacted.
+#[test]
+fn failed_rows_export_withholds_restricted_columns() {
+    let yaml = build_keyed_column("\n        display: restricted");
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.failed_rows.as_slice(),
+            [data_dict::FailedTableRows { table, count: 1, rows, keys, values, redacted: true }]
+                if table == "t" && rows == &[2] && keys.is_empty()
+                    && sampled(values) == ["null"]
+        ),
+        "got {:?}",
+        result.failed_rows
+    );
+}
+
 #[test]
 fn nulls_in_unique_column_are_not_duplicates() {
     // Rows (1-based): 1 = 1.0, 2 = null, 3 = null, 4 = 2.0. Nulls are exempt from

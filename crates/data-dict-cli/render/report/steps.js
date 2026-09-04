@@ -23,16 +23,9 @@ function stepLabel(step) {
     : checkName(step.code);
 }
 
-/* The label as plain text — the row itself links to the step's page — with
-   the code quiet in parentheses linking to every step and problem that share
-   it. */
+/* The label as plain text, with the code quiet in parentheses. */
 function StepCheck({ step }) {
-  return html`<span>
-    ${stepLabel(step)}
-    ${" "}<a class="scode" href="#code/${step.code}"
-      onClick=${(e) => { e.preventDefault(); e.stopPropagation(); go(`#code/${step.code}`); }}
-    >(${step.code})</a>
-  </span>`;
+  return html`<span>${stepLabel(step)}${" "}<span class="scode">(${step.code})</span></span>`;
 }
 
 /* The share of rows a step failed. Drawn only when there are rows to weigh, so
@@ -102,11 +95,12 @@ function VerdictSquare({ outcome }) {
   return html`<span class=${`verdsq ${outcome === "unevaluated" ? "off" : outcome}`}></span>`;
 }
 
+/* Only a failed step links to its page — a passed or unevaluated step has
+   nothing actionable to show there. */
 function StepRow({ step }) {
   const failed = step.failed_row_count;
   const evaluated = step.outcome !== "unevaluated";
-  const first = (problemsByStep.get(step.id) || [])[0];
-  return html`<tr data-href="#step/${step.id}" title=${first ? first.message : null}>
+  return html`<tr data-href=${step.outcome === "fail" ? `#step/${step.id}` : null}>
     <td class="scheck">
       <span class="sqname"><${VerdictSquare} outcome=${step.outcome} /><${StepCheck} step=${step} /></span>
     </td>
@@ -199,10 +193,17 @@ function DatasetRow({ row }) {
     const target = document.getElementById(datasetAnchor(table));
     if (target) target.scrollIntoView();
   };
+  /* The failed count links to the dataset's failed-rows page when there are
+     rows to show; the row's own click-through scrolls, so the link must not
+     let it fire. */
+  const hasRows = (REPORT.failed_rows || []).some((e) => e.table === table);
   return html`<tr onClick=${scroll}>
     <td class="scheck"><span class="sqname"><${VerdictSquare} outcome=${datasetSquare(counts)} /><span class="dname">${table}</span></span></td>
     <td class="num">${steps.length ? `${fmtNum(counts.fail)}/${fmtNum(steps.length)}` : "—"}</td>
-    <td class="num">${counted ? fmtNum(failed) : "—"}</td>
+    <td class="num">${!counted ? "—" : hasRows && failed > 0
+      ? html`<a href="#rows/${encodeURIComponent(table)}" title="Failed rows"
+          onClick=${(e) => e.stopPropagation()}>${fmtNum(failed)}</a>`
+      : fmtNum(failed)}</td>
     <td><${TableMeter} rows=${rows} failed=${failed} /></td>
   </tr>`;
 }

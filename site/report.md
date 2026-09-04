@@ -10,7 +10,7 @@ A failure that stops the run before any check can be applied is not a finding ab
 
 ## Output shape
 
-A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably. The rule is about a problem's and a step's own keys; the five top-level keys are always present, `steps` and `problems` as empty lists when there is nothing to list.
+A key with nothing to say is **omitted** rather than serialized as `null` or `[]`: keys marked `?` below may be absent, meaning the value doesn't apply to this problem or step. Zeroes and falses are real data and always appear. Consumers should read absent and null interchangeably. The rule is about a problem's and a step's own keys, plus the optional `failed_rows`; the other five top-level keys are always present, `steps` and `problems` as empty lists when there is nothing to list.
 
 The problems are one flat list. They are deliberately not also grouped by check, by table, or by row: everything needed to build those views is on each problem, and a consumer that wants them can group the list itself rather than reconcile several copies of the same finding.
 
@@ -22,7 +22,8 @@ The problems are one flat list. They are deliberately not also grouped by check,
   "run": Run,                    // what was validated, and by what
   "status": "ok" | "warning" | "error",
   "steps": [ Step ],
-  "problems": [ Problem ]
+  "problems": [ Problem ],
+  "failed_rows?": [ FailedRows ]
 }
 ```
 
@@ -37,6 +38,21 @@ Which steps exist follows from the dictionary: a `required` column gets a `D01` 
 Every step the level attempted is listed, including the ones it could not weigh. A step is missing only when its level never ran at all: a spec error stops the run, so the metadata and data steps that would have followed are absent rather than listed unevaluated. The level also decides which steps exist at all: a metadata run lists its `M##` steps alone, since the `D##` checks never ran.
 
 The problems are in no promised order beyond this: a spec problem sits at its position in the document, and a metadata or data problem in the order the run found it. A consumer that wants another order sorts the list itself.
+
+`failed_rows` gathers the failing rows themselves, one entry per table, for a consumer that wants to show the records rather than the findings. Only a data-level run that found row-naming failures carries it.
+
+```jsonc
+{
+  "table": "otters",
+  "count": 264,                       // distinct failing rows, never capped
+  "rows": [57, 812, 4310],            // the first so many, ascending
+  "keys?": [{"id": "otter-41"}, ...], // the primary key each listed row held
+  "values": [{"status": "retired", ...}, ...], // every other declared column
+  "redacted": false
+}
+```
+
+`rows` is the union of the row numbers the table's problems named — one row listed once, however many checks it failed — ascending and capped like a problem's `rows`, with `count` the total before capping. `values` holds **every declared column** present in the data, not just the ones a check is about, keyed by column name and lined up with `rows`; `keys` splits out the primary key's columns, absent when the table declares none. A nested column, whose value no single cell can name, is left out. Withholding follows [restricted columns](#restricted-columns): a restricted column appears in neither `keys` nor `values`, and its presence anywhere in the table sets `redacted`.
 
 ### Run
 
