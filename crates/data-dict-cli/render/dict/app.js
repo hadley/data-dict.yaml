@@ -26,32 +26,7 @@ function parseHash() {
   return i < 0 ? { table: h, col: null } : { table: h.slice(0, i), col: h.slice(i + 1) };
 }
 
-function go(hash) {
-  if (location.hash === hash) dispatchEvent(new HashChangeEvent("hashchange"));
-  else location.hash = hash;
-}
-
-/* Back to the index, leaving no `#` behind in the address bar. */
-function goHome() {
-  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-  dispatchEvent(new HashChangeEvent("hashchange"));
-}
-
-/* The hash drives the page, so back/forward and a pasted link all work. */
-function useRoute() {
-  const [route, setRoute] = useState(parseHash);
-  useEffect(() => {
-    /* A tooltip belongs to what you were pointing at, and following a link out
-       of the diagram hides that without the pointer ever leaving it. */
-    const follow = () => {
-      hideTip();
-      setRoute(parseHash());
-    };
-    addEventListener("hashchange", follow);
-    return () => removeEventListener("hashchange", follow);
-  }, []);
-  return route;
-}
+/* Navigation itself — go, goHome, useRoute — lives in shared/route.js. */
 
 /* ---- Matching -------------------------------------------------------------
    Where a query landed inside a table: its own prose, and/or specific

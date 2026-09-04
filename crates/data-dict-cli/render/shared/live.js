@@ -1,4 +1,4 @@
-/* The live-reload client, added to the page only by `data-dict render --live`.
+/* The live-reload client, added to either page only when `--live` serves it.
    The server pushes one event when the page has been rebuilt and another when
    the dictionary stopped validating; a rebuild reloads, a failure leaves the
    last good page up and reports over it. Diagnostics are fetched rather than

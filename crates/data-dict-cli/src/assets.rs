@@ -6,72 +6,121 @@
 //! instead, which is what lets `render --live` pick up an edit to the page's
 //! own CSS or JS without a rebuild.
 //!
-//! Both pages draw from one [`PARTS`] table, so a file shared between them is
-//! compiled in once; a [`Page`] names the subset it embeds.
+//! The files live in three directories under `render/`: `shared/` for what
+//! both pages carry, `dict/` for the dictionary page only, and `report/` for
+//! the validation report only. Both pages draw from one [`PARTS`] table, so
+//! a shared file is compiled in once; a [`Page`] names the subset it embeds.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 /// The page's parts: the template marker each one fills, the file it is
-/// written in, and the copy compiled into this binary.
+/// written in (relative to `render/`), and the copy compiled into this binary.
 const PARTS: &[(&str, &str, &str)] = &[
-    ("{{APP_CSS}}", "app.css", include_str!("../render/app.css")),
+    (
+        "{{APP_CSS}}",
+        "shared/app.css",
+        include_str!("../render/shared/app.css"),
+    ),
     (
         "{{DIAGRAM_CSS}}",
-        "diagram.css",
-        include_str!("../render/diagram.css"),
+        "dict/diagram.css",
+        include_str!("../render/dict/diagram.css"),
     ),
     (
         "{{TABLES_CSS}}",
-        "tables.css",
-        include_str!("../render/tables.css"),
+        "shared/tables.css",
+        include_str!("../render/shared/tables.css"),
     ),
     (
         "{{DAGRE_JS}}",
-        "dagre.js",
-        include_str!("../render/dagre.js"),
+        "dict/dagre.js",
+        include_str!("../render/dict/dagre.js"),
     ),
     (
         "{{LAYOUT_JS}}",
-        "layout-dagre.js",
-        include_str!("../render/layout-dagre.js"),
+        "dict/layout-dagre.js",
+        include_str!("../render/dict/layout-dagre.js"),
     ),
     (
         "{{PREACT_JS}}",
-        "preact.js",
-        include_str!("../render/preact.js"),
+        "shared/preact.js",
+        include_str!("../render/shared/preact.js"),
     ),
     (
         "{{SHARED_JS}}",
-        "shared.js",
-        include_str!("../render/shared.js"),
+        "shared/shared.js",
+        include_str!("../render/shared/shared.js"),
     ),
-    ("{{DICT_JS}}", "dict.js", include_str!("../render/dict.js")),
+    (
+        "{{ROUTE_JS}}",
+        "shared/route.js",
+        include_str!("../render/shared/route.js"),
+    ),
+    (
+        "{{DICT_JS}}",
+        "dict/dict.js",
+        include_str!("../render/dict/dict.js"),
+    ),
     (
         "{{COMPONENTS_JS}}",
-        "components.js",
-        include_str!("../render/components.js"),
+        "shared/components.js",
+        include_str!("../render/shared/components.js"),
+    ),
+    (
+        "{{PROSE_JS}}",
+        "dict/prose.js",
+        include_str!("../render/dict/prose.js"),
     ),
     (
         "{{DIAGRAM_JS}}",
-        "diagram.js",
-        include_str!("../render/diagram.js"),
+        "dict/diagram.js",
+        include_str!("../render/dict/diagram.js"),
     ),
-    ("{{APP_JS}}", "app.js", include_str!("../render/app.js")),
+    (
+        "{{APP_JS}}",
+        "dict/app.js",
+        include_str!("../render/dict/app.js"),
+    ),
     (
         "{{DIAGNOSTIC_JS}}",
-        "diagnostic.js",
-        include_str!("../render/diagnostic.js"),
+        "report/diagnostic.js",
+        include_str!("../render/report/diagnostic.js"),
+    ),
+    (
+        "{{YAML_EXCERPT_JS}}",
+        "report/yaml-excerpt.js",
+        include_str!("../render/report/yaml-excerpt.js"),
+    ),
+    (
+        "{{SUGGESTION_JS}}",
+        "report/suggestion.js",
+        include_str!("../render/report/suggestion.js"),
+    ),
+    (
+        "{{ROWS_JS}}",
+        "report/rows.js",
+        include_str!("../render/report/rows.js"),
     ),
     (
         "{{REPORT_CSS}}",
-        "report.css",
-        include_str!("../render/report.css"),
+        "report/report.css",
+        include_str!("../render/report/report.css"),
+    ),
+    (
+        "{{STEPS_JS}}",
+        "report/steps.js",
+        include_str!("../render/report/steps.js"),
+    ),
+    (
+        "{{PROBLEMS_JS}}",
+        "report/problems.js",
+        include_str!("../render/report/problems.js"),
     ),
     (
         "{{REPORT_JS}}",
-        "report.js",
-        include_str!("../render/report.js"),
+        "report/report.js",
+        include_str!("../render/report/report.js"),
     ),
 ];
 
@@ -107,20 +156,22 @@ impl Page {
 
 /// The dictionary page, written by `render`.
 const DICT_PAGE: Page = Page {
-    file: "index.html",
-    embedded: include_str!("../render/index.html"),
+    file: "dict/index.html",
+    embedded: include_str!("../render/dict/index.html"),
     parts: &[
-        "app.css",
-        "diagram.css",
-        "tables.css",
-        "dagre.js",
-        "layout-dagre.js",
-        "preact.js",
-        "shared.js",
-        "dict.js",
-        "components.js",
-        "diagram.js",
-        "app.js",
+        "shared/app.css",
+        "dict/diagram.css",
+        "shared/tables.css",
+        "dict/dagre.js",
+        "dict/layout-dagre.js",
+        "shared/preact.js",
+        "shared/shared.js",
+        "shared/route.js",
+        "dict/dict.js",
+        "shared/components.js",
+        "dict/prose.js",
+        "dict/diagram.js",
+        "dict/app.js",
     ],
     docs: &["{{DICT_JSON}}"],
     live: true,
@@ -130,17 +181,23 @@ const DICT_PAGE: Page = Page {
 /// relationship diagram, so it leaves out the layout engine the dictionary page
 /// needs.
 const REPORT_PAGE: Page = Page {
-    file: "report.html",
-    embedded: include_str!("../render/report.html"),
+    file: "report/report.html",
+    embedded: include_str!("../render/report/report.html"),
     parts: &[
-        "app.css",
-        "tables.css",
-        "report.css",
-        "preact.js",
-        "shared.js",
-        "components.js",
-        "diagnostic.js",
-        "report.js",
+        "shared/app.css",
+        "shared/tables.css",
+        "report/report.css",
+        "shared/preact.js",
+        "shared/shared.js",
+        "shared/route.js",
+        "shared/components.js",
+        "report/diagnostic.js",
+        "report/yaml-excerpt.js",
+        "report/suggestion.js",
+        "report/rows.js",
+        "report/steps.js",
+        "report/problems.js",
+        "report/report.js",
     ],
     docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}", "{{CHECKS_JSON}}"],
     live: true,
@@ -168,7 +225,7 @@ impl LivePage {
 const PAGES: &[&Page] = &[&DICT_PAGE, &REPORT_PAGE];
 
 /// The live-reload client, added only by `render --live`.
-const LIVE_JS: (&str, &str) = ("live.js", include_str!("../render/live.js"));
+const LIVE_JS: (&str, &str) = ("shared/live.js", include_str!("../render/shared/live.js"));
 
 /// Where the page's parts are read from.
 pub enum Assets {
@@ -429,7 +486,7 @@ mod tests {
         let dir = Assets::Dir(PathBuf::from("x"));
         assert_eq!(
             dir.css_files(&LivePage::Dict),
-            ["app.css", "diagram.css", "tables.css"]
+            ["shared/app.css", "dict/diagram.css", "shared/tables.css"]
                 .iter()
                 .map(|file| PathBuf::from("x").join(file))
                 .collect::<Vec<_>>()
@@ -439,7 +496,7 @@ mod tests {
                 level: data_dict::Level::Data,
                 table: None,
             }),
-            ["app.css", "tables.css", "report.css"]
+            ["shared/app.css", "shared/tables.css", "report/report.css"]
                 .iter()
                 .map(|file| PathBuf::from("x").join(file))
                 .collect::<Vec<_>>()

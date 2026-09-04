@@ -568,8 +568,8 @@ mod tests {
     fn a_change_is_css_only_when_every_changed_file_is_a_stylesheet() {
         let dir = PathBuf::from("render");
         let assets = Assets::Dir(dir.clone());
-        let css = dir.join("app.css");
-        let js = dir.join("app.js");
+        let css = dir.join("shared/app.css");
+        let js = dir.join("dict/app.js");
         let watched = vec![PathBuf::from("data-dict.yaml"), css.clone(), js.clone()];
         let before = vec![None, None, None];
 
