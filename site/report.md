@@ -169,13 +169,13 @@ Lines and columns count from 0. A column counts Unicode characters, not bytes an
 | `extra_in_data` | `M03` | `actual` |
 | `missing_source` | `M04` | |
 | `unreadable_source` | `M05` | |
-| `nulls_in_required` | `D01` | `count`, `rows` |
-| `duplicate_values` | `D02` | `count`, `rows`, `values`, `redacted` |
+| `nulls_in_required` | `D01` | `count`, `rows`, `keys`, `redacted` |
+| `duplicate_values` | `D02` | `count`, `rows`, `keys`, `values`, `redacted` |
 | `uniqueness_not_verified` | `D03` | `reason` |
-| `values_outside_enum` | `D04` | `count`, `rows`, `values`, `redacted` |
-| `foreign_key_not_found` | `D05` | `column`, `references`, `count`, `rows`, `values`, `redacted` |
+| `values_outside_enum` | `D04` | `count`, `rows`, `keys`, `values`, `redacted` |
+| `foreign_key_not_found` | `D05` | `column`, `references`, `count`, `rows`, `keys`, `values`, `redacted` |
 | `referential_integrity_not_verified` | `D06` | `column`, `references`, `reason` |
-| `assertion_violated` | `D07` | `assertion`, `count`, `rows`, `values`, `redacted` |
+| `assertion_violated` | `D07` | `assertion`, `count`, `rows`, `keys`, `values`, `redacted` |
 | `assertion_false` | `D07` | `assertion` |
 | `assertion_not_checked` | `D08` | `assertion`, `column`, `reason` |
 | `assertion_overflow` | `D09` | `assertion`, `row` |
@@ -194,9 +194,10 @@ Three keys describe how many rows broke a check and which ones:
 
 * `count` is the **exact** total number of offending rows — of offending *values* for a check over a column that holds several per row, like a `list(enum)`. It is never capped.
 * `rows` are the offending row numbers, ascending, **capped** at the first so many. Row numbers are 1-based and absolute within the table's Parquet file, so they survive row-group boundaries and can be used to seek back into the data.
+* `keys` are the values the table's `primary_key` columns held on each listed row, one **object** per row, keyed by column name — which row failed, not just where it sits. Absent when the table declares no primary key, and a key column the problem's `values` already name — a duplicate primary key reports its own key — is not repeated.
 * `values` are the offending values themselves, one **object** per offending row, keyed by column name.
 
-A `values` entry holds just the columns the check is about — the enum column for `D04`, the referencing column for `D05`, the key's columns for `D02`, the columns the expression reads for `D07` — never the whole row. Entries line up with `rows`: one per row number, in the same order, and nothing is deduplicated, so a value that offends twice appears twice.
+A `values` entry holds just the columns the check is about — the enum column for `D04`, the referencing column for `D05`, the key's columns for `D02`, the columns the expression reads for `D07` — never the whole row; the primary key a row held rides along in `keys` instead. `keys` and `values` entries line up with `rows`: one per row number, in the same order, and nothing is deduplicated, so a value that offends twice appears twice.
 
 ```jsonc
 "rows": [57, 812, 4310],
@@ -210,9 +211,9 @@ A `values` entry holds just the columns the check is about — the enum column f
 
 An offending value is always a **string**, and never a JSON number or boolean. Each value renders the way the same value would be written as a `range` bound or an `examples` entry in the dictionary itself: a number in decimal at full precision, a date or datetime as ISO 8601, a boolean as `"true"` or `"false"`, a non-finite float as `"NaN"`, `"Infinity"`, or `"-Infinity"`.
 
-A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. It can only appear in a `D07` entry — `D02`, `D04`, and `D05` all exempt nulls, so their `values` never contain one.
+A value that is *missing* is the one thing that isn't a string: it is JSON `null`, so it stays distinct from a string column that really holds `"null"`. Among `values` it can only appear in a `D07` entry — `D02`, `D04`, and `D05` all exempt nulls, so their `values` never contain one — but a `keys` entry holds one wherever the primary key itself was null.
 
-`rows` and `values` are each capped, so that a wholly broken column can't turn a report into megabytes of row numbers. The cap is the producer's to choose — the `data-dict` CLI reports the first 5 — and a producer may offer a way to raise or lower it. A cap truncates: what's reported is the first so many in the order the key defines, never a selection drawn from across the table. `count` is never capped, so `count > rows.length` means the list was truncated. The converse doesn't hold — some checks report a count with no rows at all.
+`rows`, `keys`, and `values` are each capped, so that a wholly broken column can't turn a report into megabytes of row numbers. The cap is the producer's to choose — the `data-dict` CLI reports the first 50 — and a producer may offer a way to raise or lower it. A cap truncates: what's reported is the first so many in the order the key defines, never a selection drawn from across the table. `count` is never capped, so `count > rows.length` means the list was truncated. The converse doesn't hold — some checks report a count with no rows at all.
 
 ### What each check can say
 
@@ -230,9 +231,9 @@ A column marked [`display: restricted`](spec.md#display) holds data that must no
 
 So a problem about a restricted column — or about an assertion that reads one — reports `count` and `rows` but no `values`, and sets `"redacted": true`. The rows are still there, so a consumer can still find the offending records in the data it is already entitled to read; only the values are withheld.
 
-Redaction is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. If every column the entry would name is restricted — a restricted `enum` or `unique` column, or an assertion that reads nothing else — there is nothing left to say, so `values` is omitted rather than given as a list of empty objects.
+Redaction is per column: a restricted column's key is left out of each entry, while its unrestricted neighbours keep their values. The same holds for `keys`: a restricted primary-key column is never attached, and when every key column is restricted `keys` is omitted. If every column the entry would name is restricted — a restricted `enum` or `unique` column, or an assertion that reads nothing else — there is nothing left to say, so `values` is omitted rather than given as a list of empty objects.
 
-`redacted` is always present on the kinds that can carry values, so `"redacted": false` positively states that nothing was withheld.
+`redacted` is always present on the kinds that can carry values or keys, so `"redacted": false` positively states that nothing was withheld.
 
 [Withholding](validation.md#reporting) is a property of validation itself rather than of this format: a restricted column's values are never reported, in a report or in a diagnostic.
 

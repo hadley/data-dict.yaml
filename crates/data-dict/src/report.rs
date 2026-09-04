@@ -693,10 +693,13 @@ mod tests {
             ProblemKind::NullsInRequired {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
+                redacted: false,
             },
             ProblemKind::DuplicateValues {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -706,6 +709,7 @@ mod tests {
             ProblemKind::ValuesOutsideEnum {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -714,6 +718,7 @@ mod tests {
                 references: String::new(),
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -726,6 +731,7 @@ mod tests {
                 assertion: String::new(),
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },

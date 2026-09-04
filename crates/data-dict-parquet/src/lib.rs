@@ -9,6 +9,7 @@ mod metadata;
 mod page;
 mod profile;
 mod reader;
+mod rows;
 mod scan;
 mod sketch;
 mod typed;
@@ -26,6 +27,7 @@ pub use profile::{
     Bin, ColumnProfile, DEFAULT_MAX_BINS, Distinct, FileProfile, Histogram, NotFinite, profile,
     profile_paths,
 };
+pub use rows::values_at_rows;
 pub use scan::{ColumnNeeds, ColumnRequest, ColumnStats, column_stats};
 pub use sketch::ValueCount;
 pub use typed::{

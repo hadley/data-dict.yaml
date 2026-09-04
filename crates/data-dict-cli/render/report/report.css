@@ -275,30 +275,47 @@ code.tick {
 .diff-add .ex-text { background: var(--good-soft); }
 .diff-del .ex-num, .diff-add .ex-num { color: var(--ink-faint); }
 
-/* ---- Offending rows -----------------------------------------------------*/
+/* ---- Failed rows --------------------------------------------------------*/
 
-.rowtable { border-collapse: collapse; margin: 12px 0 0; font-size: var(--text-sm); }
+/* The wrap scrolls; at ~1.94em a row (text-sm, 3px padding, grid line) it
+   shows ten rows under the sticky header. */
+.rowtable-wrap { overflow-y: auto; max-height: 21.5em; margin: 12px 0 0; }
+.rowtable { border-collapse: collapse; font-size: var(--text-sm); }
 .rowtable th, .rowtable td {
-  border-bottom: 1px solid var(--row-line);
-  padding: 4px 12px 4px 0;
+  border: 1px solid var(--row-line);
+  padding: 3px 10px;
   text-align: left;
 }
 .rowtable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Opaque, so scrolled rows never peek through from behind the header. */
+  background: color-mix(in oklab, var(--ink) 6%, var(--paper));
+  background-clip: padding-box;
+  /* Border-collapse would leave the header's top border at the table's edge;
+     a shadow on the sticky cells scrolls with them. */
+  box-shadow: inset 0 1px 0 var(--row-line);
   font-family: var(--font-mono);
   font-weight: 700;
   color: var(--ink-soft);
   white-space: nowrap;
 }
-.rownum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-faint); }
+/* The seam between the primary key and the values the check is about. */
+.rowtable .val-start { border-left: 4px solid var(--rule); }
+.rowtable td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rownum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-faint); text-align: right; }
 .rows-cap, .rows-note, .redacted-note {
   color: var(--ink-soft);
   font-size: var(--text-sm);
   margin: 8px 0 0;
 }
 .rows-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 0; }
+.rows-head .rows-cap { font-weight: 400; }
 .rows-head h3 { font-size: var(--text-base); font-weight: 650; margin: 0; }
-/* A missing value is not the string "null", so it doesn't wear a value chip. */
-.val.is-null { font-style: italic; color: var(--ink-faint); background: none; }
+/* A missing value is not the string "null", so it stands out in red. */
+.rowtable .is-null { color: var(--bad); }
+.rowtable .is-absent { color: var(--ink-faint); }
 
 @media (max-width: 720px) {
   .stepmeter { display: none; }

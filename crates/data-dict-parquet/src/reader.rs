@@ -158,7 +158,7 @@ impl FileContext {
             .build()
     }
 
-    fn builder(
+    pub(crate) fn builder(
         &self,
         leaves: impl IntoIterator<Item = usize>,
     ) -> Result<ParquetRecordBatchReaderBuilder<File>, ParquetError> {

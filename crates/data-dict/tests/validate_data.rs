@@ -213,7 +213,7 @@ fn nulls_in_required_column_reported() {
     assert!(
         matches!(
             result.items.as_slice(),
-            [Problem { kind: ProblemKind::NullsInRequired { count, rows }, .. }]
+            [Problem { kind: ProblemKind::NullsInRequired { count, rows, .. }, .. }]
                 if *count == 1 && rows.is_empty()
         ),
         "got {:?}",
@@ -245,7 +245,7 @@ fn missing_null_statistics_falls_back_to_data_scan() {
     let result = validate_data(&yaml, None);
     assert!(matches!(
         result.items.as_slice(),
-        [Problem { kind: ProblemKind::NullsInRequired { count: 1, rows }, .. }]
+        [Problem { kind: ProblemKind::NullsInRequired { count: 1, rows, .. }, .. }]
             if rows == &[2]
     ));
 }
@@ -864,7 +864,7 @@ fn composite_key_withholds_only_its_restricted_column() {
             result.items.as_slice(),
             [Problem {
                 code: Some("D02"),
-                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, redacted: true },
+                columns, kind: ProblemKind::DuplicateValues { count: 1, rows, values, redacted: true, .. },
                 ..
             }] if columns == &["a", "b"] && rows == &[2] && sampled(values) == ["1.0"]
         ),
@@ -875,6 +875,119 @@ fn composite_key_withholds_only_its_restricted_column() {
     diagnostic.assert_contains(&["D02", "has 1 repeated occurrence (`1.0`; row: 2)"]);
     #[cfg(unix)]
     assert_snapshot!(diagnostic);
+}
+
+/// Write a two-column parquet file — an `id` primary key and an optional
+/// `weight` whose second row (1-based) is null — behind a dictionary that
+/// requires `weight`. `display` is spliced into the key's entry.
+fn build_keyed_column(display: &str) -> PathBuf {
+    let dir = temp_dir();
+    let parquet = dir.join("data.parquet");
+    let schema = Arc::new(
+        parse_message_type("message schema { REQUIRED INT32 id; OPTIONAL DOUBLE weight; }")
+            .unwrap(),
+    );
+    // No footer statistics: the null must be found by scanning, which is what
+    // names the row it sits at.
+    let properties = WriterProperties::builder()
+        .set_statistics_enabled(EnabledStatistics::None)
+        .build();
+    let file = File::create(&parquet).unwrap();
+    let mut writer = SerializedFileWriter::new(file, schema, Arc::new(properties)).unwrap();
+    let mut row_group = writer.next_row_group().unwrap();
+    let mut id = row_group.next_column().unwrap().unwrap();
+    id.typed::<Int32Type>()
+        .write_batch(&[10, 20, 30], None, None)
+        .unwrap();
+    id.close().unwrap();
+    let mut weight = row_group.next_column().unwrap().unwrap();
+    write_double_with_null(&mut weight);
+    weight.close().unwrap();
+    row_group.close().unwrap();
+    writer.close().unwrap();
+
+    write_dict(
+        &dir,
+        &formatdoc! {"
+            tables:
+              - name: t
+                source:
+                  parquet: data.parquet
+                columns:
+                  - name: id
+                    type: number(id)
+                    constraints: [primary_key]
+                    examples: [10, 20]{display}
+                  - name: weight
+                    type: number(quantity)
+                    constraints: [required]
+                    range: [0, 100]
+        "},
+    )
+}
+
+/// A row-naming problem carries the primary key of each listed row, so the
+/// report can say *which* row failed: the null sits at row 2, whose id is 20.
+#[test]
+fn failed_rows_carry_their_primary_key() {
+    let yaml = build_keyed_column("");
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D01"),
+                kind: ProblemKind::NullsInRequired { count: 1, rows, keys, redacted: false, .. },
+                ..
+            }] if rows == &[2] && sampled(keys) == ["20"]
+        ),
+        "got {:?}",
+        result.items
+    );
+    let diagnostic = common::diagnostic(&yaml, &result.render(common::SNAPSHOT_STYLE).join("\n"));
+    diagnostic.assert_contains(&["D01", "has 1 null value (row: 2)"]);
+    #[cfg(unix)]
+    assert_snapshot!(diagnostic);
+}
+
+/// A restricted primary key is withheld from the rows it would name, flagging
+/// the problem redacted.
+#[test]
+fn restricted_primary_key_is_withheld_from_failed_rows() {
+    let yaml = build_keyed_column("\n        display: restricted");
+    let result = validate_data(&yaml, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D01"),
+                kind: ProblemKind::NullsInRequired { count: 1, rows, keys, redacted: true, .. },
+                ..
+            }] if rows == &[2] && keys.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
+}
+
+/// A duplicate primary key already names its own columns as the values, so the
+/// attached keys would only repeat them — and stay empty.
+#[test]
+fn duplicate_primary_key_is_not_repeated_as_keys() {
+    let duplicate = build_composite_key(&[1.0, 1.0, 2.0], &[1.0, 1.0, 2.0]);
+    let result = validate_data(&duplicate, None);
+    assert!(
+        matches!(
+            result.items.as_slice(),
+            [Problem {
+                code: Some("D02"),
+                kind: ProblemKind::DuplicateValues { count: 1, keys, .. },
+                ..
+            }] if keys.is_empty()
+        ),
+        "got {:?}",
+        result.items
+    );
 }
 
 #[test]
@@ -1949,7 +2062,7 @@ fn null_containers_violate_required() {
     assert!(
         d01s.iter().all(|p| matches!(
             &p.kind,
-            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+            ProblemKind::NullsInRequired { count: 1, rows, .. } if rows == &vec![3]
         )),
         "got {:?}",
         result.items
@@ -2081,7 +2194,7 @@ fn nested_list_checks_compose() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+            ProblemKind::NullsInRequired { count: 1, rows, .. } if rows == &vec![3]
         )),
         "got {:?}",
         result.items
@@ -2161,7 +2274,7 @@ fn deep_alternating_nesting_checks_values() {
     assert!(
         result.items.iter().any(|p| matches!(
             &p.kind,
-            ProblemKind::NullsInRequired { count: 1, rows } if rows == &vec![3]
+            ProblemKind::NullsInRequired { count: 1, rows, .. } if rows == &vec![3]
         )),
         "got {:?}",
         result.items

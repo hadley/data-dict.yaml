@@ -188,6 +188,8 @@ fn nulls_in_required_meta(table: &Table, col: &Column, count: usize) -> Problem 
         kind: ProblemKind::NullsInRequired {
             count,
             rows: Vec::new(),
+            keys: Vec::new(),
+            redacted: false,
         },
     }
 }
@@ -220,6 +222,7 @@ fn duplicates_meta(table: &Table, col: &Column, count: usize) -> Problem {
         kind: ProblemKind::DuplicateValues {
             count,
             rows: Vec::new(),
+            keys: Vec::new(),
             // The footer proves how many rows repeat but not which, so there is
             // no row to read a value from.
             values: Vec::new(),
