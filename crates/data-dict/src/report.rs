@@ -52,6 +52,10 @@ pub struct Step {
     pub columns: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assertion: Option<String>,
+    /// The author's own description of an assertion, when they wrote one; the
+    /// report can name the check in those words rather than the expression's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub outcome: StepOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub row_count: Option<usize>,
@@ -160,6 +164,7 @@ impl Steps {
             "M04",
             Vec::new(),
             None,
+            None,
             Some(table.name.span.clone()),
         )];
         for col in &table.columns {
@@ -189,18 +194,20 @@ impl Steps {
                     "D02",
                     key_columns,
                     None,
+                    None,
                     span,
                 ));
             }
             let targets = table_assertions(table);
             for (position, (text, columns)) in assertions.iter().enumerate() {
-                let span = targets.get(position).map(|(a, _)| a.text.span.clone());
+                let target = targets.get(position);
                 pending.push((
                     StepKey::new(name, StepTarget::Assertion(position)),
                     "D07",
                     columns.clone(),
                     Some(text.clone()),
-                    span,
+                    target.and_then(|(a, _)| a.description.clone()),
+                    target.map(|(a, _)| a.text.span.clone()),
                 ));
             }
         }
@@ -222,8 +229,8 @@ impl Steps {
             (rank, code.starts_with('D'), *code)
         });
 
-        for (key, code, columns, assertion, span) in pending {
-            self.add(key, code, columns, assertion, span);
+        for (key, code, columns, assertion, description, span) in pending {
+            self.add(key, code, columns, assertion, description, span);
         }
     }
 
@@ -233,6 +240,7 @@ impl Steps {
         code: &'static str,
         columns: Vec<String>,
         assertion: Option<String>,
+        description: Option<String>,
         span: Option<SourceInfo>,
     ) {
         if self.index.contains_key(&key) {
@@ -245,6 +253,7 @@ impl Steps {
             table: key.table,
             columns,
             assertion,
+            description,
             outcome: StepOutcome::Unevaluated,
             row_count: None,
             failed_row_count: None,
@@ -298,11 +307,13 @@ impl Steps {
 }
 
 /// A step yet to be registered: its key, the code it reports, the columns it
-/// covers, an assertion's text, and the declaration it checks.
+/// covers, an assertion's text and the author's description of it, and the
+/// declaration it checks.
 type Pending = (
     StepKey,
     &'static str,
     Vec<String>,
+    Option<String>,
     Option<String>,
     Option<SourceInfo>,
 );
@@ -323,6 +334,7 @@ fn column_steps(
         "M01",
         vec![dotted.clone()],
         None,
+        None,
         Some(col.name.span.clone()),
     ));
     if level == Level::Data {
@@ -333,6 +345,7 @@ fn column_steps(
                     "D01",
                     vec![dotted.clone()],
                     None,
+                    None,
                     Some(col.name.span.clone()),
                 ));
             }
@@ -341,6 +354,7 @@ fn column_steps(
                     StepKey::new(table, StepTarget::Unique(dotted.clone())),
                     "D02",
                     vec![dotted.clone()],
+                    None,
                     None,
                     Some(col.name.span.clone()),
                 ));
@@ -351,6 +365,7 @@ fn column_steps(
                     "D05",
                     vec![dotted.clone()],
                     None,
+                    None,
                     Some(col.name.span.clone()),
                 ));
             }
@@ -360,6 +375,7 @@ fn column_steps(
                 StepKey::new(table, StepTarget::Enum(path.clone())),
                 "D04",
                 vec![dotted],
+                None,
                 None,
                 Some(col.name.span.clone()),
             ));

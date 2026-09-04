@@ -13,9 +13,11 @@ function StepTarget({ step }) {
   return html`<span class="starget">${columns.join(", ")}</span>`;
 }
 
-/* A step's check as a reader says it: the name first, with the assertion it
-   ran for an assertion step. */
+/* A step's check as a reader says it: the author's own description where they
+   wrote one, else the check's name, with the assertion it ran for an
+   assertion step. */
 function stepLabel(step) {
+  if (step.description) return step.description;
   return step.assertion
     ? `${checkName(step.code)}: ${step.assertion}`
     : checkName(step.code);

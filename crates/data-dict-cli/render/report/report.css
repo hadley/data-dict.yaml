@@ -51,7 +51,6 @@
 .rtable td { overflow: hidden; text-overflow: ellipsis; }
 
 .scode { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); text-decoration: none; }
-.scheck { white-space: nowrap; }
 .scheck-name { color: var(--ink-soft); font-size: var(--text-sm); }
 .starget { font-family: var(--font-mono); font-size: var(--text-sm); }
 .starget-assert { display: block; color: var(--ink); }
@@ -108,10 +107,11 @@
   flex: none;
 }
 
-/* The square and the name it marks, centred on each other. Flexbox centres
-   the boxes themselves; vertical-align would centre on the parent's font
-   metrics, which differ from a mono name's and leave the square high. */
-.sqname { display: inline-flex; align-items: center; }
+/* The square and the name it marks, aligned on their first line's baseline —
+   shared across fonts, where vertical-align's middle would centre on the
+   parent's metrics and sit high beside a mono name. Baseline keeps the square
+   on the first line when the name wraps. */
+.sqname { display: inline-flex; align-items: baseline; }
 .verdsq.pass { background: var(--good); }
 .verdsq.warn { background: var(--warn); }
 .verdsq.fail { background: var(--fail-bar); }

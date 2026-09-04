@@ -1,0 +1,86 @@
+---
+source: crates/data-dict/tests/report.rs
+---
+{
+  "$version": "0.1.0",
+  "run": {
+    "dictionary": "data-dict.yaml",
+    "level": "data",
+    "generated_at": "2026-01-01T00:00:00Z",
+    "tool": {
+      "name": "data-dict",
+      "version": "0.0.0"
+    }
+  },
+  "status": "ok",
+  "steps": [
+    {
+      "id": 1,
+      "code": "M04",
+      "table": "otters",
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 3,
+        "start_column": 10,
+        "end_line": 3,
+        "end_column": 16
+      }
+    },
+    {
+      "id": 2,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "name"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 7,
+        "start_column": 14,
+        "end_line": 7,
+        "end_column": 18
+      }
+    },
+    {
+      "id": 3,
+      "code": "M01",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 10,
+        "start_column": 14,
+        "end_line": 10,
+        "end_column": 20
+      }
+    },
+    {
+      "id": 4,
+      "code": "D07",
+      "table": "otters",
+      "columns": [
+        "weight"
+      ],
+      "assertion": "weight > 0",
+      "description": "An otter always weighs something.",
+      "outcome": "pass",
+      "row_count": 2,
+      "failed_row_count": 0,
+      "location": {
+        "start_line": 14,
+        "start_column": 20,
+        "end_line": 14,
+        "end_column": 30
+      }
+    }
+  ],
+  "problems": []
+}

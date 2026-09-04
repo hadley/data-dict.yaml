@@ -72,6 +72,37 @@ fn a_clean_run_lists_every_step_as_passed() {
     assert_report!(problems, Level::Data);
 }
 
+/// An assertion the author described lists that description on its step, so
+/// the report can name the check in the author's words rather than the
+/// expression's.
+#[test]
+fn an_assertion_step_carries_its_authors_description() {
+    let dict = otters(indoc! {"
+        tables:
+          - name: otters
+            source:
+              parquet: otters.parquet
+            columns:
+              - name: name
+                type: string
+                examples: [otter, seal]
+              - name: weight
+                type: number
+                examples: [1.0, 2.0]
+                constraints:
+                  - assert: weight > 0
+                    description: An otter always weighs something.
+    "});
+    let problems = validate_data(&dict, None);
+    let step = last_step(&problems, "D07");
+    assert_eq!(
+        step.description.as_deref(),
+        Some("An otter always weighs something.")
+    );
+    #[cfg(unix)]
+    assert_report!(problems, Level::Data);
+}
+
 /// A metadata-level run checks only names and types, so it registers only the
 /// steps it runs: no `D##` step is listed as passed that never ran.
 #[test]
