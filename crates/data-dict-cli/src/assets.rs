@@ -6,72 +6,131 @@
 //! instead, which is what lets `render --live` pick up an edit to the page's
 //! own CSS or JS without a rebuild.
 //!
-//! Both pages draw from one [`PARTS`] table, so a file shared between them is
-//! compiled in once; a [`Page`] names the subset it embeds.
+//! The files live in three directories under `render/`: `shared/` for what
+//! both pages carry, `dict/` for the dictionary page only, and `report/` for
+//! the validation report only. Both pages draw from one [`PARTS`] table, so
+//! a shared file is compiled in once; a [`Page`] names the subset it embeds.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 /// The page's parts: the template marker each one fills, the file it is
-/// written in, and the copy compiled into this binary.
+/// written in (relative to `render/`), and the copy compiled into this binary.
 const PARTS: &[(&str, &str, &str)] = &[
-    ("{{APP_CSS}}", "app.css", include_str!("../render/app.css")),
+    (
+        "{{APP_CSS}}",
+        "shared/app.css",
+        include_str!("../render/shared/app.css"),
+    ),
     (
         "{{DIAGRAM_CSS}}",
-        "diagram.css",
-        include_str!("../render/diagram.css"),
+        "dict/diagram.css",
+        include_str!("../render/dict/diagram.css"),
     ),
     (
         "{{TABLES_CSS}}",
-        "tables.css",
-        include_str!("../render/tables.css"),
+        "shared/tables.css",
+        include_str!("../render/shared/tables.css"),
+    ),
+    (
+        "{{DICT_TABLES_CSS}}",
+        "dict/tables.css",
+        include_str!("../render/dict/tables.css"),
     ),
     (
         "{{DAGRE_JS}}",
-        "dagre.js",
-        include_str!("../render/dagre.js"),
+        "dict/dagre.js",
+        include_str!("../render/dict/dagre.js"),
     ),
     (
         "{{LAYOUT_JS}}",
-        "layout-dagre.js",
-        include_str!("../render/layout-dagre.js"),
+        "dict/layout-dagre.js",
+        include_str!("../render/dict/layout-dagre.js"),
     ),
     (
         "{{PREACT_JS}}",
-        "preact.js",
-        include_str!("../render/preact.js"),
+        "shared/preact.js",
+        include_str!("../render/shared/preact.js"),
     ),
     (
         "{{SHARED_JS}}",
-        "shared.js",
-        include_str!("../render/shared.js"),
+        "shared/shared.js",
+        include_str!("../render/shared/shared.js"),
     ),
-    ("{{DICT_JS}}", "dict.js", include_str!("../render/dict.js")),
+    (
+        "{{ROUTE_JS}}",
+        "shared/route.js",
+        include_str!("../render/shared/route.js"),
+    ),
+    (
+        "{{DICT_JS}}",
+        "dict/dict.js",
+        include_str!("../render/dict/dict.js"),
+    ),
     (
         "{{COMPONENTS_JS}}",
-        "components.js",
-        include_str!("../render/components.js"),
+        "shared/components.js",
+        include_str!("../render/shared/components.js"),
+    ),
+    (
+        "{{COLUMN_JS}}",
+        "dict/column.js",
+        include_str!("../render/dict/column.js"),
+    ),
+    (
+        "{{PROSE_JS}}",
+        "dict/prose.js",
+        include_str!("../render/dict/prose.js"),
     ),
     (
         "{{DIAGRAM_JS}}",
-        "diagram.js",
-        include_str!("../render/diagram.js"),
+        "dict/diagram.js",
+        include_str!("../render/dict/diagram.js"),
     ),
-    ("{{APP_JS}}", "app.js", include_str!("../render/app.js")),
+    (
+        "{{APP_JS}}",
+        "dict/app.js",
+        include_str!("../render/dict/app.js"),
+    ),
     (
         "{{DIAGNOSTIC_JS}}",
-        "diagnostic.js",
-        include_str!("../render/diagnostic.js"),
+        "report/diagnostic.js",
+        include_str!("../render/report/diagnostic.js"),
+    ),
+    (
+        "{{YAML_EXCERPT_JS}}",
+        "report/yaml-excerpt.js",
+        include_str!("../render/report/yaml-excerpt.js"),
+    ),
+    (
+        "{{SUGGESTION_JS}}",
+        "report/suggestion.js",
+        include_str!("../render/report/suggestion.js"),
+    ),
+    (
+        "{{ROWS_JS}}",
+        "report/rows.js",
+        include_str!("../render/report/rows.js"),
     ),
     (
         "{{REPORT_CSS}}",
-        "report.css",
-        include_str!("../render/report.css"),
+        "report/report.css",
+        include_str!("../render/report/report.css"),
+    ),
+    (
+        "{{STEPS_JS}}",
+        "report/steps.js",
+        include_str!("../render/report/steps.js"),
+    ),
+    (
+        "{{PROBLEMS_JS}}",
+        "report/problems.js",
+        include_str!("../render/report/problems.js"),
     ),
     (
         "{{REPORT_JS}}",
-        "report.js",
-        include_str!("../render/report.js"),
+        "report/report.js",
+        include_str!("../render/report/report.js"),
     ),
 ];
 
@@ -86,7 +145,7 @@ fn part(file: &str) -> (&'static str, &'static str) {
 
 /// One page: its template, the parts it embeds, and the documents a build fills
 /// it with.
-struct Page {
+pub(crate) struct Page {
     file: &'static str,
     embedded: &'static str,
     /// The `PARTS` files this page embeds, in the order the template does.
@@ -107,20 +166,24 @@ impl Page {
 
 /// The dictionary page, written by `render`.
 const DICT_PAGE: Page = Page {
-    file: "index.html",
-    embedded: include_str!("../render/index.html"),
+    file: "dict/index.html",
+    embedded: include_str!("../render/dict/index.html"),
     parts: &[
-        "app.css",
-        "diagram.css",
-        "tables.css",
-        "dagre.js",
-        "layout-dagre.js",
-        "preact.js",
-        "shared.js",
-        "dict.js",
-        "components.js",
-        "diagram.js",
-        "app.js",
+        "shared/app.css",
+        "dict/diagram.css",
+        "shared/tables.css",
+        "dict/tables.css",
+        "dict/dagre.js",
+        "dict/layout-dagre.js",
+        "shared/preact.js",
+        "shared/shared.js",
+        "shared/route.js",
+        "dict/dict.js",
+        "shared/components.js",
+        "dict/column.js",
+        "dict/prose.js",
+        "dict/diagram.js",
+        "dict/app.js",
     ],
     docs: &["{{DICT_JSON}}"],
     live: true,
@@ -130,26 +193,51 @@ const DICT_PAGE: Page = Page {
 /// relationship diagram, so it leaves out the layout engine the dictionary page
 /// needs.
 const REPORT_PAGE: Page = Page {
-    file: "report.html",
-    embedded: include_str!("../render/report.html"),
+    file: "report/report.html",
+    embedded: include_str!("../render/report/report.html"),
     parts: &[
-        "app.css",
-        "tables.css",
-        "report.css",
-        "preact.js",
-        "shared.js",
-        "components.js",
-        "diagnostic.js",
-        "report.js",
+        "shared/app.css",
+        "shared/tables.css",
+        "report/report.css",
+        "shared/preact.js",
+        "shared/shared.js",
+        "shared/route.js",
+        "shared/components.js",
+        "report/diagnostic.js",
+        "report/yaml-excerpt.js",
+        "report/suggestion.js",
+        "report/rows.js",
+        "report/steps.js",
+        "report/problems.js",
+        "report/report.js",
     ],
     docs: &["{{REPORT_JSON}}", "{{SOURCE_JSON}}", "{{CHECKS_JSON}}"],
-    live: false,
+    live: true,
 };
+
+/// The page each `--live` mode serves. `Report` carries the run's arguments:
+/// the level to validate at and the table to restrict to, if any.
+pub(crate) enum LivePage {
+    Dict,
+    Report {
+        level: data_dict::Level,
+        table: Option<String>,
+    },
+}
+
+impl LivePage {
+    pub(crate) fn page(&self) -> &'static Page {
+        match self {
+            LivePage::Dict => &DICT_PAGE,
+            LivePage::Report { .. } => &REPORT_PAGE,
+        }
+    }
+}
 
 const PAGES: &[&Page] = &[&DICT_PAGE, &REPORT_PAGE];
 
 /// The live-reload client, added only by `render --live`.
-const LIVE_JS: (&str, &str) = ("live.js", include_str!("../render/live.js"));
+const LIVE_JS: (&str, &str) = ("shared/live.js", include_str!("../render/shared/live.js"));
 
 /// Where the page's parts are read from.
 pub enum Assets {
@@ -191,19 +279,19 @@ impl Assets {
 
     /// The stylesheet files of the page `--live` serves, for it to tell a
     /// CSS-only change apart from one that needs the page rebuilt.
-    pub fn css_files(&self) -> Vec<PathBuf> {
+    pub fn css_files(&self, page: &LivePage) -> Vec<PathBuf> {
         let Assets::Dir(dir) = self else {
             return Vec::new();
         };
-        DICT_PAGE.css().map(|file| dir.join(file)).collect()
+        page.page().css().map(|file| dir.join(file)).collect()
     }
 
     /// The stylesheet of the page `--live` serves, as one document in template
     /// order. Served on its own so a CSS edit can be swapped into the page
     /// without a reload.
-    pub fn css(&self) -> io::Result<String> {
+    pub fn css(&self, page: &LivePage) -> io::Result<String> {
         let mut css = String::new();
-        for file in DICT_PAGE.css() {
+        for file in page.page().css() {
             css.push_str(&self.read(file, part(file).1)?);
             css.push('\n');
         }
@@ -227,9 +315,15 @@ impl Assets {
     /// Build the validation report page around a report and the dictionary text
     /// its spans are measured against, both already escaped for embedding. The
     /// page carries the check catalogue too, so it can name a code offline.
-    pub fn render_report_page(&self, report_json: &str, source_json: &str) -> io::Result<String> {
+    /// `live` adds the reload client, as it does for the dictionary page.
+    pub fn render_report_page(
+        &self,
+        report_json: &str,
+        source_json: &str,
+        live: bool,
+    ) -> io::Result<String> {
         let checks = embed_json(&data_dict::checks());
-        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], false)
+        self.build(&REPORT_PAGE, &[report_json, source_json, &checks], live)
     }
 
     /// `docs` are the page's documents in the order [`Page::docs`] names their
@@ -316,7 +410,7 @@ mod tests {
     /// `{}`, for the tests that only care about the parts around them.
     fn build(assets: &Assets, page: &Page, live: bool) -> String {
         if page.file == REPORT_PAGE.file {
-            assets.render_report_page("{}", "{}").unwrap()
+            assets.render_report_page("{}", "{}", live).unwrap()
         } else {
             assets.render_dict_page("{}", live).unwrap()
         }
@@ -357,11 +451,12 @@ mod tests {
         assert!(build(&embedded, &DICT_PAGE, true).contains("EventSource"));
     }
 
-    /// The report page is never served by `--live`, so it carries no client
-    /// however it is built.
+    /// The report page carries the live client only when `--live` serves it,
+    /// like the dictionary page.
     #[test]
-    fn the_report_page_never_carries_the_live_client() {
-        assert!(!build(&Assets::Embedded, &REPORT_PAGE, true).contains("EventSource"));
+    fn the_report_page_carries_the_live_client_only_when_live() {
+        assert!(!build(&Assets::Embedded, &REPORT_PAGE, false).contains("EventSource"));
+        assert!(build(&Assets::Embedded, &REPORT_PAGE, true).contains("EventSource"));
     }
 
     /// The report page has no relationship diagram, so it leaves the layout
@@ -402,20 +497,35 @@ mod tests {
     fn css_lists_the_stylesheets_in_template_order() {
         let dir = Assets::Dir(PathBuf::from("x"));
         assert_eq!(
-            dir.css_files(),
-            ["app.css", "diagram.css", "tables.css"]
+            dir.css_files(&LivePage::Dict),
+            [
+                "shared/app.css",
+                "dict/diagram.css",
+                "shared/tables.css",
+                "dict/tables.css",
+            ]
+            .iter()
+            .map(|file| PathBuf::from("x").join(file))
+            .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            dir.css_files(&LivePage::Report {
+                level: data_dict::Level::Data,
+                table: None,
+            }),
+            ["shared/app.css", "shared/tables.css", "report/report.css"]
                 .iter()
                 .map(|file| PathBuf::from("x").join(file))
                 .collect::<Vec<_>>()
         );
-        assert!(Assets::Embedded.css_files().is_empty());
+        assert!(Assets::Embedded.css_files(&LivePage::Dict).is_empty());
     }
 
     /// The standalone stylesheet is the same CSS the page embeds, so a swap
     /// shows what a reload would.
     #[test]
     fn the_standalone_stylesheet_matches_the_embedded_one() {
-        let css = Assets::Embedded.css().unwrap();
+        let css = Assets::Embedded.css(&LivePage::Dict).unwrap();
         let page = build(&Assets::Embedded, &DICT_PAGE, false);
         for file in DICT_PAGE.css() {
             let embedded = part(file).1;

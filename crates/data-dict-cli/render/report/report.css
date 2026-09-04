@@ -1,0 +1,313 @@
+/* The validation report page: the verdict, the roster of checks, and one
+   problem in full. Shares the palette in app.css and the card, table, chip and
+   modal primitives in tables.css, and is concatenated after both so its
+   narrower rules win at equal specificity. */
+
+/* ---- Sections -----------------------------------------------------------*/
+
+.rsection { margin: 0 0 30px; }
+.rsection > h2 {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  margin: 0 0 12px;
+}
+.rsection-note { color: var(--ink-soft); font-size: var(--text-sm); margin: 0 0 12px; }
+.rsection-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 650;
+  margin: 0 0 18px;
+}
+
+/* ---- The roster of checks ------------------------------------------------
+   `.tlist` gives the card, the header row and the numeric alignment. What it
+   doesn't give is the right hover: its group-wide highlight suits a four-row
+   table block and not a forty-step roster, so the hover moves down to the row. */
+
+.steps tbody.tgroup:hover td { background: transparent; }
+.steps tbody.tgroup tr[data-href]:hover td { background: var(--hover-row); }
+.steps th { white-space: nowrap; }
+
+/* The grid the summary and the detail tables share: fixed layout, so every
+   table on the page draws the same column edges, and long content clips
+   rather than shifting them. The first column takes what the others leave. */
+.rtable { table-layout: fixed; }
+.rtable .col-mid { width: 32%; }
+.rtable .col-num { width: 76px; }
+.rtable .col-meter { width: 130px; }
+.rtable td, .rtable th { padding: 6px 10px; vertical-align: middle; }
+.rtable td { overflow: hidden; text-overflow: ellipsis; }
+
+/* What a step checked: the columns, or the whole table. */
+.step-target { font-family: var(--font-mono); font-size: var(--text-sm); }
+.step-target .whole { color: var(--ink-faint); font-family: var(--font-sans); }
+/* The check's name, with its code quiet in parentheses. */
+.step-check .code { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); }
+
+/* The two verdicts a problem can carry, as `.key` variants. */
+.key.fail { color: var(--bad); background: var(--bad-soft); }
+/* A warning severity. It shares yellow with a restricted column but not the
+   badge: `restricted` says one particular thing, and a warning is not it. */
+.key.warn { color: var(--warn); background: var(--warn-soft); }
+
+/* The share of rows a step failed. Geometry from `.missbar`, including the
+   min-width that keeps two failures out of ninety thousand visible; the
+   vocabulary is failure rather than missingness, hence its own names. */
+.step-meter { width: 110px; }
+.step-track {
+  height: 9px;
+  background: var(--good);
+  border: 0.5px solid var(--rule);
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+}
+.step-fill {
+  position: absolute;
+  top: -0.5px;
+  left: -0.5px;
+  bottom: -0.5px;
+  min-width: 6px;
+  border-radius: 999px 0 0 999px;
+  background: var(--fail-bar);
+  box-sizing: border-box;
+}
+.step-fill.full { right: -0.5px; min-width: 0; }
+
+/* The verdict square beside a name: green passed, yellow warned, red failed,
+   and nothing (but its space) for a check that reached no verdict. Sized in
+   em, so the same mark sits right beside a table row and a page heading. */
+.verdict-square {
+  display: inline-block;
+  width: 0.57em; height: 0.57em;
+  border-radius: 0.15em;
+  margin-right: 0.45em;
+  flex: none;
+}
+
+/* The square and the name it marks, aligned on their first line's baseline —
+   shared across fonts, where vertical-align's middle would centre on the
+   parent's metrics and sit high beside a mono name. Baseline keeps the square
+   on the first line when the name wraps. */
+.sqname { display: inline-flex; align-items: baseline; }
+.verdict-square.pass { background: var(--good); }
+.verdict-square.warn { background: var(--warn); }
+.verdict-square.fail { background: var(--fail-bar); }
+.verdict-square.off { visibility: hidden; }
+
+/* ---- The datasets summary ------------------------------------------------
+   One row per dataset, each row a link to the dataset's detail table. */
+
+.datasets tbody tr { cursor: pointer; }
+.datasets tbody tr:hover td { background: var(--hover-row); }
+.dataset-name { font-family: var(--font-mono); font-weight: 700; color: var(--accent1); }
+
+/* A dataset's detail table, scrolled to from the summary. */
+.dataset-section { scroll-margin-top: 14px; }
+.dataset-section > h3 {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 650;
+  margin: 0 0 10px;
+}
+
+/* Sortable column heads look like the plain heads they replace. */
+.sort-head {
+  background: none; border: none; padding: 0;
+  font: inherit; color: inherit; cursor: pointer;
+}
+.sort-head:hover { color: var(--ink); }
+.sort-ind { margin-left: 2px; }
+.sort-ind.off { visibility: hidden; }
+
+.checks-tools { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.checks-filter {
+  padding: 5px 10px;
+  border: 1px solid var(--rule); border-radius: 6px;
+  font: inherit; background: var(--float, #fff); color: var(--ink);
+  min-width: 240px;
+}
+.checks-only {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--ink-soft); font-size: var(--text-sm); white-space: nowrap;
+}
+
+/* ---- The cards -----------------------------------------------------------
+   One shell for everything the report has to say at length: a problem, a
+   step's summary, a table of failed rows. */
+
+.problem-card, .failed-rows-card, .step-summary {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 16px 18px;
+  margin: 0 0 16px;
+}
+
+/* The step page's title block: the h1 names the target beside its verdict
+   square; the line below says what was checked. */
+.step-title .target { font-family: var(--font-mono); font-size: 0.8em; }
+.step-title .sub { margin: 3px 0 0; color: var(--ink-soft); font-size: var(--text-lg); }
+
+/* The step page's summary card: the row counts and the failure meter on one
+   line, with the dictionary excerpt behind an expando below. */
+.step-summary .counts { display: flex; align-items: center; gap: 14px; }
+.step-summary .meta {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.step-summary details summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  margin-top: 8px;
+}
+
+.problem-card .head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+.problem-card .check-name { color: var(--ink-soft); font-size: var(--text-sm); }
+.problem-card .step {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.problem-card .expected { font-size: var(--text-lg); font-weight: 650; margin: 0 0 6px; max-width: 76ch; }
+.problem-card .message { margin: 0 0 10px; color: var(--ink-soft); max-width: 76ch; }
+.problem-card .found { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-faint); }
+.problem-card .where { font-family: var(--font-mono); font-size: var(--text-sm); margin: 0 0 10px; }
+.problem-card .hint { margin: 10px 0 0; color: var(--ink-soft); max-width: 76ch; }
+.problem-card .hint::before {
+  content: "help: ";
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent1);
+}
+
+.code-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--accent1);
+}
+/* A backtick span in a diagnostic's own wording. */
+code.tick {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--chip);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+/* ---- The annotated excerpt ----------------------------------------------
+   The same excerpt the terminal prints: the offending span marked, the nodes
+   enclosing it shown but unlabelled, and a fold where lines are skipped. A
+   suggested fix wears the same box, drawn as a diff. */
+
+.yaml-excerpt, .suggestion-diff {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--background);
+  padding: 10px 0;
+  margin: 12px 0;
+  overflow-x: auto;
+}
+.ex-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  padding: 0 12px 6px;
+}
+.ex-rows { display: table; width: 100%; font-family: var(--font-mono); font-size: var(--text-sm); }
+.ex-row { display: table-row; }
+.ex-num, .ex-text { display: table-cell; padding: 0 12px; white-space: pre; }
+.ex-num {
+  text-align: right;
+  color: var(--ink-faint);
+  user-select: none; /* so copying the snippet yields YAML, not line numbers */
+  width: 1%;
+  border-right: 1px solid var(--rule);
+}
+.ex-text { color: var(--ink-soft); }
+/* The underline is the faithful analogue of the terminal's `^^^^`, and it
+   survives a reader who can't tell the fill from the text around it. */
+.ex-hit {
+  background: var(--bad-soft);
+  box-shadow: inset 0 -2px 0 var(--bad);
+  color: var(--ink);
+}
+.is-warning .ex-hit { background: var(--warn-soft); box-shadow: inset 0 -2px 0 var(--warn); }
+.ex-ctx { background: var(--hover-row); }
+.ex-fold .ex-num { color: var(--ink-faint); }
+
+.suggestion-diff .title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent1);
+  padding: 0 12px 6px;
+}
+.diff-del .ex-text { background: var(--bad-soft); }
+.diff-add .ex-text { background: var(--good-soft); }
+.diff-del .ex-num, .diff-add .ex-num { color: var(--ink-faint); }
+
+/* ---- Failed rows --------------------------------------------------------*/
+
+.failed-rows-card .head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 0; }
+.failed-rows-card .head h3 { font-size: var(--text-base); font-weight: 650; margin: 0; }
+.failed-rows-card .cap { font-weight: 400; }
+.failed-rows-card .note, .rows-note {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  margin: 8px 0 0;
+}
+
+/* The wrap scrolls; at ~1.94em a row (text-sm, 3px padding, grid line) it
+   shows ten rows under the sticky header. */
+.row-table { overflow: auto; max-height: 21.5em; margin: 12px 0 0; }
+.row-table table { border-collapse: collapse; font-size: var(--text-sm); }
+.row-table th, .row-table td {
+  border: 1px solid var(--row-line);
+  padding: 3px 10px;
+  text-align: left;
+}
+/* A wide table scrolls sideways; a long value clips rather than wraps. */
+.row-table td {
+  white-space: nowrap;
+  max-width: 24em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Opaque, so scrolled rows never peek through from behind the header. */
+  background: color-mix(in oklab, var(--ink) 6%, var(--paper));
+  background-clip: padding-box;
+  /* Border-collapse would leave the header's top border at the table's edge;
+     a shadow on the sticky cells scrolls with them. */
+  box-shadow: inset 0 1px 0 var(--row-line);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+/* The seam between the primary key and the values the check is about. */
+.row-table .val-start { border-left: 4px solid var(--rule); }
+.row-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* A cell a problem blames; the tooltip says why. */
+.row-table td.bad { background: var(--bad-soft); cursor: default; }
+.rownum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-faint); text-align: right; }
+/* A missing value is not the string "null", so it stands out in red. */
+.row-table .is-null { color: var(--bad); }
+.row-table .is-absent { color: var(--ink-faint); }
+
+@media (max-width: 720px) {
+  .step-meter { display: none; }
+}

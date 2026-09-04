@@ -26,8 +26,9 @@ A list with the \code{html} path and the CLI's exit \code{status}, where \code{0
 means the dataset validated, invisibly.
 }
 \description{
-Runs \verb{data-dict validate-data}, writes the findings as a self-contained HTML
-report, and opens it in a browser. The data files themselves come from each
+Runs \verb{data-dict render-report}, which validates the data and writes the
+findings as a self-contained HTML report, and opens it in a browser. The
+data files themselves come from each
 table's \verb{source: parquet:} entry in the dictionary, resolved relative to the
 dictionary's directory.
 }

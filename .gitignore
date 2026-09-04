@@ -12,3 +12,7 @@ site/_site
 site/examples/rendered/
 .tmp/
 __pycache__/
+
+# playground
+playground/cases/
+playground/report.html

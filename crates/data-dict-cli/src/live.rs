@@ -1,5 +1,5 @@
-//! `render --live`: serve the page from memory and reload the browser whenever
-//! anything it was built from changes.
+//! `render-spec --live` and `render-report --live`: serve the page from memory
+//! and reload the browser whenever anything it was built from changes.
 //!
 //! The server is written on `std::net` rather than pulled from a crate: the
 //! only client is a browser on loopback and the surface is three GETs — the
@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use data_dict::RenderStyle;
+use data_dict::{Level, RenderStyle, Run};
 
-use crate::assets::{Assets, embed_json};
+use crate::assets::{Assets, LivePage, embed_json, escape_embedded};
 
 /// Where the browser is sent first. Fixed, so a pinned tab survives a restart.
 const DEFAULT_PORT: u16 = 7590;
@@ -59,6 +59,8 @@ struct Page {
 struct Session {
     dict: PathBuf,
     assets: Assets,
+    /// Which page the server builds and serves.
+    kind: LivePage,
     page: Mutex<Page>,
     clients: Mutex<Vec<TcpStream>>,
 }
@@ -113,7 +115,14 @@ struct Build {
 }
 
 /// Export the dictionary and render the page around it.
-fn build(dict: &Path, assets: &Assets) -> Build {
+fn build(dict: &Path, assets: &Assets, kind: &LivePage) -> Build {
+    match kind {
+        LivePage::Dict => build_dict(dict, assets),
+        LivePage::Report { level, table } => build_report(dict, assets, *level, table.as_deref()),
+    }
+}
+
+fn build_dict(dict: &Path, assets: &Assets) -> Build {
     let (problems, export) = data_dict::export_auto(dict);
     let mut text = problems.render(RenderStyle::default());
     let Some(export) = export else {
@@ -124,12 +133,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
             text,
         };
     };
-    let base = dict.parent().unwrap_or_else(|| Path::new(""));
-    let sources = export
-        .source_paths()
-        .into_iter()
-        .map(|path| base.join(path))
-        .collect();
+    let sources = source_paths(dict, Some(&export));
     match assets.render_dict_page(&embed_json(&export), true) {
         Ok(html) => Build {
             // The page's own copy is escaped for its `<script>` block; the one
@@ -137,7 +141,7 @@ fn build(dict: &Path, assets: &Assets) -> Build {
             page: Some((
                 html,
                 serde_json::to_string(&export).expect("an export always serializes"),
-                assets.css().unwrap_or_default(),
+                assets.css(&LivePage::Dict).unwrap_or_default(),
             )),
             sources: Some(sources),
             failed: problems.status().failed(),
@@ -155,9 +159,92 @@ fn build(dict: &Path, assets: &Assets) -> Build {
     }
 }
 
+/// Validate the dictionary's data and render the report around the run. A
+/// run that couldn't start has no report to give, so — like a dictionary that
+/// stopped validating — it keeps the last good page and reports over it.
+fn build_report(dict: &Path, assets: &Assets, level: Level, table: Option<&str>) -> Build {
+    let problems = match level {
+        Level::Meta => data_dict::validate_meta(dict, table),
+        _ => data_dict::validate_data(dict, table),
+    };
+    let mut text = problems.render(RenderStyle::default());
+    if problems.preflight().is_some() {
+        return Build {
+            page: None,
+            sources: None,
+            failed: true,
+            text,
+        };
+    }
+    let run = Run::new(dict, level, table);
+    let json = serde_json::to_string(&problems.report(run)).expect("a report always serializes");
+    let source = embed_json(&problems.source_text().unwrap_or_default());
+    let kind = LivePage::Report {
+        level,
+        table: table.map(str::to_string),
+    };
+    match assets.render_report_page(&escape_embedded(&json), &source, true) {
+        Ok(html) => Build {
+            page: Some((html, json, assets.css(&kind).unwrap_or_default())),
+            sources: Some(source_paths(dict, None)),
+            failed: problems.status().failed(),
+            // The report carries the run's findings, so they aren't repeated
+            // on stderr; only a build with no page keeps its text.
+            text: Vec::new(),
+        },
+        Err(err) => {
+            text.push(format!("could not read the page's assets: {err}"));
+            Build {
+                page: None,
+                sources: Some(source_paths(dict, None)),
+                failed: true,
+                text,
+            }
+        }
+    }
+}
+
+/// Each table's source file, resolved against the dictionary's directory.
+/// `export` reuses one already in hand; otherwise the paths are read with a
+/// spec-only export, which never touches the data files themselves.
+fn source_paths(dict: &Path, export: Option<&data_dict::Export>) -> Vec<PathBuf> {
+    let base = dict.parent().unwrap_or_else(|| Path::new(""));
+    let owned;
+    let export = match export {
+        Some(export) => export,
+        None => {
+            owned = data_dict::export_spec(dict).1;
+            match &owned {
+                Some(export) => export,
+                None => return Vec::new(),
+            }
+        }
+    };
+    export
+        .source_paths()
+        .into_iter()
+        .map(|path| base.join(path))
+        .collect()
+}
+
 /// Serve the dictionary at `dict` until interrupted.
 pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
-    let first = build(dict, &assets);
+    serve(dict, LivePage::Dict, port, assets)
+}
+
+/// Serve the validation report for the dictionary at `dict` until interrupted.
+pub fn run_report(
+    dict: &Path,
+    level: Level,
+    table: Option<String>,
+    port: Option<u16>,
+    assets: Assets,
+) -> ExitCode {
+    serve(dict, LivePage::Report { level, table }, port, assets)
+}
+
+fn serve(dict: &Path, kind: LivePage, port: Option<u16>, assets: Assets) -> ExitCode {
+    let first = build(dict, &assets, &kind);
     for line in &first.text {
         eprintln!("{line}");
     }
@@ -184,6 +271,7 @@ pub fn run(dict: &Path, port: Option<u16>, assets: Assets) -> ExitCode {
     let session = Arc::new(Session {
         dict: dict.to_path_buf(),
         assets,
+        kind,
         page: Mutex::new(Page {
             html,
             json,
@@ -317,8 +405,8 @@ fn watch(session: &Arc<Session>, sources: Vec<PathBuf>) -> ! {
         let now = stamps(&watched);
         if now != seen {
             thread::sleep(SETTLE);
-            let css_only = css_only_change(&session.assets, &watched, &seen, &now);
-            let build = build(&session.dict, &session.assets);
+            let css_only = css_only_change(&session.assets, &session.kind, &watched, &seen, &now);
+            let build = build(&session.dict, &session.assets, &session.kind);
             if let Some(found) = &build.sources {
                 sources = found.clone();
             }
@@ -338,11 +426,12 @@ fn watch(session: &Arc<Session>, sources: Vec<PathBuf>) -> ! {
 /// reload would throw away.
 fn css_only_change(
     assets: &Assets,
+    kind: &LivePage,
     watched: &[PathBuf],
     before: &[Option<SystemTime>],
     after: &[Option<SystemTime>],
 ) -> bool {
-    let css = assets.css_files();
+    let css = assets.css_files(kind);
     let mut changed = watched
         .iter()
         .zip(before)
@@ -405,6 +494,7 @@ mod tests {
         Arc::new(Session {
             dict: PathBuf::from("data-dict.yaml"),
             assets: Assets::Embedded,
+            kind: LivePage::Dict,
             page: Mutex::new(Page {
                 html: html.to_string(),
                 json: r#"{"tables":[]}"#.to_string(),
@@ -480,23 +570,42 @@ mod tests {
     fn a_change_is_css_only_when_every_changed_file_is_a_stylesheet() {
         let dir = PathBuf::from("render");
         let assets = Assets::Dir(dir.clone());
-        let css = dir.join("app.css");
-        let js = dir.join("app.js");
+        let css = dir.join("shared/app.css");
+        let js = dir.join("dict/app.js");
         let watched = vec![PathBuf::from("data-dict.yaml"), css.clone(), js.clone()];
         let before = vec![None, None, None];
 
         let mut after = vec![None, None, None];
-        assert!(!css_only_change(&assets, &watched, &before, &after));
+        assert!(!css_only_change(
+            &assets,
+            &LivePage::Dict,
+            &watched,
+            &before,
+            &after
+        ));
 
         after[1] = Some(SystemTime::now());
-        assert!(css_only_change(&assets, &watched, &before, &after));
+        assert!(css_only_change(
+            &assets,
+            &LivePage::Dict,
+            &watched,
+            &before,
+            &after
+        ));
 
         after[2] = Some(SystemTime::now());
-        assert!(!css_only_change(&assets, &watched, &before, &after));
+        assert!(!css_only_change(
+            &assets,
+            &LivePage::Dict,
+            &watched,
+            &before,
+            &after
+        ));
 
         // Embedded assets can't change, so no change is ever CSS-only.
         assert!(!css_only_change(
             &Assets::Embedded,
+            &LivePage::Dict,
             &watched,
             &before,
             &after

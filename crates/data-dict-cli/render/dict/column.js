@@ -1,41 +1,27 @@
-/* Reusable Preact components and formatting helpers, shared by the app in
-   app.js. Rendering is preact + htm (vendored in preact.js), so templates are
-   tagged literals and nothing needs a compile step. */
+/* The dictionary page's own components: the column metadata lines (chips of
+   allowed values, examples, samples, ranges) and the profile visualisations
+   (histogram, missing meter) that draw them. The validation report renders
+   none of these, so they live here rather than in shared/components.js.
+   Depends on components.js for `html`, the hooks, `Marked`'s siblings, and
+   the formatting helpers. */
 
-const html = htm.bind(preact.h);
-const { useState, useEffect, useMemo, useRef } = preactHooks;
-
-/* Inlined SVG icons; fill="currentColor" lets them pick up the surrounding
-   text colour. The cardinality markers are drawn with the same shapes as the
-   diagram's wires: a triangle widening towards the many end, a rounded
-   rectangle for one-to-one. */
-const ICONS = {
+/* Icons only this page uses, added to the shared set. */
+Object.assign(ICONS, {
   glossary: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M1.54,15.75V5.7c0-.06,0-.12.02-.17.01-.05.04-.1.08-.16.23-.38.57-.71,1.01-1.02s.95-.55,1.54-.73c.59-.18,1.22-.27,1.89-.27.87,0,1.64.15,2.33.46.69.31,1.22.7,1.61,1.19.38-.49.92-.89,1.6-1.19.69-.31,1.47-.46,2.33-.46.67,0,1.29.09,1.88.27.59.18,1.1.42,1.54.73s.77.64,1.01,1.02c.04.06.07.11.08.16,0,.05.01.11.01.17v10.05c0,.22-.06.38-.19.48-.13.1-.28.15-.46.15-.1,0-.2-.02-.3-.07-.09-.05-.2-.11-.31-.18-.41-.33-.9-.58-1.47-.76s-1.16-.27-1.77-.27c-.61,0-1.2.11-1.78.34s-1.08.55-1.52.97c-.12.11-.23.19-.34.23-.11.04-.21.07-.32.07s-.21-.02-.32-.06-.22-.12-.34-.23c-.44-.43-.95-.76-1.53-.98-.58-.22-1.17-.33-1.77-.33-.63,0-1.22.08-1.78.27-.56.18-1.05.44-1.47.76-.11.07-.21.13-.31.18-.1.05-.19.07-.29.07-.18,0-.34-.05-.46-.15-.13-.1-.19-.26-.19-.48ZM2.49,15.21c.4-.3.91-.55,1.53-.74s1.3-.29,2.05-.29c.47,0,.92.05,1.35.16s.83.25,1.19.43.67.37.92.58V5.88c-.3-.49-.76-.89-1.38-1.18-.61-.29-1.31-.44-2.08-.44-.5,0-.98.06-1.45.19-.46.13-.88.31-1.25.54-.37.23-.66.5-.88.81v9.39ZM10.48,15.36c.25-.21.56-.4.92-.58s.76-.33,1.19-.43.88-.16,1.36-.16c.74,0,1.42.1,2.04.29s1.13.44,1.52.74V5.81c-.21-.31-.5-.58-.88-.81-.37-.23-.79-.41-1.25-.54-.46-.13-.94-.19-1.44-.19-.77,0-1.47.15-2.09.44-.61.29-1.07.68-1.38,1.18v9.48Z"/></svg>',
-  theme: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8,1c-3.87,0-7,3.13-7,7s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM8,14V2c3.31,0,6,2.69,6,6s-2.69,6-6,6Z"/></svg>',
   /* unresolved work: the exclamation is knocked out of the triangle, so the
-     mark reads at the small size it is drawn beside a name */
+    mark reads at the small size it is drawn beside a name */
   todo: '<svg fill="currentColor" fill-rule="evenodd" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8.72,1.7l6.62,11.47c.33,.57-.08,1.28-.74,1.28H1.4c-.66,0-1.07-.71-.74-1.28L7.28,1.7c.33-.57,1.11-.57,1.44,0ZM7.25,5.3h1.5v4.4h-1.5V5.3ZM8,10.6c.55,0,1,.45,1,1s-.45,1-1,1-1-.45-1-1,.45-1,1-1Z"/></svg>',
-  back: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.06,8c0-.13.02-.26.07-.37s.13-.22.23-.33L10.39,1.4c.18-.17.39-.26.63-.26.17,0,.32.04.46.12s.25.19.33.32.12.29.12.46c0,.24-.1.46-.29.65l-5.43,5.3,5.43,5.3c.19.19.29.41.29.66,0,.17-.04.32-.12.45s-.19.25-.33.33-.29.12-.46.12c-.25,0-.46-.09-.63-.26l-6.03-5.9c-.1-.1-.18-.21-.23-.33s-.07-.24-.07-.37Z"/></svg>',
-  /* a validation verdict. A warning has no mark of its own: it reuses `todo`,
-     which is already the page's exclamation triangle. */
-  pass: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8,1C4.13,1,1,4.13,1,8s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM7.28,11.31l-3.04-3.04,1.06-1.06,1.98,1.98,4.42-4.42,1.06,1.06-5.48,5.48Z"/></svg>',
-  fail: '<svg fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8,1C4.13,1,1,4.13,1,8s3.13,7,7,7,7-3.13,7-7S11.87,1,8,1ZM11.18,10.12l-1.06,1.06-2.12-2.12-2.12,2.12-1.06-1.06,2.12-2.12-2.12-2.12,1.06-1.06,2.12,2.12,2.12-2.12,1.06,1.06-2.12,2.12,2.12,2.12Z"/></svg>',
   oneToOne: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-17 -8 34 16" aria-hidden="true"><line x1="-16" y1="0" x2="16" y2="0" stroke="currentColor" stroke-width="1.6"/><rect x="-7.5" y="-5.5" width="15" height="11" rx="5.5" fill="currentColor"/></svg>',
   /* the two orientations of the many marker: widening towards the table the
-     chip names, or back towards the one whose page you are on */
+    chip names, or back towards the one whose page you are on */
   manyRight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-17 -8 34 16" aria-hidden="true"><line x1="-16" y1="0" x2="16" y2="0" stroke="currentColor" stroke-width="1.6"/><path d="M-7.5,0L7.5,-5.5L7.5,5.5Z" fill="currentColor"/></svg>',
   manyLeft: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-17 -8 34 16" aria-hidden="true"><line x1="-16" y1="0" x2="16" y2="0" stroke="currentColor" stroke-width="1.6"/><path d="M7.5,0L-7.5,-5.5L-7.5,5.5Z" fill="currentColor"/></svg>',
-};
-
-/* An inlined icon, wrapped so it can sit inside a flex row. */
-function Icon({ svg }) {
-  return html`<span class="ic" dangerouslySetInnerHTML=${{ __html: svg }} />`;
-}
+});
 
 /* ---- text ---------------------------------------------------------------- */
 
 /* Text with the query occurrence wrapped in <mark> — the vnode twin of the
-   DOM-building `marked` in shared.js. */
+   DOM-building `marked` in dict.js. */
 function Marked({ text, ql, cls }) {
   const s = String(text == null ? "" : text);
   const i = ql ? s.toLowerCase().indexOf(ql) : -1;
@@ -43,48 +29,11 @@ function Marked({ text, ql, cls }) {
   return html`<span class=${cls}>${s.slice(0, i)}<mark>${s.slice(i, i + ql.length)}</mark>${s.slice(i + ql.length)}</span>`;
 }
 
-/* A prose field (rendered HTML from the export), annotated with glossary
-   underlines and search marks. The annotation walks a parsed DOM tree, so
-   the shared `prose` builder does the work and a ref mounts its output. */
-function Prose({ source, hl }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    ref.current.replaceChildren(prose(source, hl));
-  }, [source, hl]);
-  return html`<span ref=${ref} />`;
-}
-
-/* The mark an unresolved `todo` leaves on whatever carries it — the dataset, a
-   table, a column. The note itself can run to several tasks, so it opens in the
-   shared tooltip, anchored under the icon, rather than taking a line of its own
-   on a page that is mostly settled fact. Focusable so the note is reachable
-   without a pointer. */
-function TodoFlag({ source }) {
-  const ref = useRef(null);
-  if (!source) return null;
-  const show = () => anchorTip(todoTip(source), ref.current);
-  return html`<span class="todo-flag" ref=${ref} tabIndex="0" role="note"
-    aria-label="Unresolved todo"
-    onMouseEnter=${show} onMouseLeave=${hideTip}
-    onFocus=${show} onBlur=${hideTip}
-    dangerouslySetInnerHTML=${{ __html: ICONS.todo }} />`;
-}
-
 /* "name: label" — the name keeps the mono face of its children; the label is
    plain body text beside it. */
 function NameLabel({ label, children }) {
   if (!label) return children;
   return html`<span>${children}<span class="name-label">: ${label}</span></span>`;
-}
-
-/* `details` is always tucked behind a disclosure rather than shown inline.
-   A search hit inside it forces the expando open, so a match is never hidden. */
-function DetailsBlock({ source, hl }) {
-  const open = !!(hl && plain(source).toLowerCase().includes(hl));
-  return html`<details class="xdetails" open=${open}>
-    <summary>Details</summary>
-    <div class="xdetails-body"><${Prose} source=${source} hl=${hl} /></div>
-  </details>`;
 }
 
 /* ---- metadata lines ------------------------------------------------------ */
@@ -121,14 +70,6 @@ function MetaLine({ label, items, hl }) {
   </div>`;
 }
 
-/* A meta line carrying a single value — a range, a count, a unit. It is a value
-   like any other on these lines, so it wears the same chip. */
-function MetaText({ label, text }) {
-  return html`<div class="col-meta">
-    <span class="lbl">${label}:</span><span class="val">${text}</span>
-  </div>`;
-}
-
 /* An enum written as a map gives every value a label, which is a definition
    list: what may appear on the left, what it means on the right. */
 function ValueDefs({ values, labels, hl }) {
@@ -160,21 +101,6 @@ function SampleValues({ values, hl }) {
   </div>`;
 }
 
-/* ---- formatting ---------------------------------------------------------- */
-
-function fmtNum(x) {
-  if (x == null || x === "") return "";
-  const n = Number(x);
-  if (!isFinite(n)) return String(x);
-  return Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function fmtPct(share) {
-  if (share >= 0.999) return "100%";
-  if (share > 0 && share < 0.001) return "<0.1%";
-  return (share * 100).toFixed(share >= 0.1 ? 0 : 1) + "%";
-}
-
 /* A range as its two ends, each a value in its own right; an absent bound
    (declared ±Inf) leaves that end open. The dash between them is punctuation
    rather than a value, so it stays outside the chips. */
@@ -184,46 +110,6 @@ function RangeLine({ range }) {
     <span class="lbl">range:</span>
     ${bound(range.min, "−∞")}${"–"}${bound(range.max, "∞")}
   </div>`;
-}
-
-/* The hover every bar shares: "{value or bin}: {n} ({share}%)". */
-function barTip(label, count, total) {
-  return label + ": " + count.toLocaleString() + (total ? " (" + fmtPct(count / total) + ")" : "");
-}
-
-/* ---- theme --------------------------------------------------------------- */
-
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
-
-function effectiveTheme() {
-  return document.documentElement.dataset.theme ?? (systemDark.matches ? "dark" : "light");
-}
-
-/* Light or dark, toggled by one button; the half-moon icon turns over when
-   dark. The stylesheet holds one palette written with light-dark(); this only
-   decides which scheme is in use. With nothing chosen the page follows the
-   system. */
-function ThemeToggle() {
-  const [dark, setDark] = useState(effectiveTheme() === "dark");
-  useEffect(() => {
-    const follow = () => setDark(effectiveTheme() === "dark"); // only matters while following the system
-    systemDark.addEventListener("change", follow);
-    return () => systemDark.removeEventListener("change", follow);
-  }, []);
-  const flip = () => {
-    const next = dark ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("dd-theme", next);
-    } catch {
-      // storage can be refused for a file:// page; the choice just won't persist
-    }
-    setDark(next === "dark");
-  };
-  return html`<button id="theme-toggle" class=${"icon-btn theme-toggle" + (dark ? " is-dark" : "")}
-    type="button" aria-label="Toggle color theme"
-    title=${dark ? "Switch to light mode" : "Switch to dark mode"}
-    onClick=${flip} dangerouslySetInnerHTML=${{ __html: ICONS.theme }} />`;
 }
 
 /* ---- profile visualisations ---------------------------------------------- */

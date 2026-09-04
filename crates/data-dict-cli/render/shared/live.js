@@ -1,4 +1,4 @@
-/* The live-reload client, added to the page only by `data-dict render --live`.
+/* The live-reload client, added to either page only when `--live` serves it.
    The server pushes one event when the page has been rebuilt and another when
    the dictionary stopped validating; a rebuild reloads, a failure leaves the
    last good page up and reports over it. Diagnostics are fetched rather than
@@ -17,8 +17,8 @@
       box-shadow: 0 10px 30px var(--shadow-far, rgba(0,0,0,.25));
       font-size: 12px;
     }
-    #${PANEL}.err { --edge: var(--null-bar, #d80d0d); }
-    #${PANEL}.warn { --edge: var(--tag-ink, #9d5d00); }
+    #${PANEL}.err { --edge: var(--bad, #d80d0d); }
+    #${PANEL}.warn { --edge: var(--warn, #9d5d00); }
     #${PANEL}.off { --edge: var(--ink-faint, #98a2b0); }
     #${PANEL} .hd {
       display: flex; align-items: center; gap: 8px;
@@ -63,7 +63,12 @@
     document.body.append(el);
   }
 
+  /* The report page's findings are its content, not a build failure, so the
+     panel would only repeat what the page already says. */
+  const isDictPage = typeof loadDict === "function";
+
   async function report() {
+    if (!isDictPage) return;
     let result;
     try {
       result = await (await fetch("/problems", { cache: "no-store" })).json();
@@ -104,7 +109,8 @@
   }
 
   function rebuilt() {
-    if (!onTablePage()) return location.reload();
+    // The report page has no `loadDict` to swap through, so it always reloads.
+    if (!isDictPage || !onTablePage()) return location.reload();
     // A failed swap must not leave a half-updated page: fall back to the
     // reload it replaced.
     swap().then(report, () => location.reload());

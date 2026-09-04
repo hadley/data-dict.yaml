@@ -254,6 +254,9 @@ pub enum ProblemKind {
         count: usize,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        keys: Vec<ValueRow>,
+        redacted: bool,
     },
     /// `D02` — a unique column or composite primary key contains duplicates.
     /// `count` is the total; `rows` lists the first few repeat occurrences
@@ -262,6 +265,8 @@ pub enum ProblemKind {
         count: usize,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        keys: Vec<ValueRow>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
         redacted: bool,
@@ -278,6 +283,8 @@ pub enum ProblemKind {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
+        keys: Vec<ValueRow>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
         redacted: bool,
     },
@@ -292,6 +299,8 @@ pub enum ProblemKind {
         count: usize,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        keys: Vec<ValueRow>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
         redacted: bool,
@@ -313,6 +322,8 @@ pub enum ProblemKind {
         count: usize,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         rows: Vec<usize>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        keys: Vec<ValueRow>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         values: Vec<ValueRow>,
         redacted: bool,
@@ -627,6 +638,23 @@ impl Problem {
     }
 }
 
+/// The first few failing rows of one table, across every check that named
+/// rows, with every declared column's values — the report's failed-rows page.
+/// `count` is how many distinct rows failed before `rows` was capped. A
+/// restricted column is withheld entirely, flagging `redacted`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FailedTableRows {
+    pub table: String,
+    pub count: usize,
+    pub rows: Vec<usize>,
+    /// The primary key each listed row held, split out so a consumer can set
+    /// it apart from the other columns; absent when the table declares none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<ValueRow>,
+    pub values: Vec<ValueRow>,
+    pub redacted: bool,
+}
+
 /// Every problem found while validating a document, with the [`SourceContext`]
 /// needed to render the span-located ones. Levels push into a `ProblemSet` as
 /// they run; the driver descends to the next level only while [`status`] is not
@@ -634,6 +662,7 @@ impl Problem {
 ///
 /// [`status`]: ProblemSet::status
 #[derive(Debug)]
+
 pub struct ProblemSet {
     pub items: Vec<Problem>,
     pub source: SourceContext,
@@ -641,6 +670,9 @@ pub struct ProblemSet {
     /// spec-level run, whose checks read the document as a whole rather than
     /// any declared target.
     pub steps: Steps,
+    /// Per-table failing rows with every column, gathered only by a data-level
+    /// run; empty at the earlier levels.
+    pub failed_rows: Vec<FailedTableRows>,
     /// The document every span in this set is a span of. [`SourceContext`] can
     /// return a file but not name which one is the dictionary, so the id is
     /// kept alongside it.
@@ -656,6 +688,7 @@ impl ProblemSet {
             items: Vec::new(),
             source,
             steps: Steps::default(),
+            failed_rows: Vec::new(),
             root,
         }
     }
@@ -926,17 +959,23 @@ pub(crate) fn subspan(parent: &SourceInfo, start: usize, end: usize) -> Option<S
     Some(SourceInfo::substring(parent.clone(), start, end))
 }
 
+/// How many row numbers or values a rendered diagnostic lists before falling
+/// back to an ellipsis. The recorded sample is larger (the report browses it);
+/// a terminal line has no room for it.
+pub(crate) const LIST_LIMIT: usize = 10;
+
 /// Format offending row numbers for display: `rows: 3, 7, 12`, with a trailing
-/// `, …` when there were more offenders than the recorded sample. The label is
+/// `, …` when more were counted — or recorded — than are listed. The label is
 /// singular (`row: 3`) for a lone offender.
 pub(crate) fn format_rows(rows: &[usize], count: usize) -> String {
     let label = if count == 1 { "row" } else { "rows" };
     let listed = rows
         .iter()
+        .take(LIST_LIMIT)
         .map(|r| r.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    if count > rows.len() {
+    if count > rows.len().min(LIST_LIMIT) {
         format!("{label}: {listed}, …")
     } else {
         format!("{label}: {listed}")
@@ -962,6 +1001,10 @@ pub(crate) fn format_values(values: &[ValueRow]) -> Option<String> {
         if !seen.contains(&text) {
             seen.push(text);
         }
+    }
+    if seen.len() > LIST_LIMIT {
+        seen.truncate(LIST_LIMIT);
+        seen.push("…".to_string());
     }
     (!seen.is_empty()).then(|| seen.join(", "))
 }
@@ -1030,7 +1073,9 @@ mod tests {
         assert_eq!(
             ProblemKind::NullsInRequired {
                 count: 1,
-                rows: vec![2]
+                rows: vec![2],
+                keys: vec![],
+                redacted: false,
             }
             .level(),
             Some(Level::Data)
@@ -1039,6 +1084,7 @@ mod tests {
             ProblemKind::DuplicateValues {
                 count: 1,
                 rows: vec![2],
+                keys: vec![],
                 values: vec![row(&[("id", Some("x"))])],
                 redacted: false,
             }
@@ -1049,6 +1095,7 @@ mod tests {
             ProblemKind::ValuesOutsideEnum {
                 count: 1,
                 rows: vec![2],
+                keys: vec![],
                 values: vec![row(&[("status", Some("x"))])],
                 redacted: false,
             }

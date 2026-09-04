@@ -38,7 +38,6 @@
   --green: #859900;
 
   --accent1-hue: var(--blue); /* title, key badges, headings, links, focus, bars */
-  --accent2-hue: var(--orange); /* foreign keys, the many end, the hovered bar, search hits */
 
   --accent1: light-dark(
     color-mix(in oklab, var(--accent1-hue) 80%, black),
@@ -46,13 +45,6 @@
   --accent1-soft: light-dark(
     color-mix(in oklab, var(--accent1-hue) 20%, white),
     color-mix(in oklab, var(--accent1-hue) 20%, var(--background)));
-  --on-accent1: light-dark(#ffffff, #14142c); /* text on an accent1 fill */
-  --accent2: light-dark(
-    color-mix(in oklab, var(--accent2-hue) 80%, black),
-    color-mix(in oklab, var(--accent2-hue) 80%, white));
-  --accent2-soft: light-dark(
-    color-mix(in oklab, var(--accent2-hue) 20%, white),
-    color-mix(in oklab, var(--accent2-hue) 20%, var(--background)));
   /* a caveat rather than a fact, which is what the palette's yellow is for and
      what its three tenants have in common: an unresolved todo, a restricted
      column, and a validation warning */
@@ -76,35 +68,19 @@
   --bad-soft: light-dark(
     color-mix(in oklab, var(--red) 20%, white),
     color-mix(in oklab, var(--red) 20%, var(--background)));
-  --grid-dot: light-dark(#cdc6b6, #2c343c);
-  --scroll-thumb: light-dark(#cdc9c1, #3f4751);
   /* every row that takes part in a relationship wears this, so it is the
      quietest step on the ladder */
   --hover-row: light-dark(
     color-mix(in oklab, var(--accent1-hue) 10%, white),
     color-mix(in oklab, var(--accent1-hue) 10%, var(--background)));
-  --focus-ring: color-mix(in oklab, var(--accent1-hue) 20%, transparent);
-  --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
   --shadow-far: light-dark(rgba(28, 36, 48, 0.25), rgba(0, 0, 0, 0.5));
   --shadow-lift: light-dark(rgba(28, 36, 48, 0.45), rgba(0, 0, 0, 0.7));
-  --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
 
-  /* the tables app's vocabulary, mapped onto the same palette */
+  /* the pages' shared vocabulary, mapped onto the same palette */
   --chip: light-dark(#e9ecf2, #21262d);
   --link: var(--accent1); /* a link is the accent doing its plainest job */
-  --tag-ink: var(--accent2-hue);
-  --mark: color-mix(in oklab, var(--accent2-hue) 40%, transparent);
-  --hist-bar: var(--accent1-hue);
-  --hist-bar-hot: var(--accent2-hue);
-  --hist-band: color-mix(in oklab, var(--accent2-hue) 20%, transparent);
   /* a bar is a mark rather than text or a fill, so it takes the raw value */
-  --pass-bar: var(--green);
   --fail-bar: var(--red);
-  --null-bar: var(--red);
-  --null-fill: light-dark(#e3e3e3, #444c55);
-  --null-edge: light-dark(#bcbcbc, #5a626c);
-  --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
-  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.07));
 
   /* The two faces everything on the page wears: sans for prose, mono for
      names, values, and micro-labels. */
@@ -140,12 +116,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-.pagehead h1 { color: var(--accent1); font-size: var(--text-2xl); font-weight: 700; margin: 0; }
-/* The title as a link keeps the title's own colour and weight: it should read as
-   the heading it is, with the chevron the only sign it goes anywhere. Only the
-   name underlines on hover, so the chevron isn't struck through. */
-.homelink, .title-row { --chev-gap: .34em; display: inline-flex; align-items: center; gap: var(--chev-gap); }
-.homelink { color: inherit; text-decoration: none; }
+.pagehead h1 { font-size: var(--text-2xl); font-weight: 700; margin: 0; }
+/* The name's colour lives on the link and its plain stand-in, not the h1, so
+   a page whose title is a statement rather than a name (the report's verdict)
+   isn't painted with it. The link keeps the title's colour and weight: it
+   should read as the heading it is, with the chevron the only sign it goes
+   anywhere. Only the name underlines on hover, so the chevron isn't struck
+   through. */
+.homelink, .title-row { --chev-gap: .34em; display: inline-flex; align-items: center; gap: var(--chev-gap); color: var(--accent1); }
+.homelink { text-decoration: none; }
 .homelink:hover span:last-child { text-decoration: underline; }
 .homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 4px; }
 /* The chevron hangs in the page's left margin, so the name sits where it would
@@ -182,58 +161,20 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
   border-radius: 3px;
   padding: 1px 4px;
 }
-.key.fk { color: var(--accent2); background: var(--accent2-soft); }
 .key.restricted { color: var(--warn); background: var(--warn-soft); }
-
-/* The mark an unresolved `todo` leaves on the thing that carries it. Quiet
-   until pointed at: it is a note to whoever is still writing the dictionary,
-   not something the reader has to act on. The note itself is in the tooltip. */
-.todo-flag {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border-radius: 4px;
-  color: var(--warn);
-  cursor: help;
-}
-.todo-flag svg { display: block; width: 13px; height: 13px; }
-.todo-flag:hover, .todo-flag:focus-visible { background: var(--warn-soft); }
-.todo-flag:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
-/* beside the dataset's name it sits against 29px type, and centres on it
-   rather than on the baseline the rest of the head shares */
-.head-title .todo-flag { align-self: center; }
-.head-title .todo-flag svg { width: 16px; height: 16px; }
-/* the index's name cell is text, not a flex row, so the gap is its own */
-.tlist .name .todo-flag { margin-left: 5px; vertical-align: -2px; }
 
 .icon-btn:hover { border-color: var(--accent1); color: var(--accent1); }
 .icon-btn svg { display: block; width: 19px; height: 19px; }
 .icon-btn[hidden] { display: none; }
-.lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
 
 /* One toggle, light or dark; the half-moon icon turns over when dark. With
    nothing chosen the page follows the system. */
 .theme-toggle svg { transition: transform .2s ease; }
 .theme-toggle.is-dark svg { transform: rotate(180deg); }
 
-/* "name: label" — the name keeps whatever (usually mono) face surrounds it;
-   the label reads as plain text beside it. */
-.name-label {
-  font-family: var(--font-sans);
-  font-weight: 400;
-  color: var(--ink-soft);
-}
-
-#tables { margin-top: 30px; }
-
-/* search hits, wherever they land */
-mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
-
 /* ---- tooltip -------------------------------------------------------------
-   One #tip element for the whole page, above the modals: it follows the
-   cursor (wires, rows, histogram bars) or is anchored under an element
-   (glossary terms) — shared.js decides which per show. */
+   One #tip element for the whole page, above everything else: it follows the
+   cursor of whatever is being pointed at. */
 #tip {
   position: fixed;
   z-index: 2000;
@@ -267,19 +208,6 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 #tip .tip-head + p { margin-top: 5px; }
 /* a second relationship behind the same chip, set off from the first */
 #tip .tip-head ~ .tip-head { margin-top: 9px; }
-#tip .tip-label { font-style: italic; }
-#tip .gt-term { font-weight: 700; }
-
-/* A `todo`, whether it is the whole tooltip (hovering the flag) or a note
-   under a join's description. Its own colour carries the warning that the
-   flag's did, and the list `draft` usually writes is set as a list. */
-#tip .tip-todo .tip-head code { color: var(--warn); }
-#tip .tip-todo .prose { display: block; margin-top: 5px; color: var(--ink-soft); }
-#tip .tip-todo-note { margin-top: 9px; }
-#tip .tip-todo-lbl { font-family: var(--font-mono); color: var(--warn); }
-#tip .tip-todo :is(p, ul, ol) { margin: 0; }
-#tip .tip-todo :is(ul, ol) { padding-left: 1.2em; }
-#tip .tip-todo li + li { margin-top: 2px; }
 
 @media (max-width: 720px) {
   main { padding: 26px 18px 60px; }

@@ -404,7 +404,7 @@ fn write_render_dict(dir: &std::path::Path, description: &str) {
     .unwrap();
 }
 
-/// With the source data present, `render` writes the page next to the
+/// With the source data present, `render-spec` writes the page next to the
 /// dictionary with the profiles embedded in its `#dict` document.
 #[test]
 fn render_profiles_data_into_the_page() {
@@ -412,7 +412,7 @@ fn render_profiles_data_into_the_page() {
     write_render_dict(&dir, "One row per pup.");
     write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
 
-    let output = run_in(&dir, &["render"]);
+    let output = run_in(&dir, &["render-spec"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("data-dict.html"), "{stdout}");
@@ -422,14 +422,14 @@ fn render_profiles_data_into_the_page() {
     assert!(html.contains(r#""distinct""#), "profiles are embedded");
 }
 
-/// With no source file present, `render` still writes the page — resolved
+/// With no source file present, `render-spec` still writes the page — resolved
 /// dictionary only, no profiles — and raises no missing-source warnings.
 #[test]
 fn render_without_data_is_quiet_and_unprofiled() {
     let dir = temp_dir("render-spec");
     write_render_dict(&dir, "One row per pup.");
 
-    let output = run_in(&dir, &["render"]);
+    let output = run_in(&dir, &["render-spec"]);
     assert!(output.status.success());
     assert!(
         output.stderr.is_empty(),
@@ -468,7 +468,7 @@ fn render_carries_todos_into_the_page() {
     )
     .unwrap();
 
-    let output = run_in(&dir, &["render"]);
+    let output = run_in(&dir, &["render-spec"]);
     assert!(output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("S31"), "{stderr}");
@@ -490,7 +490,7 @@ fn render_output_flag_overrides_the_path() {
     let dir = temp_dir("render-output");
     write_render_dict(&dir, "One row per pup.");
 
-    let output = run_in(&dir, &["render", ".", "-o", "elsewhere.html"]);
+    let output = run_in(&dir, &["render-spec", ".", "-o", "elsewhere.html"]);
     assert!(output.status.success());
     assert!(dir.join("elsewhere.html").is_file());
     assert!(!dir.join("data-dict.html").exists());
@@ -522,7 +522,7 @@ fn render_escapes_script_breaking_text() {
     )
     .unwrap();
 
-    let output = run_in(&dir, &["render"]);
+    let output = run_in(&dir, &["render-spec"]);
     assert!(output.status.success());
     let html = std::fs::read_to_string(dir.join("data-dict.html")).unwrap();
     assert!(
@@ -554,7 +554,7 @@ fn render_fails_on_invalid_dictionary() {
     )
     .unwrap();
 
-    let output = run_in(&dir, &["render"]);
+    let output = run_in(&dir, &["render-spec"]);
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("S07"), "{stderr}");
@@ -600,28 +600,26 @@ fn page_payloads(html: &str) -> (serde_json::Value, String) {
     (report, source)
 }
 
-/// The page's report is the document `--json` prints, byte for byte: one run,
-/// one serialization, two sinks.
+/// The page's report is the document `validate-data --json` prints, byte for
+/// byte: the same run, rendered two ways.
 #[test]
 fn the_page_embeds_the_same_report_as_json() {
     let dir = temp_dir("html-same");
     write_render_dict(&dir, "One row per pup.");
     write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
 
-    let page = dir.join("report.html");
-    let output = run_in(
-        &dir,
-        &["validate-data", "--json", "--html", page.to_str().unwrap()],
-    );
+    let json = run_in(&dir, &["validate-data", "--json"]);
+    assert!(json.status.success());
+    let report: serde_json::Value =
+        serde_json::from_str(String::from_utf8(json.stdout).unwrap().trim())
+            .expect("stdout is one JSON");
+
+    let output = run_in(&dir, &["render-report"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    // `--json` owns stdout, so the note naming the page went to stderr.
-    let report: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("stdout is one JSON");
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("wrote "), "{stderr}");
+    assert!(stdout.contains("wrote "), "{stdout}");
 
-    let html = std::fs::read_to_string(&page).unwrap();
+    let html = std::fs::read_to_string(dir.join("report.html")).unwrap();
     let (embedded, source) = page_payloads(&html);
     assert_eq!(embedded, report);
     assert_eq!(
@@ -638,43 +636,54 @@ fn a_clean_run_still_writes_a_page() {
     write_render_dict(&dir, "One row per pup.");
     write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
 
-    let page = dir.join("report.html");
-    let output = run_in(&dir, &["validate-data", "--html", page.to_str().unwrap()]);
+    let output = run_in(&dir, &["render-report"]);
     assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("wrote "), "{stdout}");
 
-    let (report, _) = page_payloads(&std::fs::read_to_string(&page).unwrap());
+    let (report, _) = page_payloads(&std::fs::read_to_string(dir.join("report.html")).unwrap());
     assert_eq!(report["status"], "ok");
     assert_eq!(report["problems"], serde_json::json!([]));
     let steps = report["steps"].as_array().expect("steps");
     assert!(steps.iter().all(|s| s["outcome"] == "pass"), "{steps:?}");
 }
 
-/// A spec-level run has no steps to list, and still writes a page and fails.
+/// A failing run still writes a page: the findings are the point.
 #[test]
-fn a_failing_spec_run_writes_a_page() {
-    let dir = temp_dir("html-spec");
-    let page = dir.join("report.html");
-    let fixture = multi_error_fixture();
-    let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
-        .args(["validate-spec"])
-        .arg(&fixture)
-        .args(["--html", page.to_str().unwrap()])
-        .output()
-        .expect("failed to run data-dict");
+fn a_failing_run_still_writes_a_page() {
+    let dir = temp_dir("html-failing");
+    std::fs::write(
+        dir.join("data-dict.yaml"),
+        indoc::indoc! {"
+            $version: \"0.1.0\"
+            $learn_more: http://data-dict.tidyverse.org/
+            description: One row per pup.
+            tables:
+              - name: pups
+                source:
+                  parquet: pups.parquet
+                columns:
+                  - name: carer
+                    type: enum
+                    values: [ada, grace]
+        "},
+    )
+    .unwrap();
+    write_string_parquet(&dir.join("pups.parquet"), "carer", &["ada", "hopper"]);
+
+    let output = run_in(&dir, &["render-report"]);
     assert!(!output.status.success());
 
-    let html = std::fs::read_to_string(&page).unwrap();
+    let html = std::fs::read_to_string(dir.join("report.html")).unwrap();
     let (report, source) = page_payloads(&html);
-    assert_eq!(report["steps"], serde_json::json!([]));
-    assert_eq!(report["run"]["level"], "spec");
+    assert_eq!(report["run"]["level"], "data");
     assert!(
         report["problems"]
             .as_array()
-            .is_some_and(|p| p.iter().any(|problem| problem["code"] == "S07"))
+            .is_some_and(|p| p.iter().any(|problem| problem["code"] == "D04"))
     );
-    assert_eq!(source, std::fs::read_to_string(&fixture).unwrap());
+    assert_eq!(
+        source,
+        std::fs::read_to_string(dir.join("data-dict.yaml")).unwrap()
+    );
 }
 
 /// A run that never started has no report, so it has no page either.
@@ -683,9 +692,9 @@ fn a_preflight_failure_writes_no_page() {
     let dir = temp_dir("html-preflight");
     let page = dir.join("report.html");
     let output = Command::new(env!("CARGO_BIN_EXE_data-dict"))
-        .args(["validate-data"])
+        .args(["render-report"])
         .arg(dir.join("absent.yaml"))
-        .args(["--html", page.to_str().unwrap()])
+        .args(["-o", page.to_str().unwrap()])
         .output()
         .expect("failed to run data-dict");
     assert!(!output.status.success());
@@ -709,6 +718,8 @@ fn the_page_escapes_script_breaking_yaml() {
                 description: \"{payload} {{{{REPORT_JSON}}}} pups\"
                 tables:
                   - name: pups
+                    source:
+                      parquet: pups.parquet
                     columns:
                       - name: pup_name
                         type: string
@@ -718,9 +729,10 @@ fn the_page_escapes_script_breaking_yaml() {
         ),
     )
     .unwrap();
+    write_string_parquet(&dir.join("pups.parquet"), "pup_name", &["ada"]);
 
     let page = dir.join("report.html");
-    let output = run_in(&dir, &["validate-spec", "--html", page.to_str().unwrap()]);
+    let output = run_in(&dir, &["render-report"]);
     assert!(output.status.success());
     let html = std::fs::read_to_string(&page).unwrap();
     assert!(
@@ -760,10 +772,9 @@ fn restricted_values_never_reach_the_page() {
     .unwrap();
     write_string_parquet(&dir.join("pups.parquet"), "carer", &["ada", "hopper"]);
 
-    let page = dir.join("report.html");
-    let output = run_in(&dir, &["validate-data", "--html", page.to_str().unwrap()]);
+    let output = run_in(&dir, &["render-report"]);
     assert!(!output.status.success());
-    let html = std::fs::read_to_string(&page).unwrap();
+    let html = std::fs::read_to_string(dir.join("report.html")).unwrap();
     assert!(
         !html.contains("hopper"),
         "a restricted column's offending value must not reach the page"
@@ -782,9 +793,10 @@ fn restricted_values_never_reach_the_page() {
 fn a_page_that_cannot_be_written_fails_the_run() {
     let dir = temp_dir("html-unwritable");
     write_render_dict(&dir, "One row per pup.");
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
     let page = dir.join("absent-dir").join("report.html");
 
-    let output = run_in(&dir, &["validate-spec", "--html", page.to_str().unwrap()]);
+    let output = run_in(&dir, &["render-report", ".", "-o", page.to_str().unwrap()]);
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains(&page.display().to_string()), "{stderr}");
@@ -796,11 +808,11 @@ fn a_page_that_cannot_be_written_fails_the_run() {
 fn the_page_carries_the_check_catalogue() {
     let dir = temp_dir("html-checks");
     write_render_dict(&dir, "One row per pup.");
-    let page = dir.join("report.html");
+    write_parquet(&dir.join("pups.parquet"), "pup_count", &[0, 1, 1, 2]);
 
-    let output = run_in(&dir, &["validate-spec", "--html", page.to_str().unwrap()]);
+    let output = run_in(&dir, &["render-report"]);
     assert!(output.status.success());
-    let html = std::fs::read_to_string(&page).unwrap();
+    let html = std::fs::read_to_string(dir.join("report.html")).unwrap();
     assert!(html.contains(r#"<script type="application/json" id="checks">"#));
     // The name comes from validation.md's own table, so this pins the parse.
     assert!(html.contains("Duplicate values"), "D02's name is missing");

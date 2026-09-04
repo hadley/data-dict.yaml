@@ -5,7 +5,7 @@
 //   3. hand the measurements to the layout engine
 //   4. place the boxes and draw the wires
 //
-// What the page is handed is a data dictionary as `data-dict render` exports
+// What the page is handed is a data dictionary as `data-dict render-spec` exports
 // it, embedded as-is (parsed once in shared.js): table and column names, row
 // counts, resolved `constraints`, and relationships with their column `pairs`
 // worked out and their sides normalised so `left` is always the many end.

@@ -2,7 +2,44 @@
 // and the prose renderer that annotates prose with it. Loaded only by
 // index.html, which is the only page that has a dictionary to read.
 //
-// Depends on shared.js for `el`, `marked` and the tooltip.
+// Depends on shared.js for `el` and the tooltip.
+
+// For the few places markup is still assembled as a string: a table or column
+// name containing markup would otherwise be parsed as HTML.
+const esc = (s) =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
+
+/* Text with the query occurrence wrapped in <mark>, as a DOM node. The prose
+   annotator below builds real DOM; the vnode twin for component use is
+   `Marked` in column.js. */
+function marked(text, ql, cls) {
+  const s = String(text == null ? "" : text);
+  const span = el("span", cls);
+  const i = ql ? s.toLowerCase().indexOf(ql) : -1;
+  if (i < 0) { span.textContent = s; return span; }
+  span.appendChild(document.createTextNode(s.slice(0, i)));
+  span.appendChild(el("mark", null, s.slice(i, i + ql.length)));
+  span.appendChild(document.createTextNode(s.slice(i + ql.length)));
+  return span;
+}
+
+/* The tooltip centred below `at`, or above it when there is no room below —
+   the placement for tips that belong to an element (a glossary term, a todo
+   flag) rather than to the cursor. */
+function anchorTip(content, at) {
+  tip.replaceChildren(content);
+  tip.hidden = false;
+  const r = at.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  const x = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+  const y = r.bottom + h + 8 > window.innerHeight ? r.top - h - 8 : r.bottom + 8;
+  tip.style.left = `${x}px`;
+  tip.style.top = `${Math.max(8, y)}px`;
+}
 
 /* Rebindable rather than constant so `render --live` can swap a rebuilt
    dictionary in without reloading the page; everything derived from it is

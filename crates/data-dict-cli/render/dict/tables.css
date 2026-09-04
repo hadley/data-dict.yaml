@@ -1,5 +1,7 @@
-/* The searchable table index, the table detail page, and the glossary.
-   Shares the page palette in app.css. */
+/* The dictionary page's own table styles: the searchable index, the table
+   detail page, and the glossary modal, all built on the shared shell in
+   shared/tables.css. Last of the page's stylesheets, so its rules win at
+   equal specificity. */
 
 /* `details` disclosures: a quiet micro-label toggle, same in the lead and the modal */
 details.xdetails { margin: 0 0 18px; }
@@ -26,25 +28,7 @@ details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outli
 }
 
 /* ---- table index ---- */
-.tlist-wrap {
-  border: 1px solid var(--rule); border-radius: 10px;
-  background: var(--paper); overflow-x: auto;
-}
-.tlist { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-.tlist thead th {
-  text-align: left; padding: 8px 14px; white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm); font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--ink-soft); border-bottom: 1px solid var(--rule);
-}
-.tlist th.num, .tlist td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.tlist td { padding: 0 14px; vertical-align: baseline; }
 
-/* one tbody per table: the block shares a border and a hover state */
-.tlist tbody.tgroup { border-bottom: 1px solid var(--rule); }
-.tlist tr[data-href] { cursor: pointer; }
-.tlist tbody.tgroup:last-child { border-bottom: none; }
-.tlist tbody.tgroup:hover td, .tlist tbody.tgroup:focus-within td { background: var(--chip); }
 .tlist tr.trow td { padding-top: 9px; }
 .tlist tr.drow td { padding-bottom: 10px; }
 .tlist tbody.tgroup:not(:has(.drow)) tr.trow td { padding-bottom: 10px; }
@@ -78,14 +62,6 @@ button.showall:focus-visible { outline: 2px solid var(--link); outline-offset: 2
 .tlist tr.crow td { padding-top: 2px; padding-bottom: 2px; }
 .tlist tbody.tgroup tr.crow:last-child td { padding-bottom: 10px; }
 .tlist td.csub { padding-left: 26px; white-space: nowrap; }
-a.cpath {
-  font-family: var(--font-mono); font-size: var(--text-sm);
-  text-decoration: none; border-radius: 3px;
-}
-a.cpath .cp-tbl { color: var(--ink-soft); }
-a.cpath .cp-col { color: var(--ink); font-weight: 650; }
-a.cpath:hover .cp-col, a.cpath:hover .cp-tbl { color: var(--link); }
-a.cpath:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .cwhere {
   margin-left: 8px;
   font-family: var(--font-mono); font-size: var(--text-sm);
@@ -138,6 +114,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
   background: var(--paper);
 }
 .lead { padding: 14px 16px; margin-bottom: 20px; }
+.lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
 .lead > :last-child, .lead p:last-child { margin-bottom: 0; }
 /* The rows bleed 13px outward to let a highlighted one span the full width, so
    the card's padding leaves them just inside its border. */
@@ -162,7 +139,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
   display: flex; flex-direction: column; gap: 10px;
 }
 /* Wide screens show the list outright, so the toggle only exists for the
-   narrow-width rules in app.css. */
+   narrow-width rules below. */
 .tnav-toggle { display: none; }
 .tnav-filter {
   flex: none; min-width: 0; padding: 7px 11px;
@@ -223,7 +200,7 @@ abbr.gterm:hover { text-decoration-color: var(--accent1); }
 
 .col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
 .col-item:last-child { border-bottom: none; }
-/* The permalinked column: "you are here", Lifted off the list. */
+/* The permalinked column: "you are here", lifted off the list. */
 .col-item.is-target {
   position: relative;
   z-index: 1;
@@ -285,18 +262,7 @@ a.col-name:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; 
 a.col-name .anchor-mark { margin-left: 6px; font-weight: 400; color: var(--ink-soft); opacity: 0; }
 a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 1; }
 .col-desc { color: var(--ink); font-size: var(--text-sm); margin-top: 4px; line-height: 1.5; }
-.col-meta { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
-.col-meta .lbl { font-weight: 650; margin-right: 6px; }
 .col-meta code { font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
-/* One chip for every value a column reports — allowed, given as an example,
-   sampled from the data, or the range and counts read off it — set off from the
-   line but in the page's own text face. Join chips share the shell; what sets
-   them apart is what they carry (a wire icon, mono names) and that they act. */
-.val, .join-chip {
-  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
-  padding: 0 3px; color: var(--ink);
-}
-.val { display: inline-block; }
 /* a chip cut short for its length: click reveals the whole value, wrapped */
 button.val { font: inherit; }
 .val.cut { cursor: pointer; }
@@ -315,9 +281,15 @@ button.val { font: inherit; }
 }
 .more-less:hover { text-decoration: underline; }
 .more-less:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+/* Join chips share the value chip's shell; what sets them apart is what they
+   carry (a wire icon, mono names) and that they act. */
+.join-chip {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0 3px; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); cursor: pointer; transition: border-color .1s ease, color .1s ease;
+}
 .joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .joins-line .lbl { margin-right: 0; }
-.join-chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); cursor: pointer; transition: border-color .1s ease, color .1s ease; }
 .join-chip:hover { border-color: var(--link); color: var(--link); }
 .join-chip svg { width: 20px; height: 10px; display: block; color: var(--ink-soft); }
 /* a quiet panel behind the bars, so the histogram reads as one thing */
@@ -346,6 +318,60 @@ button.val { font: inherit; }
 .gloss-item:last-child { border-bottom: none; }
 .gloss-term { font-weight: 700; font-size: var(--text-base); color: var(--ink); }
 .gloss-def { color: var(--ink); font-size: var(--text-sm); margin-top: 3px; line-height: 1.55; }
+
+/* ---- pieces only this page wears -----------------------------------------
+   A search with hits, glossary tooltips, and todo flags. */
+
+#tables { margin-top: 30px; }
+
+/* search hits, wherever they land */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* "name: label" — the name keeps whatever (usually mono) face surrounds it;
+   the label reads as plain text beside it. */
+.name-label {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.key.fk { color: var(--accent2); background: var(--accent2-soft); }
+
+/* The mark an unresolved `todo` leaves on the thing that carries it. Quiet
+   until pointed at: it is a note to whoever is still writing the dictionary,
+   not something the reader has to act on. The note itself is in the tooltip. */
+.todo-flag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--warn);
+  cursor: help;
+}
+.todo-flag svg { display: block; width: 13px; height: 13px; }
+.todo-flag:hover, .todo-flag:focus-visible { background: var(--warn-soft); }
+.todo-flag:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
+/* beside the dataset's name it sits against 29px type, and centres on it
+   rather than on the baseline the rest of the head shares */
+.head-title .todo-flag { align-self: center; }
+.head-title .todo-flag svg { width: 16px; height: 16px; }
+/* the index's name cell is text, not a flex row, so the gap is its own */
+.tlist .name .todo-flag { margin-left: 5px; vertical-align: -2px; }
+
+#tip .tip-label { font-style: italic; }
+#tip .gt-term { font-weight: 700; }
+
+/* A `todo`, whether it is the whole tooltip (hovering the flag) or a note
+   under a join's description. Its own colour carries the warning that the
+   flag's did, and the list `draft` usually writes is set as a list. */
+#tip .tip-todo .tip-head code { color: var(--warn); }
+#tip .tip-todo .prose { display: block; margin-top: 5px; color: var(--ink-soft); }
+#tip .tip-todo-note { margin-top: 9px; }
+#tip .tip-todo-lbl { font-family: var(--font-mono); color: var(--warn); }
+#tip .tip-todo :is(p, ul, ol) { margin: 0; }
+#tip .tip-todo :is(ul, ol) { padding-left: 1.2em; }
+#tip .tip-todo li + li { margin-top: 2px; }
 
 /* On a narrow window the profiles and the related-tables box come off the
    right-hand side and sit under what they sat beside. Last, so it outranks the

@@ -3,7 +3,7 @@
 //! [`validate_data`] is the entry point; `value_issues` is the value-checking
 //! core it runs after the metadata checks ([`crate::validate_meta`]).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use data_dict_parquet::{
@@ -15,14 +15,16 @@ use chrono::{DateTime, Utc};
 use quarto_source_map::SourceInfo;
 
 use crate::model::{Assertion, Column, Constraint, DataDict, Table};
-use crate::problem::{Problem, ProblemKind, ProblemSet, Severity, ValueRow};
+use crate::problem::{FailedTableRows, Problem, ProblemKind, ProblemSet, Severity, ValueRow};
 use crate::report::{Failed, StepKey, StepTarget, in_dictionary_order, table_assertions};
 use crate::validate_meta::CheckResult;
 use crate::{Level, ReadTables};
 
 /// How many example values (e.g. offending rows) to record per validation
-/// issue. Issues count every offender but only list this many.
-const SAMPLE_LIMIT: usize = 5;
+/// issue. Issues count every offender but only list this many. The report
+/// browses the whole sample; a terminal diagnostic lists only the first few
+/// (see [`crate::problem::LIST_LIMIT`]).
+const SAMPLE_LIMIT: usize = 50;
 
 /// A `display: restricted` column's values never appear in diagnostics.
 fn is_restricted(col: &Column) -> bool {
@@ -145,9 +147,111 @@ pub fn validate_data(dict_path: &Path, table: Option<&str>) -> ProblemSet {
             if let Err(e) = assertion_issues(table, parquet_path, actual, now, problems) {
                 problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
             }
+            if let Err(e) = attach_primary_keys(
+                table,
+                |name| actual.iter().any(|c| c.name == name),
+                parquet_path,
+                problems,
+            ) {
+                problems.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
+            }
         },
-        foreign_key_issues,
+        |dict, readable, problems| {
+            foreign_key_issues(dict, readable, problems);
+            failed_rows_export(dict, readable, problems);
+        },
     )
+}
+
+/// Gather the first few failing rows of each table — every declared column,
+/// not just the ones a check names — for the report's failed-rows page. The
+/// rows are the union of every row the table's problems named, ascending and
+/// capped; a restricted column, and a nested one a per-row value can't name,
+/// is left out, restriction flagging `redacted`.
+fn failed_rows_export(dict: &DataDict, readable: &ReadTables, out: &mut ProblemSet) {
+    for table in &dict.tables {
+        let Some((path, columns)) = readable.get(&table.name.value) else {
+            continue;
+        };
+        let mut rows: Vec<usize> = out
+            .items
+            .iter()
+            .filter(|p| p.table.as_deref() == Some(table.name.value.as_str()))
+            .filter_map(|p| sample_rows(&p.kind))
+            .flatten()
+            .copied()
+            .collect();
+        rows.sort_unstable();
+        rows.dedup();
+        let count = rows.len();
+        rows.truncate(SAMPLE_LIMIT);
+        if rows.is_empty() {
+            continue;
+        }
+        let restricted = |name: &str| {
+            table
+                .columns
+                .iter()
+                .any(|c| c.name.value == name && is_restricted(c))
+        };
+        let redacted = columns.iter().any(|name| restricted(name));
+        let names: Vec<String> = table
+            .columns
+            .iter()
+            .filter(|c| c.fields.is_none())
+            .map(|c| c.name.value.clone())
+            .filter(|name| columns.contains(name) && !restricted(name))
+            .collect();
+        let key: Vec<bool> = names
+            .iter()
+            .map(|name| {
+                table
+                    .columns
+                    .iter()
+                    .any(|c| c.name.value == *name && c.has(Constraint::PrimaryKey))
+            })
+            .collect();
+        let zero_based: Vec<usize> = rows.iter().map(|row| row - 1).collect();
+        match data_dict_parquet::values_at_rows(path, &names, &zero_based) {
+            Ok(fetched) => {
+                // No key columns left to name: an empty list, so the key is
+                // omitted rather than serialized as a list of empty objects.
+                let any_key = key.iter().any(|&is| is);
+                let mut keys = Vec::new();
+                let mut values = Vec::new();
+                for value in fetched {
+                    let entry: Vec<_> = names.iter().cloned().zip(value).collect();
+                    if any_key {
+                        keys.push(
+                            entry
+                                .iter()
+                                .enumerate()
+                                .filter(|(j, _)| key[*j])
+                                .map(|(_, e)| e.clone())
+                                .collect(),
+                        );
+                    }
+                    values.push(
+                        entry
+                            .into_iter()
+                            .enumerate()
+                            .filter(|(j, _)| !key[*j])
+                            .map(|(_, e)| e)
+                            .collect(),
+                    );
+                }
+                out.failed_rows.push(FailedTableRows {
+                    table: table.name.value.clone(),
+                    count,
+                    rows,
+                    keys,
+                    values,
+                    redacted,
+                });
+            }
+            Err(e) => out.push(Problem::preflight(ProblemKind::Parquet, e.to_string())),
+        }
+    }
 }
 
 /// Run the value-level checks for the dictionary's `table` against the data,
@@ -491,6 +595,7 @@ fn assertion_problem(
                     assertion: text,
                     count,
                     rows,
+                    keys: Vec::new(),
                     values,
                     redacted,
                 },
@@ -586,10 +691,11 @@ fn assertion_not_checked(
 fn list_rows(rows: &[usize], count: usize) -> String {
     let listed = rows
         .iter()
+        .take(crate::problem::LIST_LIMIT)
         .map(usize::to_string)
         .collect::<Vec<_>>()
         .join(", ");
-    if count > rows.len() {
+    if count > rows.len().min(crate::problem::LIST_LIMIT) {
         format!("{listed}, …")
     } else {
         listed
@@ -597,8 +703,10 @@ fn list_rows(rows: &[usize], count: usize) -> String {
 }
 
 /// The table, the column for a column-level assertion, and the `assert` text
-/// itself as the highlight.
-fn assertion_context(
+/// itself as the highlight. The author's `description` line rides along as
+/// context — not an enclosing node, but part of the declaration, so the
+/// excerpt shows it whole.
+pub(crate) fn assertion_context(
     table: &Table,
     col: Option<&Column>,
     assertion: &Assertion,
@@ -606,6 +714,9 @@ fn assertion_context(
     let mut spans = vec![table.name.span.clone()];
     if let Some(col) = col {
         spans.push(col.name.span.clone());
+    }
+    if let Some(description) = &assertion.description {
+        spans.push(description.span.clone());
     }
     spans.push(assertion.text.span.clone());
     spans
@@ -815,6 +926,7 @@ fn values_outside_enum(
         kind: ProblemKind::ValuesOutsideEnum {
             count,
             rows: stats.outside_rows.clone(),
+            keys: Vec::new(),
             values,
             redacted,
         },
@@ -852,7 +964,12 @@ fn nulls_in_required_data(table: &Table, col: &Column, count: usize, rows: Vec<u
             col.name.span.clone(),
             constraint_span,
         ],
-        kind: ProblemKind::NullsInRequired { count, rows },
+        kind: ProblemKind::NullsInRequired {
+            count,
+            rows,
+            keys: Vec::new(),
+            redacted: false,
+        },
     }
 }
 
@@ -889,6 +1006,7 @@ fn duplicates_in_unique_column(table: &Table, col: &Column, stats: &UniquenessSt
         kind: ProblemKind::DuplicateValues {
             count,
             rows: stats.duplicate_rows.clone(),
+            keys: Vec::new(),
             values,
             redacted,
         },
@@ -936,6 +1054,7 @@ fn duplicates_in_primary_key(
         kind: ProblemKind::DuplicateValues {
             count,
             rows: stats.duplicate_rows.clone(),
+            keys: Vec::new(),
             values,
             redacted,
         },
@@ -1092,6 +1211,153 @@ fn foreign_key_issues(dict: &DataDict, readable: &ReadTables, out: &mut ProblemS
             ForeignKeyResult::Checked(_) => out.step_pass(&step),
         }
     }
+    for table in &dict.tables {
+        let Some((path, columns)) = readable.get(&table.name.value) else {
+            continue;
+        };
+        if let Err(e) =
+            attach_primary_keys(table, |name| columns.iter().any(|c| c == name), path, out)
+        {
+            out.push(Problem::preflight(ProblemKind::Parquet, e.to_string()));
+        }
+    }
+}
+
+/// The 1-based row numbers a problem kind names, if it names rows at all.
+fn sample_rows(kind: &ProblemKind) -> Option<&Vec<usize>> {
+    match kind {
+        ProblemKind::NullsInRequired { rows, .. }
+        | ProblemKind::DuplicateValues { rows, .. }
+        | ProblemKind::ValuesOutsideEnum { rows, .. }
+        | ProblemKind::ForeignKeyNotFound { rows, .. }
+        | ProblemKind::AssertionViolated { rows, .. } => Some(rows),
+        _ => None,
+    }
+}
+
+/// The row sample a problem kind carries: its 1-based row numbers, the primary
+/// keys attached to them, and its withheld-values flag. `None` for a kind that
+/// names no rows.
+fn sample_mut(kind: &mut ProblemKind) -> Option<(&mut Vec<usize>, &mut Vec<ValueRow>, &mut bool)> {
+    match kind {
+        ProblemKind::NullsInRequired {
+            rows,
+            keys,
+            redacted,
+            ..
+        }
+        | ProblemKind::DuplicateValues {
+            rows,
+            keys,
+            redacted,
+            ..
+        }
+        | ProblemKind::ValuesOutsideEnum {
+            rows,
+            keys,
+            redacted,
+            ..
+        }
+        | ProblemKind::ForeignKeyNotFound {
+            rows,
+            keys,
+            redacted,
+            ..
+        }
+        | ProblemKind::AssertionViolated {
+            rows,
+            keys,
+            redacted,
+            ..
+        } => Some((rows, keys, redacted)),
+        _ => None,
+    }
+}
+
+/// Give every row-naming problem of `table` the primary key its listed rows
+/// held, so the report can say *which* row failed, not only where it sits. A
+/// key column the problem already names (a duplicate primary key reports its
+/// own key) is not repeated, and a restricted key column is withheld like any
+/// other value, flagging the problem `redacted`.
+fn attach_primary_keys(
+    table: &Table,
+    present: impl Fn(&str) -> bool,
+    parquet_path: &Path,
+    out: &mut ProblemSet,
+) -> Result<(), data_dict_parquet::ParquetError> {
+    let keys: Vec<&Column> = table
+        .columns
+        .iter()
+        .filter(|col| col.has(Constraint::PrimaryKey) && present(&col.name.value))
+        .collect();
+    let withheld = keys.iter().any(|col| is_restricted(col));
+    let names: Vec<String> = keys
+        .iter()
+        .filter(|col| !is_restricted(col))
+        .map(|col| col.name.value.clone())
+        .collect();
+    if names.is_empty() {
+        // Every key column is restricted: there is nothing to attach, but the
+        // withholding itself is still reported.
+        if withheld {
+            for problem in &mut out.items {
+                if problem.table.as_deref() != Some(table.name.value.as_str()) {
+                    continue;
+                }
+                if let Some((rows, _, redacted)) = sample_mut(&mut problem.kind)
+                    && !rows.is_empty()
+                {
+                    *redacted = true;
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // One read covers every row any problem of the table names; each problem
+    // then takes the keys of its own rows.
+    let mut named: Vec<usize> = Vec::new();
+    for problem in &out.items {
+        if problem.table.as_deref() == Some(table.name.value.as_str())
+            && let Some(rows) = sample_rows(&problem.kind)
+        {
+            named.extend(rows.iter().copied());
+        }
+    }
+    if named.is_empty() {
+        return Ok(());
+    }
+    let fetched = data_dict_parquet::values_at_rows(
+        parquet_path,
+        &names,
+        &named.iter().map(|row| row - 1).collect::<Vec<_>>(),
+    )?;
+    let by_row: HashMap<usize, Vec<Option<String>>> = named.into_iter().zip(fetched).collect();
+
+    for problem in &mut out.items {
+        if problem.table.as_deref() != Some(table.name.value.as_str()) {
+            continue;
+        }
+        let columns = &problem.columns;
+        let Some((rows, keys, redacted)) = sample_mut(&mut problem.kind) else {
+            continue;
+        };
+        let keep: Vec<usize> = (0..names.len())
+            .filter(|&j| !columns.contains(&names[j]))
+            .collect();
+        if rows.is_empty() || keep.is_empty() {
+            continue;
+        }
+        keys.clear();
+        keys.extend(rows.iter().map(|row| {
+            let values = &by_row[row];
+            keep.iter()
+                .map(|&j| (names[j].clone(), values[j].clone()))
+                .collect()
+        }));
+        *redacted |= withheld;
+    }
+    Ok(())
 }
 
 fn fk_constraint_span(col: &Column) -> quarto_source_map::SourceInfo {
@@ -1145,6 +1411,7 @@ fn foreign_key_not_found(
             references,
             count,
             rows: stats.orphan_rows.clone(),
+            keys: Vec::new(),
             values,
             redacted,
         },

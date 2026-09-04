@@ -16,13 +16,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use chrono::{SecondsFormat, Utc};
-use quarto_source_map::SourceContext;
+use quarto_source_map::{SourceContext, SourceInfo};
 
 use crate::Level;
 use crate::model::{Column, Constraint, Table};
 use crate::problem::{
     Problem, ProblemSet, Severity, SpanLocation, Status, Suggestion, span_location,
 };
+use crate::validate_data::assertion_context;
 
 /// The version of the report document format itself, not of any dictionary.
 pub const REPORT_VERSION: &str = "0.1.0";
@@ -52,6 +53,10 @@ pub struct Step {
     pub columns: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assertion: Option<String>,
+    /// The author's own description of an assertion, when they wrote one; the
+    /// report can name the check in those words rather than the expression's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub outcome: StepOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub row_count: Option<usize>,
@@ -65,6 +70,15 @@ pub struct Step {
     /// counted, so it reports no counts at all.
     #[serde(skip)]
     uncounted: bool,
+    /// The declaration the step checks, resolved to a `location` only at
+    /// serialization, where the [`SourceContext`] is at hand.
+    #[serde(skip)]
+    span: Option<SourceInfo>,
+    /// The nodes enclosing `span` — the table, the column, an assertion's
+    /// `description` line — resolved to `context` alongside it, so a step
+    /// that found nothing can still show where its rule is declared.
+    #[serde(skip)]
+    context: Vec<SourceInfo>,
 }
 
 /// What a step checks, within its table. The variants keep targets that share a
@@ -156,10 +170,13 @@ impl Steps {
             "M04",
             Vec::new(),
             None,
+            None,
+            Some(table.name.span.clone()),
+            Vec::new(),
         )];
         for col in &table.columns {
             column_steps(
-                name,
+                table,
                 col,
                 level,
                 &mut vec![col.name.value.clone()],
@@ -174,19 +191,33 @@ impl Steps {
                 .map(|col| col.name.value.clone())
                 .collect();
             if !key_columns.is_empty() {
+                let key_col = table
+                    .columns
+                    .iter()
+                    .find(|col| col.has(Constraint::PrimaryKey));
                 pending.push((
                     StepKey::new(name, StepTarget::PrimaryKey),
                     "D02",
                     key_columns,
                     None,
+                    None,
+                    key_col.and_then(|col| col.constraint_span(&[Constraint::PrimaryKey]).cloned()),
+                    key_col.map_or_else(Vec::new, |col| {
+                        vec![table.name.span.clone(), col.name.span.clone()]
+                    }),
                 ));
             }
+            let targets = table_assertions(table);
             for (position, (text, columns)) in assertions.iter().enumerate() {
+                let target = targets.get(position).copied();
                 pending.push((
                     StepKey::new(name, StepTarget::Assertion(position)),
                     "D07",
                     columns.clone(),
                     Some(text.clone()),
+                    target.and_then(|(a, _)| a.description.as_ref().map(|d| d.value.clone())),
+                    target.map(|(a, _)| a.text.span.clone()),
+                    target.map_or_else(Vec::new, |(a, col)| assertion_context(table, col, a)),
                 ));
             }
         }
@@ -197,7 +228,7 @@ impl Steps {
         // columns sorts by the first of them; one about no column (an aggregate
         // assertion reading none) sorts last.
         let order = column_order(table);
-        pending.sort_by_key(|(key, code, columns, _)| {
+        pending.sort_by_key(|(key, code, columns, ..)| {
             let rank = match key.target {
                 StepTarget::Table => 0,
                 _ => columns
@@ -208,17 +239,21 @@ impl Steps {
             (rank, code.starts_with('D'), *code)
         });
 
-        for (key, code, columns, assertion) in pending {
-            self.add(key, code, columns, assertion);
+        for (key, code, columns, assertion, description, span, context) in pending {
+            self.add(key, code, columns, assertion, description, span, context);
         }
     }
 
+    #[expect(clippy::too_many_arguments)]
     fn add(
         &mut self,
         key: StepKey,
         code: &'static str,
         columns: Vec<String>,
         assertion: Option<String>,
+        description: Option<String>,
+        span: Option<SourceInfo>,
+        context: Vec<SourceInfo>,
     ) {
         if self.index.contains_key(&key) {
             return;
@@ -230,11 +265,14 @@ impl Steps {
             table: key.table,
             columns,
             assertion,
+            description,
             outcome: StepOutcome::Unevaluated,
             row_count: None,
             failed_row_count: None,
             all_rows_fail: false,
             uncounted: false,
+            span,
+            context,
         });
     }
 
@@ -282,59 +320,90 @@ impl Steps {
 }
 
 /// A step yet to be registered: its key, the code it reports, the columns it
-/// covers, and an assertion's text.
-type Pending = (StepKey, &'static str, Vec<String>, Option<String>);
+/// covers, an assertion's text and the author's description of it, the
+/// declaration it checks, and the nodes enclosing that declaration.
+type Pending = (
+    StepKey,
+    &'static str,
+    Vec<String>,
+    Option<String>,
+    Option<String>,
+    Option<SourceInfo>,
+    Vec<SourceInfo>,
+);
 
 /// The steps of one column and, recursively, of its fields — a field is a
 /// declared column too, named by its dotted path. Only a top-level column
 /// carries constraints, so only it gets the constraint-driven steps.
 fn column_steps(
-    table: &str,
+    table: &Table,
     col: &Column,
     level: Level,
     path: &mut Vec<String>,
     out: &mut Vec<Pending>,
 ) {
+    let name = table.name.value.as_str();
     let dotted = path.join(".");
+    // A constraint-driven step points at the constraint itself, with the table
+    // and the column's name as its enclosing nodes; a struct field's would
+    // also take its parent chain, which the recursion doesn't thread.
+    let table_ctx = vec![table.name.span.clone()];
+    let column_ctx = vec![table.name.span.clone(), col.name.span.clone()];
+    let constraint = |cs: &[Constraint]| col.constraint_span(cs).cloned();
     out.push((
-        StepKey::new(table, StepTarget::Column(path.clone())),
+        StepKey::new(name, StepTarget::Column(path.clone())),
         "M01",
         vec![dotted.clone()],
         None,
+        None,
+        Some(col.name.span.clone()),
+        table_ctx,
     ));
     if level == Level::Data {
         if path.len() == 1 {
             if col.is_required_implied() {
                 out.push((
-                    StepKey::new(table, StepTarget::Required(dotted.clone())),
+                    StepKey::new(name, StepTarget::Required(dotted.clone())),
                     "D01",
                     vec![dotted.clone()],
                     None,
+                    None,
+                    constraint(&[Constraint::Required, Constraint::PrimaryKey]),
+                    column_ctx.clone(),
                 ));
             }
             if col.has(Constraint::Unique) {
                 out.push((
-                    StepKey::new(table, StepTarget::Unique(dotted.clone())),
+                    StepKey::new(name, StepTarget::Unique(dotted.clone())),
                     "D02",
                     vec![dotted.clone()],
                     None,
+                    None,
+                    constraint(&[Constraint::Unique]),
+                    column_ctx.clone(),
                 ));
             }
             if col.has(Constraint::ForeignKey) {
                 out.push((
-                    StepKey::new(table, StepTarget::ForeignKey(dotted.clone())),
+                    StepKey::new(name, StepTarget::ForeignKey(dotted.clone())),
                     "D05",
                     vec![dotted.clone()],
                     None,
+                    None,
+                    constraint(&[Constraint::ForeignKey]),
+                    column_ctx.clone(),
                 ));
             }
         }
         if col.is_enum() && col.values.is_some() {
             out.push((
-                StepKey::new(table, StepTarget::Enum(path.clone())),
+                StepKey::new(name, StepTarget::Enum(path.clone())),
                 "D04",
                 vec![dotted],
                 None,
+                None,
+                col.values.as_ref().map(|values| values.span.clone()),
+                column_ctx.clone(),
             ));
         }
     }
@@ -392,11 +461,13 @@ pub(crate) fn table_assertions(table: &Table) -> Vec<(&crate::model::Assertion, 
 const VALIDATION_MD: &str = include_str!("../../../site/validation.md");
 
 /// What one check is called and how loudly it speaks, so a consumer can name a
-/// code it only ever sees as `D04`.
+/// code it only ever sees as `D04`. `description` is the full rule as
+/// validation.md's description column states it, markdown included.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Check {
     pub name: &'static str,
     pub severity: Severity,
+    pub description: &'static str,
 }
 
 /// Every check in `site/validation.md`, by code. Read out of that document's
@@ -414,7 +485,15 @@ pub fn checks() -> BTreeMap<&'static str, Check> {
                 "W" => Severity::Warning,
                 _ => return None,
             };
-            is_check_code(code).then_some((code, Check { name, severity }))
+            let description = cells.next()?.trim();
+            is_check_code(code).then_some((
+                code,
+                Check {
+                    name,
+                    severity,
+                    description,
+                },
+            ))
         })
         .collect()
 }
@@ -492,8 +571,22 @@ struct ReportOut<'a> {
     version: &'static str,
     run: &'a Run,
     status: Status,
-    steps: &'a [Step],
+    steps: Vec<StepOut<'a>>,
     problems: Vec<ProblemOut<'a>>,
+    #[serde(skip_serializing_if = "<[crate::problem::FailedTableRows]>::is_empty")]
+    failed_rows: &'a [crate::problem::FailedTableRows],
+}
+
+/// A step plus the location of the declaration it checks and the nodes
+/// enclosing it, which only resolve against a [`SourceContext`].
+#[derive(serde::Serialize)]
+struct StepOut<'a> {
+    #[serde(flatten)]
+    step: &'a Step,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<SpanLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    context: Vec<SpanLocation>,
 }
 
 /// A problem plus the parts of it that only resolve against a
@@ -554,8 +647,23 @@ impl serde::Serialize for Report<'_> {
             version: REPORT_VERSION,
             run: &self.run,
             status: self.problems.status(),
-            steps: self.problems.steps.items(),
+            steps: self
+                .problems
+                .steps
+                .items()
+                .iter()
+                .map(|step| StepOut {
+                    step,
+                    location: step.span.as_ref().and_then(|span| span_location(span, ctx)),
+                    context: step
+                        .context
+                        .iter()
+                        .filter_map(|span| span_location(span, ctx))
+                        .collect(),
+                })
+                .collect(),
             problems,
+            failed_rows: &self.problems.failed_rows,
         }
         .serialize(serializer)
     }
@@ -588,10 +696,13 @@ mod tests {
             ProblemKind::NullsInRequired {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
+                redacted: false,
             },
             ProblemKind::DuplicateValues {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -601,6 +712,7 @@ mod tests {
             ProblemKind::ValuesOutsideEnum {
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -609,6 +721,7 @@ mod tests {
                 references: String::new(),
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -621,6 +734,7 @@ mod tests {
                 assertion: String::new(),
                 count: 0,
                 rows: Vec::new(),
+                keys: Vec::new(),
                 values: Vec::new(),
                 redacted: false,
             },
@@ -661,13 +775,10 @@ mod tests {
                 checks.keys().collect::<Vec<_>>()
             );
         }
-        assert_eq!(
-            checks["D02"],
-            Check {
-                name: "Duplicate values",
-                severity: Severity::Error
-            }
-        );
+        let d02 = &checks["D02"];
+        assert_eq!(d02.name, "Duplicate values");
+        assert_eq!(d02.severity, Severity::Error);
+        assert!(d02.description.contains("unique"), "{d02:?}");
         assert_eq!(checks["M03"].severity, Severity::Warning);
     }
 }

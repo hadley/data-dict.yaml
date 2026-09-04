@@ -1,0 +1,46 @@
+/* The table shell both pages share: a card holding one bordered table, the
+   head and hover it draws, and the small inline vocabulary (a path to a
+   column, a meta line, a value chip) that the dictionary page and the
+   validation report both set. What only the dictionary page needs lives in
+   dict/tables.css. Shares the page palette in app.css. */
+
+.tlist-wrap {
+  border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--paper); overflow-x: auto;
+}
+.tlist { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.tlist thead th {
+  text-align: left; padding: 8px 14px; white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-soft); border-bottom: 1px solid var(--rule);
+}
+.tlist th.num, .tlist td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tlist td { padding: 0 14px; vertical-align: baseline; }
+
+/* one tbody per table: the block shares a border and a hover state */
+.tlist tbody.tgroup { border-bottom: 1px solid var(--rule); }
+.tlist tr[data-href] { cursor: pointer; }
+.tlist tbody.tgroup:last-child { border-bottom: none; }
+.tlist tbody.tgroup:hover td, .tlist tbody.tgroup:focus-within td { background: var(--chip); }
+
+/* A path to a column: the table quiet, the column loud. */
+a.cpath {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  text-decoration: none; border-radius: 3px;
+}
+a.cpath .cp-tbl { color: var(--ink-soft); }
+a.cpath .cp-col { color: var(--ink); font-weight: 650; }
+a.cpath:hover .cp-col, a.cpath:hover .cp-tbl { color: var(--link); }
+a.cpath:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* A line of small facts about a column: a bold label, then its values. */
+.col-meta { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 5px; }
+.col-meta .lbl { font-weight: 650; margin-right: 6px; }
+/* One chip for every value a column reports, set off from the line but in the
+   page's own text face. */
+.val {
+  display: inline-block;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0 3px; color: var(--ink);
+}

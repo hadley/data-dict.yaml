@@ -9,10 +9,12 @@ on:
     branches: [main, master]
     paths:
       - 'r/**'
+      - 'crates/**'
       - '.github/workflows/R-CMD-check.yaml'
   pull_request:
     paths:
       - 'r/**'
+      - 'crates/**'
       - '.github/workflows/R-CMD-check.yaml'
 
 name: R-CMD-check.yaml
@@ -58,12 +60,17 @@ jobs:
           needs: check
           working-directory: r
 
-      - name: Install the data-dict binary
+      - uses: Swatinem/rust-cache@v2
+
+      # Build from this checkout (not dd_install(), which fetches the last
+      # release) so the tests exercise the binary matching this commit.
+      - name: Build the data-dict binary
+        shell: bash
         run: |
-          pkgload::load_all()
-          datadict::dd_install()
-        shell: Rscript {0}
-        working-directory: r
+          cargo build --release -p data-dict-cli
+          bin="$GITHUB_WORKSPACE/target/release/data-dict"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then bin="$bin.exe"; fi
+          echo "DATA_DICT=$bin" >> "$GITHUB_ENV"
 
       - uses: r-lib/actions/check-r-package@v2
         with:

@@ -1,0 +1,28 @@
+---
+source: crates/data-dict/tests/validate_data.rs
+---
+$version: "0.1.0"
+$learn_more: http://data-dict.tidyverse.org/
+tables:
+  - name: t
+    source:
+      parquet: data.parquet
+    columns:
+      - name: id
+        type: number(id)
+        constraints: [primary_key]
+        examples: [10, 20]
+      - name: weight
+        type: number(quantity)
+        constraints: [required]
+        range: [0, 100]
+────────────────────────────────────────
+error[D01]: A required column must not contain nulls.
+  --> dict.yaml:14:23
+   |
+LL |   - name: t
+...
+LL |       - name: weight
+LL |         type: number(quantity)
+LL |         constraints: [required]
+   |                       ^^^^^^^^ has 1 null value (row: 2)
