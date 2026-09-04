@@ -5,11 +5,13 @@ on:
     branches: [main, master]
     paths:
       - 'r/**'
+      - 'crates/**'
       - '.github/workflows/R-test-coverage.yaml'
   pull_request:
     branches: [main, master]
     paths:
       - 'r/**'
+      - 'crates/**'
       - '.github/workflows/R-test-coverage.yaml'
   workflow_dispatch:
 
@@ -37,10 +39,19 @@ jobs:
           needs: coverage
           working-directory: r
 
+      - uses: Swatinem/rust-cache@v2
+
+      # Build from this checkout (not dd_install(), which fetches the last
+      # release) so the tests exercise the binary matching this commit.
+      - name: Build the data-dict binary
+        working-directory: .
+        run: |
+          cargo build --release -p data-dict-cli
+          echo "DATA_DICT=$GITHUB_WORKSPACE/target/release/data-dict" >> "$GITHUB_ENV"
+
       - name: Test coverage
         run: |
           uncovr::reload()
-          datadict::dd_install()
           uncovr::test()
           if (nzchar(Sys.getenv("CODECOV_TOKEN")) || Sys.getenv("GITHUB_EVENT_NAME") != "pull_request") {
             uncovr::codecov()
