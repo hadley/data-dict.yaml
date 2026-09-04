@@ -8,15 +8,18 @@
 
 const BASE_TITLE = "Validation report";
 
-/* The report's own wording for its verdict. A `warning` status means nothing
-   failed, so only `error` may say the run did. */
+/* The report's own wording for its verdict, stated as the page's heading. A
+   `warning` status means nothing failed, so only `error` may say the run
+   did. */
 const VERDICTS = {
   ok: "Validation passed",
   warning: "Passed with warnings",
   error: "Validation failed",
 };
 
-const VERDICT_ICONS = { ok: "pass", warning: "todo", error: "fail" };
+/* The verdict as a square, the same mark the summary and the detail tables
+   use. */
+const VERDICT_SQUARE = { ok: "pass", warning: "warn", error: "fail" };
 
 /* The three verdicts as a reader meets them. "not evaluated" is two plain words
    because a step that reached no verdict has not passed, and the label is the
@@ -72,48 +75,6 @@ function tableOrder(steps) {
   return seen;
 }
 
-/* ---- The verdict --------------------------------------------------------- */
-
-function VerdictStat({ label, count, on, onToggle }) {
-  return html`<button class="vstat" aria-pressed=${on ? "true" : "false"}
-    onClick=${onToggle}>${label} ${fmtNum(count)}</button>`;
-}
-
-function Verdict({ filter, onFilter }) {
-  const { run, status, steps, problems } = REPORT;
-  /* Like the roster, the verdict weighs data-level checks only: the metadata
-     checks a data run implies are means, not findings. */
-  const dataSteps = steps.filter((step) => !step.code.startsWith("M"));
-  const counts = stepCounts(dataSteps);
-  const errors = problems.filter((p) => p.severity === "error").length;
-  const warnings = problems.length - errors;
-  const plural = (n, one) => `${fmtNum(n)} ${n === 1 ? one : one + "s"}`;
-  return html`<section class="verdict is-${status}">
-    <span class="verdict-mark"><${Icon} svg=${ICONS[VERDICT_ICONS[status]]} /></span>
-    <div class="verdict-body">
-      <h2>${VERDICTS[status]}</h2>
-      <p class="verdict-meta">
-        ${plural(errors, "error")}, ${plural(warnings, "warning")}
-        ${dataSteps.length
-          ? ` · ${fmtNum(counts.pass)} of ${plural(dataSteps.length, "check")} passed`
-          : ""}
-      </p>
-      <p class="verdict-meta">
-        ${run.level} level${run.table ? ` · table ${run.table}` : ""} ·
-        ${" "}${run.dictionary} · ${run.generated_at}
-      </p>
-      ${dataSteps.length
-        ? html`<div class="vstats">
-            ${Object.keys(OUTCOMES).map((outcome) => html`<${VerdictStat} key=${outcome}
-              label=${OUTCOMES[outcome]} count=${counts[outcome]}
-              on=${filter === outcome}
-              onToggle=${() => onFilter(filter === outcome ? null : outcome)} />`)}
-          </div>`
-        : null}
-    </div>
-  </section>`;
-}
-
 /* ---- Pages --------------------------------------------------------------- */
 
 function BackLink({ label }) {
@@ -166,7 +127,7 @@ function ProblemPage({ index }) {
 function FilteredPage({ title, steps, problems }) {
   return html`<div>
     <h2 class="rsection-title">${title}</h2>
-    ${steps.length ? html`<${StepsCard} steps=${steps} filter=${null} />` : null}
+    ${steps.length ? html`<${ChecksCard} steps=${steps} />` : null}
     ${problems.length ? html`<${ProblemsCard} problems=${problems} />` : null}
     ${!steps.length && !problems.length
       ? html`<p class="rsection-note">Nothing to show.</p>`
@@ -178,7 +139,6 @@ function FilteredPage({ title, steps, problems }) {
 
 function App() {
   const route = useRoute();
-  const [filter, setFilter] = useState(null);
 
   useEffect(() => {
     document.title = route ? `${route.key} — ${BASE_TITLE}` : BASE_TITLE;
@@ -190,8 +150,8 @@ function App() {
   let body;
   if (!route) {
     body = html`<div>
-      <${Verdict} filter=${filter} onFilter=${setFilter} />
-      ${REPORT.steps.length ? html`<${StepsCard} steps=${REPORT.steps} filter=${filter} />` : null}
+      <${DatasetsCard} steps=${REPORT.steps} />
+      ${REPORT.steps.length ? html`<${ChecksCard} steps=${REPORT.steps} />` : null}
     </div>`;
   } else if (route.view === "step") {
     body = html`<${StepPage} id=${route.key} />`;
@@ -212,7 +172,9 @@ function App() {
   return html`<div>
     <header class="pagehead">
       <div class="head-title">
-        <h1>${route ? html`<${BackLink} label=${BASE_TITLE} />` : BASE_TITLE}</h1>
+        <h1>${route
+          ? html`<${BackLink} label=${BASE_TITLE} />`
+          : html`<span class="sqname"><${VerdictSquare} outcome=${VERDICT_SQUARE[REPORT.status]} />${VERDICTS[REPORT.status]}</span>`}</h1>
       </div>
       <div class="head-actions"><${ThemeToggle} /></div>
     </header>

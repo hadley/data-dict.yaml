@@ -4,35 +4,8 @@
    narrower rules win at equal specificity. */
 
 /* ---- Verdict ------------------------------------------------------------
-   The status reads three ways, never colour alone: the edge, the sentence, and
-   the mark beside it. */
-
-.verdict {
-  border: 1px solid var(--rule);
-  border-left: 4px solid var(--ink-faint);
-  border-radius: 10px;
-  background: var(--paper);
-  padding: 16px 18px;
-  margin: 0 0 26px;
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-}
-.verdict.is-ok { border-left-color: var(--good); }
-.verdict.is-warning { border-left-color: var(--warn); }
-.verdict.is-error { border-left-color: var(--bad); }
-
-.verdict-mark { flex: 0 0 auto; line-height: 1; margin-top: 2px; }
-.verdict-mark .ic svg { width: 22px; height: 22px; }
-.is-ok .verdict-mark { color: var(--good); }
-.is-warning .verdict-mark { color: var(--warn); }
-.is-error .verdict-mark { color: var(--bad); }
-
-.verdict-body { flex: 1 1 auto; min-width: 0; }
-.verdict h2 { font-size: var(--text-xl); font-weight: 650; margin: 0; }
-.is-ok .verdict h2 { color: var(--good); }
-.is-warning .verdict h2 { color: var(--warn); }
-.is-error .verdict h2 { color: var(--bad); }
+   The verdict is the page's heading: its square is the same mark the summary
+   and the detail tables use, grown to headline size. */
 
 .verdict-meta {
   color: var(--ink-soft);
@@ -40,23 +13,6 @@
   font-size: var(--text-sm);
   margin: 5px 0 0;
 }
-
-/* The tallies are the roster's filter, so they are buttons that look like the
-   quiet text beside them until you reach for them. */
-.vstats { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
-.vstat {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--ink-soft);
-  background: none;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  padding: 2px 10px;
-  cursor: pointer;
-}
-.vstat:hover { background: var(--hover-row); color: var(--ink); }
-.vstat[aria-pressed="true"] { border-color: var(--accent1); color: var(--accent1); }
-.vstat:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 /* ---- Sections -----------------------------------------------------------*/
 
@@ -85,16 +41,14 @@
 .slist td, .slist th { padding: 6px 10px; vertical-align: middle; }
 .slist th { white-space: nowrap; }
 
-/* The band naming the table a run of steps belongs to. */
-.slist tr.grouphead td {
-  background: var(--chip);
-  border-top: 1px solid var(--rule);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-.grouphead-name { font-weight: 700; color: var(--accent1); }
-.grouphead-tally { color: var(--ink-soft); }
-.grouphead-note { color: var(--warn); }
+/* The grid the summary and the detail tables share: fixed layout, so every
+   table on the page draws the same column edges, and long content clips
+   rather than shifting them. The first column takes what the others leave. */
+.rtable { table-layout: fixed; }
+.rtable .col-mid { width: 32%; }
+.rtable .col-num { width: 76px; }
+.rtable .col-meter { width: 130px; }
+.rtable td { overflow: hidden; text-overflow: ellipsis; }
 
 .scode { color: var(--ink-faint); font-family: var(--font-mono); font-size: var(--text-sm); text-decoration: none; }
 .scheck { white-space: nowrap; }
@@ -143,20 +97,42 @@
 }
 .stepfill.full { right: -0.5px; min-width: 0; }
 
-/* The verdict square beside a step's name: green passed, red failed, and
-   nothing (but its space) for a step that reached no verdict. */
+/* The verdict square beside a name: green passed, yellow warned, red failed,
+   and nothing (but its space) for a check that reached no verdict. Sized in
+   em, so the same mark sits right beside a table row and a page heading. */
 .verdsq {
   display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 2px;
-  margin-right: 6px;
+  width: 0.57em; height: 0.57em;
+  border-radius: 0.15em;
+  margin-right: 0.45em;
+  flex: none;
 }
+
+/* The square and the name it marks, centred on each other. Flexbox centres
+   the boxes themselves; vertical-align would centre on the parent's font
+   metrics, which differ from a mono name's and leave the square high. */
+.sqname { display: inline-flex; align-items: center; }
 .verdsq.pass { background: var(--good); }
+.verdsq.warn { background: var(--warn); }
 .verdsq.fail { background: var(--fail-bar); }
 .verdsq.off { visibility: hidden; }
 
-/* A table's whole-run meter sits in the meter column of the band that names
-   it, in line with the step meters below. */
+/* ---- The datasets summary ------------------------------------------------
+   One row per dataset, each row a link to the dataset's detail table. */
+
+.dlist td, .dlist th { padding: 6px 10px; vertical-align: middle; }
+.dlist tbody tr { cursor: pointer; }
+.dlist tbody tr:hover td { background: var(--hover-row); }
+.dlist .dname { font-family: var(--font-mono); font-weight: 700; color: var(--accent1); }
+
+/* A dataset's detail table, scrolled to from the summary. */
+.dsection { scroll-margin-top: 14px; }
+.dsection > h3 {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 650;
+  margin: 0 0 10px;
+}
 
 /* Sortable column heads look like the plain heads they replace. */
 .sorthead {
@@ -167,11 +143,16 @@
 .sortind { margin-left: 2px; }
 .sortind.off { visibility: hidden; }
 
+.slist-tools { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
 .slist-filter {
-  margin: 0 0 10px; padding: 5px 10px;
+  padding: 5px 10px;
   border: 1px solid var(--rule); border-radius: 6px;
   font: inherit; background: var(--float, #fff); color: var(--ink);
   min-width: 240px;
+}
+.slist-only {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--ink-soft); font-size: var(--text-sm); white-space: nowrap;
 }
 
 /* ---- One problem --------------------------------------------------------*/
@@ -317,6 +298,5 @@ code.tick {
 .val.is-null { font-style: italic; color: var(--ink-faint); background: none; }
 
 @media (max-width: 720px) {
-  .verdict { flex-direction: column; }
   .stepmeter { display: none; }
 }

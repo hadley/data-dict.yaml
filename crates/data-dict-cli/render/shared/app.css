@@ -140,12 +140,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 40px 44px 90px; }
 .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
 /* the dataset's name and, once you are inside a table, the way back out */
 .head-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-.pagehead h1 { color: var(--accent1); font-size: var(--text-2xl); font-weight: 700; margin: 0; }
-/* The title as a link keeps the title's own colour and weight: it should read as
-   the heading it is, with the chevron the only sign it goes anywhere. Only the
-   name underlines on hover, so the chevron isn't struck through. */
-.homelink, .title-row { --chev-gap: .34em; display: inline-flex; align-items: center; gap: var(--chev-gap); }
-.homelink { color: inherit; text-decoration: none; }
+.pagehead h1 { font-size: var(--text-2xl); font-weight: 700; margin: 0; }
+/* The name's colour lives on the link and its plain stand-in, not the h1, so
+   a page whose title is a statement rather than a name (the report's verdict)
+   isn't painted with it. The link keeps the title's colour and weight: it
+   should read as the heading it is, with the chevron the only sign it goes
+   anywhere. Only the name underlines on hover, so the chevron isn't struck
+   through. */
+.homelink, .title-row { --chev-gap: .34em; display: inline-flex; align-items: center; gap: var(--chev-gap); color: var(--accent1); }
+.homelink { text-decoration: none; }
 .homelink:hover span:last-child { text-decoration: underline; }
 .homelink:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 4px; }
 /* The chevron hangs in the page's left margin, so the name sits where it would
