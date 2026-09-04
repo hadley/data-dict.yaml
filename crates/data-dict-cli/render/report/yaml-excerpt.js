@@ -76,7 +76,7 @@ function excerptPath(location) {
 function YamlExcerpt({ location, context }) {
   const rows = excerptRows(location, context);
   if (!rows.length) return null;
-  return html`<div class="excerpt">
+  return html`<div class="yaml-excerpt">
     <div class="ex-path">${excerptPath(location)}</div>
     <div class="ex-rows">${rows.map((row, i) => html`<${ExcerptRow} key=${i} row=${row} />`)}</div>
   </div>`;

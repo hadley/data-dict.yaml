@@ -102,8 +102,8 @@ function RowTable({ rows, keys, values, failures }) {
     const entry = keys && keys[i] && c in keys[i] ? keys[i] : values && values[i];
     return entry ? entry[c] : undefined;
   };
-  return html`<div class="rowtable-wrap">
-    <table class="rowtable">
+  return html`<div class="row-table">
+    <table>
       <thead><tr><th class="rownum"></th>${columns.map((c, j) => html`<th key=${c} class=${j === keyCols.length && j > 0 ? "val-start" : null}>${c}</th>`)}</tr></thead>
       <tbody>
         ${rows.map((row, i) => html`<tr key=${row}>
@@ -142,20 +142,21 @@ function RowsNote({ problem }) {
 }
 
 /* A table of failed rows as its own card: the heading, the withheld badge and
-   note, and the grid itself. A problem's card and a dataset's failed-rows page
-   are the same thing wearing different evidence. */
-function FailedRowsCard({ rows, keys, values, count, redacted, severity, failures }) {
-  return html`<article class="srep is-${severity}">
-    <div class="rows-head">
-      <h3>Failed rows${count > rows.length &&
-        html` <span class="rows-cap">(first ${fmtNum(rows.length)} out of ${fmtNum(count)})</span>`}</h3>
+   note, and the grid itself. A problem's card, an overflow's single row, and a
+   dataset's failed-rows page are the same thing wearing different evidence. */
+function FailedRowsCard({ title = "Failed rows", rows, keys, values, count, redacted, severity, failures, note }) {
+  return html`<article class="failed-rows-card is-${severity}">
+    <div class="head">
+      <h3>${title}${count > rows.length &&
+        html` <span class="cap">(first ${fmtNum(rows.length)} out of ${fmtNum(count)})</span>`}</h3>
       ${redacted && html`<span class="key restricted">values withheld</span>`}
     </div>
     <${RowTable} rows=${rows} keys=${keys} values=${values} failures=${failures} />
     ${redacted &&
-      html`<p class="redacted-note">A column here is${" "}
+      html`<p class="note">A column here is${" "}
         <code class="tick">display: restricted</code>, so its values are withheld.
         The row numbers are exact.</p>`}
+    ${note && html`<p class="note">${note}</p>`}
   </article>`;
 }
 
@@ -165,11 +166,9 @@ function FailedRowsCard({ rows, keys, values, count, redacted, severity, failure
 function OffendingRows({ problem }) {
   const rows = problem.rows || [];
   if (problem.kind === "assertion_overflow" && problem.row != null) {
-    return html`<article class="srep is-${problem.severity}">
-      <div class="rows-head"><h3>Failed row</h3></div>
-      <${RowTable} rows=${[problem.row]} keys=${null} values=${null} />
-      <p class="rows-note">Evaluation stopped at the first overflow.</p>
-    </article>`;
+    return html`<${FailedRowsCard} title="Failed row" rows=${[problem.row]}
+      keys=${null} values=${null} severity=${problem.severity}
+      note="Evaluation stopped at the first overflow." />`;
   }
   if (!rows.length) return null;
   /* No blame map here: highlighting is the dataset page's, where every column

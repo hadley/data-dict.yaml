@@ -3,7 +3,7 @@
 // check catalogue. The excerpt is drawn by yaml-excerpt.js, a suggested fix by
 // suggestion.js, and the offending rows by rows.js.
 //
-// Depends on shared.js and on components.js for `html`, `Chip` and `MetaText`.
+// Depends on shared.js and on components.js for `html` and `MetaText`.
 // Nothing here uses `Prose`, `TodoFlag` or `DetailsBlock`: those reach for the
 // dictionary plumbing in dict/dict.js, which this page does not carry.
 
@@ -58,29 +58,29 @@ function KindFacts({ problem }) {
 function ProblemCard({ problem, showStep }) {
   const columns = problem.columns || [];
   return html`<${preact.Fragment}>
-    <article class="srep is-${problem.severity}">
-      <div class="srep-head">
+    <article class="problem-card is-${problem.severity}">
+      <div class="head">
         <span class="key ${problem.severity === "error" ? "fail" : "warn"}"
           >${problem.severity}</span>
         <${CodeChip} code=${problem.code} />
-        <span class="scheck-name">${checkName(problem.code)}</span>
+        <span class="check-name">${checkName(problem.code)}</span>
         ${showStep && problem.step != null &&
-          html`<a class="srep-step" href="#step/${problem.step}"
+          html`<a class="step" href="#step/${problem.step}"
             onClick=${(e) => { e.preventDefault(); go(`#step/${problem.step}`); }}
             >step ${problem.step} →</a>`}
       </div>
       ${problem.expected &&
-        html`<h2 class="srep-expected"><${Ticks} text=${problem.expected} /></h2>`}
-      <p class="srep-message">
-        <span class="srep-found">found:</span> <${Ticks} text=${problem.message} />
+        html`<h2 class="expected"><${Ticks} text=${problem.expected} /></h2>`}
+      <p class="message">
+        <span class="found">found:</span> <${Ticks} text=${problem.message} />
       </p>
       ${problem.table &&
-        html`<p class="srep-where">
+        html`<p class="where">
           <${TargetPath} table=${problem.table} columns=${columns} />
         </p>`}
       <${KindFacts} problem=${problem} />
       <${YamlExcerpt} location=${problem.location} context=${problem.context} />
-      ${problem.hint && html`<p class="srep-hint"><${Ticks} text=${problem.hint} /></p>`}
+      ${problem.hint && html`<p class="hint"><${Ticks} text=${problem.hint} /></p>`}
       ${problem.suggestion && html`<${SuggestionDiff} suggestion=${problem.suggestion} />`}
       <${RowsNote} problem=${problem} />
     </article>

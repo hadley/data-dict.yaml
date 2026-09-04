@@ -8,9 +8,9 @@
 function StepTarget({ step }) {
   const columns = step.columns || [];
   if (!columns.length) {
-    return html`<span class="starget"><span class="swhole">whole table</span></span>`;
+    return html`<span class="step-target"><span class="whole">whole table</span></span>`;
   }
-  return html`<span class="starget">${columns.join(", ")}</span>`;
+  return html`<span class="step-target">${columns.join(", ")}</span>`;
 }
 
 /* A step's check as a reader says it: the author's own description where they
@@ -25,22 +25,22 @@ function stepLabel(step) {
 
 /* The label as plain text, with the code quiet in parentheses. */
 function StepCheck({ step }) {
-  return html`<span>${stepLabel(step)}${" "}<span class="scode">(${step.code})</span></span>`;
+  return html`<span class="step-check">${stepLabel(step)}${" "}<span class="code">(${step.code})</span></span>`;
 }
 
-/* The share of rows a step failed. Drawn only when there are rows to weigh, so
-   the bar's presence is itself the claim that the step was evaluated — an
-   unevaluated step, or a failing step over an empty table, gets none. */
-function StepMeter({ step }) {
-  if (!step.row_count) return null;
-  const failed = step.failed_row_count || 0;
-  const share = failed / step.row_count;
-  return html`<div class="stepmeter">
-    <div class="steptrack"
-      onMouseEnter=${(e) => showTip(barTip("failed", failed, step.row_count), e)}
+/* The share of rows a step (or a whole table's steps) failed. Drawn only when
+   there are rows to weigh, so the bar's presence is itself the claim that the
+   step was evaluated — an unevaluated step, or a failing step over an empty
+   table, gets none. */
+function StepMeter({ rows, failed }) {
+  if (!rows) return null;
+  const share = failed / rows;
+  return html`<div class="step-meter">
+    <div class="step-track"
+      onMouseEnter=${(e) => showTip(barTip("failed", failed, rows), e)}
       onMouseMove=${moveTip} onMouseLeave=${hideTip}>
       ${failed > 0 &&
-        html`<div class=${`stepfill${share >= 1 ? " full" : ""}`}
+        html`<div class=${`step-fill${share >= 1 ? " full" : ""}`}
           style=${`width:${Math.max(share * 100, 0)}%`} />`}
     </div>
   </div>`;
@@ -82,8 +82,8 @@ function sortBy(items, sort, sorts) {
 function SortHead({ label, sortKey, sort, onSort, numeric }) {
   const active = sort && sort.key === sortKey;
   return html`<th class=${numeric ? "num" : null}>
-    <button class="sorthead" onClick=${() => onSort(cycleSort(sort, sortKey))}>
-      ${label}<span class=${active ? "sortind" : "sortind off"}>${active && sort.dir === -1 ? "▾" : "▴"}</span>
+    <button class="sort-head" onClick=${() => onSort(cycleSort(sort, sortKey))}>
+      ${label}<span class=${active ? "sort-ind" : "sort-ind off"}>${active && sort.dir === -1 ? "▾" : "▴"}</span>
     </button>
   </th>`;
 }
@@ -92,7 +92,7 @@ function SortHead({ label, sortKey, sort, onSort, numeric }) {
    An unevaluated check gets no square, but keeps its space so the names stay
    aligned. Sized in em, so it grows with the text it sits beside. */
 function VerdictSquare({ outcome }) {
-  return html`<span class=${`verdsq ${outcome === "unevaluated" ? "off" : outcome}`}></span>`;
+  return html`<span class=${`verdict-square ${outcome === "unevaluated" ? "off" : outcome}`}></span>`;
 }
 
 /* Only a failed step links to its page — a passed or unevaluated step has
@@ -101,18 +101,15 @@ function StepRow({ step }) {
   const failed = step.failed_row_count;
   const evaluated = step.outcome !== "unevaluated";
   return html`<tr data-href=${step.outcome === "fail" ? `#step/${step.id}` : null}>
-    <td class="scheck">
+    <td>
       <span class="sqname"><${VerdictSquare} outcome=${step.outcome} /><${StepCheck} step=${step} /></span>
     </td>
     <td><${StepTarget} step=${step} /></td>
     <td class="num">${evaluated && failed != null ? fmtNum(failed) : "—"}</td>
-    <td><${StepMeter} step=${step} /></td>
+    <td><${StepMeter} rows=${step.row_count} failed=${step.failed_row_count || 0} /></td>
   </tr>`;
 }
 
-/* One table's run of steps, headed by the band that names it. A table whose data
-   could not be read leaves every step of it unevaluated, so the reason is given
-   once here rather than repeated down every row. */
 /* The table's verdict as one bar: the rows its steps checked and failed,
    summed, so the band weighs the table the way each row of the roster does. */
 function tableRows(steps) {
@@ -123,19 +120,6 @@ function tableRows(steps) {
     failed += step.failed_row_count || 0;
   }
   return { rows, failed };
-}
-
-function TableMeter({ rows, failed }) {
-  if (!rows) return null;
-  return html`<div class="stepmeter groupmeter">
-    <div class="steptrack"
-      onMouseEnter=${(e) => showTip(barTip("failed", failed, rows), e)}
-      onMouseMove=${moveTip} onMouseLeave=${hideTip}>
-      ${failed > 0 &&
-        html`<div class=${`stepfill${failed >= rows ? " full" : ""}`}
-          style=${`width:${(failed / rows) * 100}%`} />`}
-    </div>
-  </div>`;
 }
 
 /* A step row navigates to the step's page; a link or button inside it speaks
@@ -198,13 +182,13 @@ function DatasetRow({ row }) {
      let it fire. */
   const hasRows = (REPORT.failed_rows || []).some((e) => e.table === table);
   return html`<tr onClick=${scroll}>
-    <td class="scheck"><span class="sqname"><${VerdictSquare} outcome=${datasetSquare(counts)} /><span class="dname">${table}</span></span></td>
+    <td><span class="sqname"><${VerdictSquare} outcome=${datasetSquare(counts)} /><span class="dataset-name">${table}</span></span></td>
     <td class="num">${steps.length ? `${fmtNum(counts.fail)}/${fmtNum(steps.length)}` : "—"}</td>
     <td class="num">${!counted ? "—" : hasRows && failed > 0
       ? html`<a href="#rows/${encodeURIComponent(table)}" title="Failed rows"
           onClick=${(e) => e.stopPropagation()}>${fmtNum(failed)}</a>`
       : fmtNum(failed)}</td>
-    <td><${TableMeter} rows=${rows} failed=${failed} /></td>
+    <td><${StepMeter} rows=${rows} failed=${failed} /></td>
   </tr>`;
 }
 
@@ -227,7 +211,7 @@ function DatasetsCard({ steps }) {
   return html`<section class="rsection">
     <h2>Datasets</h2>
     <div class="tlist-wrap">
-      <table class="tlist dlist rtable">
+      <table class="tlist datasets rtable">
         <${ReportColGroup} />
         <thead><tr>
           <${SortHead} label="Dataset" sortKey="dataset" sort=${sort} onSort=${setSort} />
@@ -266,7 +250,7 @@ function DatasetSection({ table, steps, sort, onSort, query, failuresOnly }) {
     : all.length
       ? "No failures."
       : "No data-level checks.";
-  return html`<section class="rsection dsection" id=${datasetAnchor(table)}>
+  return html`<section class="rsection dataset-section" id=${datasetAnchor(table)}>
     <h3>${table}</h3>
     ${counts.unevaluated && unreadable
       ? html`<p class="rsection-note">${
@@ -275,7 +259,7 @@ function DatasetSection({ table, steps, sort, onSort, query, failuresOnly }) {
       : null}
     ${shown.length
       ? html`<div class="tlist-wrap">
-          <table class="tlist slist rtable">
+          <table class="tlist steps rtable">
             <${ReportColGroup} />
             <thead><tr>
               <${SortHead} label="Check" sortKey="check" sort=${sort} onSort=${onSort} />
@@ -298,10 +282,10 @@ function ChecksCard({ steps }) {
   const [failuresOnly, setFailuresOnly] = useState(false);
   return html`<section class="rsection">
     <h2>Checks</h2>
-    <div class="slist-tools">
-      <input class="slist-filter" type="search" placeholder="Filter to a column…"
+    <div class="checks-tools">
+      <input class="checks-filter" type="search" placeholder="Filter to a column…"
         value=${query} onInput=${(e) => setQuery(e.target.value)} />
-      <label class="slist-only"><input type="checkbox" checked=${failuresOnly}
+      <label class="checks-only"><input type="checkbox" checked=${failuresOnly}
         onChange=${(e) => setFailuresOnly(e.target.checked)} /> Failures only</label>
     </div>
     ${tableOrder(steps).map((table) => html`<${DatasetSection} key=${table} table=${table}

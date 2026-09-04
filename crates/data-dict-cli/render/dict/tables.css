@@ -1,0 +1,405 @@
+/* The dictionary page's own table styles: the searchable index, the table
+   detail page, and the glossary modal, all built on the shared shell in
+   shared/tables.css. Last of the page's stylesheets, so its rules win at
+   equal specificity. */
+
+/* `details` disclosures: a quiet micro-label toggle, same in the lead and the modal */
+details.xdetails { margin: 0 0 18px; }
+details.xdetails > summary {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+details.xdetails > summary::-webkit-details-marker { display: none; }
+details.xdetails > summary::before { content: '\25B8'; font-size: var(--text-sm); }
+details.xdetails[open] > summary::before { content: '\25BE'; }
+details.xdetails > summary:hover { color: var(--ink); }
+details.xdetails > summary:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 3px; }
+.xdetails-body { margin-top: 8px; max-width: 1000px; line-height: 1.55; color: var(--ink); }
+.tpage-details details.xdetails { margin: 0 0 13px; }
+.tpage-details .xdetails-body { font-size: var(--text-sm); max-width: none; }
+
+.toolbar { margin-bottom: 14px; }
+.toolbar input[type=search] {
+  width: 100%;
+  padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
+}
+
+/* ---- table index ---- */
+
+.tlist tr.trow td { padding-top: 9px; }
+.tlist tr.drow td { padding-bottom: 10px; }
+.tlist tbody.tgroup:not(:has(.drow)) tr.trow td { padding-bottom: 10px; }
+
+a.tname {
+  font-family: var(--font-mono); font-weight: 650; font-size: var(--text-sm);
+  color: var(--ink); text-decoration: none; border-radius: 3px;
+}
+a.tname:hover { color: var(--link); }
+a.tname:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.tlist td.size { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-soft); white-space: nowrap; }
+.tlist .stimes { margin: 0 5px; opacity: .55; }
+.tlist td.desc { color: var(--ink); font-size: var(--text-sm); line-height: 1.45; }
+/* the clamp needs a block of its own; a <td> does not honour -webkit-box */
+.tlist td.desc .dclamp {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* the search's receipt: the columns that matched, nested under their table */
+.tlist tr.mhead td.mheadcell { padding-top: 5px; padding-bottom: 3px; }
+.mlbl {
+  font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
+}
+button.showall {
+  font: inherit; font-size: var(--text-sm); margin-left: 10px; padding: 0;
+  border: none; background: none; color: var(--link); cursor: pointer; text-decoration: underline;
+}
+button.showall:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+.tlist tr.crow td { padding-top: 2px; padding-bottom: 2px; }
+.tlist tbody.tgroup tr.crow:last-child td { padding-bottom: 10px; }
+.tlist td.csub { padding-left: 26px; white-space: nowrap; }
+.cwhere {
+  margin-left: 8px;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft);
+}
+.tlist td.csub-desc { font-size: var(--text-sm); color: var(--ink-soft); line-height: 1.4; text-align: left; }
+.dclamp1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.tlist tbody.tgroup:not(.expanded) tr.crow.xtra { display: none; }
+
+/* rendered Markdown in prose */
+.prose a { color: var(--link); text-underline-offset: 2px; }
+.prose a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+.prose p { margin: 0 0 10px; }
+.prose p:last-child, .prose > :last-child { margin-bottom: 0; }
+.prose ul, .prose ol { margin: 6px 0; padding-left: 22px; }
+
+/* glossary terms in prose: dotted underline, definition on hover */
+abbr.gterm {
+  text-decoration: underline dotted var(--ink-faint);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  cursor: help;
+}
+abbr.gterm:hover { text-decoration-color: var(--accent1); }
+
+.tables-empty { color: var(--ink-soft); font-size: var(--text-sm); padding: 18px 14px; }
+
+@media (max-width: 720px) {
+  .tlist td.csub-desc { display: none; }
+}
+@media (max-width: 620px) {
+  .tlist td, .tlist thead th { padding-left: 10px; padding-right: 10px; }
+  .tlist td.csub { padding-left: 18px; }
+}
+
+/* ---- table detail page ---- */
+.tpage-head { padding-bottom: 14px; }
+.tpage-title-row { display: flex; align-items: center; gap: 10px; }
+.tpage-title-row > h2, .modal-title-row > h2 {
+  font-family: var(--font-mono); font-weight: 650; font-size: var(--text-lg); color: var(--ink); margin: 0;
+}
+.tpage-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
+
+/* Each block of the page sits on a card over the background: the dataset's
+   lead, the table's header, and the column list. They all share the one
+   surface, so the border is what separates them. */
+.lead, .tpage-top, .tpage-list {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.lead { padding: 14px 16px; margin-bottom: 20px; }
+.lead p { margin: 0 0 16px; max-width: 1000px; color: var(--ink); }
+.lead > :last-child, .lead p:last-child { margin-bottom: 0; }
+/* The rows bleed 13px outward to let a highlighted one span the full width, so
+   the card's padding leaves them just inside its border. */
+.tpage-list { padding: 0 14px; }
+
+/* ---- the table list beside a table ---- */
+
+#table-view { display: flex; align-items: flex-start; gap: 16px; }
+#table-view #table-page { flex: 1 1 auto; min-width: 0; }
+
+/* The same card as the blocks it sits beside. It follows the page down, since a
+   column list runs long and the point of the list is to leave from anywhere; the
+   names scroll inside it when there are more than the window holds. */
+.tnav {
+  flex: none; width: 232px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  position: sticky; top: 14px;
+  max-height: calc(100vh - 28px);
+  display: flex; flex-direction: column; gap: 10px;
+}
+/* Wide screens show the list outright, so the toggle only exists for the
+   narrow-width rules below. */
+.tnav-toggle { display: none; }
+.tnav-filter {
+  flex: none; min-width: 0; padding: 7px 11px;
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
+}
+.tnav-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.tnav-item {
+  display: block; padding: 5px 8px; border-radius: 6px;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--ink); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tnav-item:hover { background: var(--chip); }
+.tnav-item:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+/* the table being read, wearing the same fill as a held key badge */
+.tnav-item.on { background: var(--accent1); color: var(--on-accent1); font-weight: 650; }
+.tnav-none { margin: 0; padding: 4px 8px; color: var(--ink-faint); font-size: var(--text-sm); }
+
+/* The name, its stats and the description on the left; the related-tables box
+   set against the card's right edge, its top level with the name. */
+.tpage-top {
+  display: flex; gap: 28px; align-items: flex-start;
+  padding: 12px 16px; margin-bottom: 13px;
+}
+.tpage-headmain { flex: 1 1 auto; min-width: 0; }
+.tpage-headmain > :last-child, .tpage-main > :last-child { margin-bottom: 0; }
+.tpage-main { max-width: 76ch; }
+.tpage-desc { color: var(--ink); font-size: var(--text-sm); margin: 0 0 13px; }
+.tpage-desc:last-child { margin-bottom: 0; }
+/* Outlined rather than filled — it is already on the card, so a border is all
+   it takes to set it apart. Sized by its chips, so a table with a few relations
+   gets a short box and several of them share a line. */
+.tpage-related {
+  flex: 0 1 auto; max-width: 420px;
+  border-left: 1px solid var(--rule);
+  padding: 10px 12px;
+}
+.tpage-related[hidden] { display: none; }
+.tpage-related .rel-lbl {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm); font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-soft); margin-bottom: 8px;
+}
+.tpage-related .rel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tpage-controls { display: flex; gap: 10px; align-items: center; }
+.tpage-sort {
+  flex: none; padding: 8px 30px 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%237a7a7a"/></svg>') no-repeat right 11px center;
+  color: var(--ink); font-size: var(--text-sm); cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.tpage-filter {
+  flex: 1 1 auto; min-width: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--paper); color: var(--ink); font-size: var(--text-sm);
+}
+
+.col-item { padding: 11px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 22px; align-items: flex-start; margin: 0 -13px; }
+.col-item:last-child { border-bottom: none; }
+/* The permalinked column: "you are here", lifted off the list. */
+.col-item.is-target {
+  position: relative;
+  z-index: 1;
+  margin: 7px -21px;
+  padding: 16px 21px;
+  border-radius: 10px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  box-shadow: 0 1px 2px var(--shadow-near), 0 8px 22px -8px var(--shadow-far);
+}
+.col-item:has(+ .is-target) { border-bottom-color: transparent; padding-bottom: 5px }
+
+/* ---- glossary modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000; padding: 20px;
+  background: rgba(20, 22, 28, .45);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 14px;
+  width: min(760px, 96vw); max-height: 86vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px var(--modal-shadow), 0 0 44px var(--modal-glow);
+}
+.modal-head { flex: none; padding: 18px 22px 14px; border-bottom: 1px solid var(--rule); position: relative; }
+.modal-title-row { display: flex; align-items: center; gap: 10px; }
+.modal-substat { color: var(--ink-soft); font-size: var(--text-sm); margin: 7px 0 13px; }
+.modal-filter {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--background); color: var(--ink); font-size: var(--text-sm);
+}
+.modal-close {
+  position: absolute; top: 12px; right: 15px; border: none; background: transparent;
+  font-size: var(--text-xl); line-height: 1; color: var(--ink-soft); cursor: pointer;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-body { flex: 1; overflow-y: auto; padding: 4px 22px 22px; }
+.col-main { flex: 1 1 auto; min-width: 0; }
+/* wide enough for the 240px histogram plus the panel's padding on both sides */
+.col-side { flex: 0 0 auto; width: 262px; }
+/* the missing meter, under the histogram and exactly as wide (240px, offset
+   by the panel's own padding so the edges line up): the percentage on the
+   left, and on the right the missing share in red, anchored left over a grey
+   base — each taking half the width */
+.miss-meter { display: flex; align-items: center; gap: 8px; width: 240px; margin: 6px 10px 0; }
+.missbar { flex: 1 1 0; min-width: 0; height: 9px; background: var(--null-fill); border: 0.5px solid var(--null-edge); box-sizing: border-box; position: relative; overflow: hidden; }
+.missfill { position: absolute; top: -0.5px; left: -0.5px; bottom: -0.5px; min-width: 6px; border-radius: 999px 0 0 999px; background: var(--null-bar); box-sizing: border-box; }
+.missfill.full { right: -0.5px; min-width: 0; }
+.miss-pct { flex: 1 1 0; min-width: 0; color: var(--ink-soft); font-size: var(--text-sm); font-family: var(--font-mono); white-space: nowrap; }
+.col-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* the heading is the document outline; the anchor inside carries the look */
+.col-head h3 { margin: 0; font-size: inherit; font-weight: inherit; font-size: var(--text-base); }
+.col-name { font-family: var(--font-mono); font-weight: 650; color: var(--ink); }
+a.col-name { text-decoration: none; border-radius: 3px; }
+a.col-name:hover { color: var(--link); }
+a.col-name:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+/* the anchor mark holds its space, so hovering never nudges the row */
+a.col-name .anchor-mark { margin-left: 6px; font-weight: 400; color: var(--ink-soft); opacity: 0; }
+a.col-name:hover .anchor-mark, a.col-name:focus-visible .anchor-mark { opacity: 1; }
+.col-desc { color: var(--ink); font-size: var(--text-sm); margin-top: 4px; line-height: 1.5; }
+.col-meta code { font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--ink); }
+/* a chip cut short for its length: click reveals the whole value, wrapped */
+button.val { font: inherit; }
+.val.cut { cursor: pointer; }
+.val.cut.open { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+/* an enum whose values are labelled: the value, then what it means */
+.val-defs {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 3px 10px; margin: 5px 0 0;
+}
+.val-defs dt, .val-defs dd { margin: 0; }
+.val-defs dd { color: var(--ink); }
+/* reveals the rest of a column's sampled values, and puts them away again */
+.more-less {
+  margin-left: 6px; padding: 0; border: none; background: none;
+  color: var(--link); font: inherit; cursor: pointer;
+}
+.more-less:hover { text-decoration: underline; }
+.more-less:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+/* Join chips share the value chip's shell; what sets them apart is what they
+   carry (a wire icon, mono names) and that they act. */
+.join-chip {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 0 3px; color: var(--ink);
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); cursor: pointer; transition: border-color .1s ease, color .1s ease;
+}
+.joins-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.joins-line .lbl { margin-right: 0; }
+.join-chip:hover { border-color: var(--link); color: var(--link); }
+.join-chip svg { width: 20px; height: 10px; display: block; color: var(--ink-soft); }
+/* a quiet panel behind the bars, so the histogram reads as one thing */
+.col-hist {
+  margin-top: 2px;
+  padding: 9px 10px 8px;
+  border-radius: 6px;
+  background: var(--paper);
+}
+.hist-svg { display: block; }
+.hist-svg .hist-bar { fill: var(--hist-bar); transition: fill .08s ease; shape-rendering: crispEdges;}
+/* off-scale values (-Inf, Inf, NaN), split from the data by a divider */
+.hist-svg .hist-bar.special { fill: var(--ink-faint); }
+.hist-svg .hist-bar.hot { fill: var(--hist-bar-hot); }
+.hist-svg .hist-sep { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 2; }
+/* full-height backdrop for the hovered column, tinted to match the hot bar */
+.hist-svg .hist-band { fill: transparent; transition: fill .08s ease; }
+.hist-svg .hist-band.hot { fill: var(--hist-band); }
+.hist-svg .hist-hit { fill: transparent; }
+.hist-cap { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 4px; font-family: var(--font-mono); }
+/* the observed extremes as axis labels: min under the left edge, max under
+   the right */
+.hist-cap-range { display: flex; justify-content: space-between; gap: 8px; }
+.hist-cap-range .cap-mid { color: var(--ink-faint); }
+.gloss-item { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.gloss-item:last-child { border-bottom: none; }
+.gloss-term { font-weight: 700; font-size: var(--text-base); color: var(--ink); }
+.gloss-def { color: var(--ink); font-size: var(--text-sm); margin-top: 3px; line-height: 1.55; }
+
+/* ---- pieces only this page wears -----------------------------------------
+   A search with hits, glossary tooltips, and todo flags. */
+
+#tables { margin-top: 30px; }
+
+/* search hits, wherever they land */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+/* "name: label" — the name keeps whatever (usually mono) face surrounds it;
+   the label reads as plain text beside it. */
+.name-label {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.key.fk { color: var(--accent2); background: var(--accent2-soft); }
+
+/* The mark an unresolved `todo` leaves on the thing that carries it. Quiet
+   until pointed at: it is a note to whoever is still writing the dictionary,
+   not something the reader has to act on. The note itself is in the tooltip. */
+.todo-flag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--warn);
+  cursor: help;
+}
+.todo-flag svg { display: block; width: 13px; height: 13px; }
+.todo-flag:hover, .todo-flag:focus-visible { background: var(--warn-soft); }
+.todo-flag:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
+/* beside the dataset's name it sits against 29px type, and centres on it
+   rather than on the baseline the rest of the head shares */
+.head-title .todo-flag { align-self: center; }
+.head-title .todo-flag svg { width: 16px; height: 16px; }
+/* the index's name cell is text, not a flex row, so the gap is its own */
+.tlist .name .todo-flag { margin-left: 5px; vertical-align: -2px; }
+
+#tip .tip-label { font-style: italic; }
+#tip .gt-term { font-weight: 700; }
+
+/* A `todo`, whether it is the whole tooltip (hovering the flag) or a note
+   under a join's description. Its own colour carries the warning that the
+   flag's did, and the list `draft` usually writes is set as a list. */
+#tip .tip-todo .tip-head code { color: var(--warn); }
+#tip .tip-todo .prose { display: block; margin-top: 5px; color: var(--ink-soft); }
+#tip .tip-todo-note { margin-top: 9px; }
+#tip .tip-todo-lbl { font-family: var(--font-mono); color: var(--warn); }
+#tip .tip-todo :is(p, ul, ol) { margin: 0; }
+#tip .tip-todo :is(ul, ol) { padding-left: 1.2em; }
+#tip .tip-todo li + li { margin-top: 2px; }
+
+/* On a narrow window the profiles and the related-tables box come off the
+   right-hand side and sit under what they sat beside. Last, so it outranks the
+   base rules above at the same specificity. */
+@media (max-width: 880px) {
+  .col-item { flex-wrap: wrap; row-gap: 10px; }
+  .col-main { flex: 1 1 100%; max-width: none; }
+  .tpage-top { flex-wrap: wrap; row-gap: 14px; }
+  .tpage-headmain { flex: 1 1 100%; }
+  .tpage-related { max-width: none; }
+}
+
+/* Narrow widths: the list folds behind a toggle, since an open list would
+   push the table itself a screen or more down the page. These rules sit at
+   the end of the last-concatenated stylesheet so they beat the base rules
+   above at equal specificity. */
+@media (max-width: 720px) {
+  #table-view { display: block; }
+  .tnav { width: auto; position: static; max-height: none; margin-bottom: 14px; padding: 0; }
+  .tnav-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 10px 12px; border: 0; background: none; cursor: pointer;
+    color: var(--ink); font: inherit; text-align: left;
+  }
+  .tnav-toggle .chev { display: inline-block; transition: transform 0.15s; color: var(--ink-faint); }
+  .tnav.open .tnav-toggle .chev { transform: rotate(90deg); }
+  .tnav:not(.open) .tnav-filter, .tnav:not(.open) .tnav-list, .tnav:not(.open) .tnav-none { display: none; }
+  .tnav.open { padding: 12px; }
+  .tnav.open .tnav-toggle { padding: 0 0 2px; }
+  .tnav.open .tnav-list { max-height: 50vh; }
+}

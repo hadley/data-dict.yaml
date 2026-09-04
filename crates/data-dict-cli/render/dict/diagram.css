@@ -1,6 +1,32 @@
 /* The relationships diagram. Shares the page palette in app.css; the metrics
-   and tints only the diagram uses live here. */
+   and tints only the diagram uses live here, as do the palette's dict-only
+   members (the report never colours a foreign key or a histogram). */
 :root {
+  --accent2-hue: var(--orange); /* foreign keys, the many end, the hovered bar, search hits */
+  --accent2: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 80%, black),
+    color-mix(in oklab, var(--accent2-hue) 80%, white));
+  --accent2-soft: light-dark(
+    color-mix(in oklab, var(--accent2-hue) 20%, white),
+    color-mix(in oklab, var(--accent2-hue) 20%, var(--background)));
+  --on-accent1: light-dark(#ffffff, #14142c); /* text on an accent1 fill */
+  --tag-ink: var(--accent2-hue);
+  --mark-hue: var(--accent2-hue);
+  --mark: color-mix(in oklab, var(--mark-hue) 40%, transparent);
+  --hist-bar: var(--accent1-hue);
+  --hist-bar-hot: var(--accent2-hue);
+  --hist-band: color-mix(in oklab, var(--accent2-hue) 20%, transparent);
+  --null-bar: var(--red);
+  --null-fill: light-dark(#e3e3e3, #444c55);
+  --null-edge: light-dark(#bcbcbc, #5a626c);
+  --modal-shadow: light-dark(rgba(0, 0, 0, 0.32), transparent);
+  --modal-glow: light-dark(transparent, rgba(255, 255, 255, 0.07));
+  --grid-dot: light-dark(#cdc6b6, #2c343c);
+  --scroll-thumb: light-dark(#cdc9c1, #3f4751);
+  --focus-ring: color-mix(in oklab, var(--accent1-hue) 20%, transparent);
+  --shadow-near: light-dark(rgba(28, 36, 48, 0.06), rgba(0, 0, 0, 0.35));
+  --shadow-inset: light-dark(rgba(28, 36, 48, 0.05), rgba(0, 0, 0, 0.35));
+
   /* rem so the rows grow with the text inside them */
   --row-h: 1.875rem; /* leaves ~8px above and below the text, matching --row-pad */
   --row-pad: 9px;

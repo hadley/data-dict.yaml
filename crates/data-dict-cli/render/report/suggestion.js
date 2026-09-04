@@ -14,8 +14,8 @@ function SuggestionDiff({ suggestion }) {
     last.slice(at.end_column).join("")
   ).split("\n");
   const removed = SRC_LINES.slice(at.start_line, at.end_line + 1);
-  return html`<div class="excerpt">
-    <div class="diff-title">help: ${suggestion.title}</div>
+  return html`<div class="suggestion-diff">
+    <div class="title">help: ${suggestion.title}</div>
     <div class="ex-rows">
       ${removed.map((text, i) => html`<div class="ex-row diff-del" key=${`d${i}`}>
         <span class="ex-num">−</span><span class="ex-text">${text}</span></div>`)}

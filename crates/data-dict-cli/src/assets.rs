@@ -33,6 +33,11 @@ const PARTS: &[(&str, &str, &str)] = &[
         include_str!("../render/shared/tables.css"),
     ),
     (
+        "{{DICT_TABLES_CSS}}",
+        "dict/tables.css",
+        include_str!("../render/dict/tables.css"),
+    ),
+    (
         "{{DAGRE_JS}}",
         "dict/dagre.js",
         include_str!("../render/dict/dagre.js"),
@@ -66,6 +71,11 @@ const PARTS: &[(&str, &str, &str)] = &[
         "{{COMPONENTS_JS}}",
         "shared/components.js",
         include_str!("../render/shared/components.js"),
+    ),
+    (
+        "{{COLUMN_JS}}",
+        "dict/column.js",
+        include_str!("../render/dict/column.js"),
     ),
     (
         "{{PROSE_JS}}",
@@ -162,6 +172,7 @@ const DICT_PAGE: Page = Page {
         "shared/app.css",
         "dict/diagram.css",
         "shared/tables.css",
+        "dict/tables.css",
         "dict/dagre.js",
         "dict/layout-dagre.js",
         "shared/preact.js",
@@ -169,6 +180,7 @@ const DICT_PAGE: Page = Page {
         "shared/route.js",
         "dict/dict.js",
         "shared/components.js",
+        "dict/column.js",
         "dict/prose.js",
         "dict/diagram.js",
         "dict/app.js",
@@ -486,10 +498,15 @@ mod tests {
         let dir = Assets::Dir(PathBuf::from("x"));
         assert_eq!(
             dir.css_files(&LivePage::Dict),
-            ["shared/app.css", "dict/diagram.css", "shared/tables.css"]
-                .iter()
-                .map(|file| PathBuf::from("x").join(file))
-                .collect::<Vec<_>>()
+            [
+                "shared/app.css",
+                "dict/diagram.css",
+                "shared/tables.css",
+                "dict/tables.css",
+            ]
+            .iter()
+            .map(|file| PathBuf::from("x").join(file))
+            .collect::<Vec<_>>()
         );
         assert_eq!(
             dir.css_files(&LivePage::Report {

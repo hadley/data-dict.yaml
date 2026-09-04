@@ -17,8 +17,8 @@
       box-shadow: 0 10px 30px var(--shadow-far, rgba(0,0,0,.25));
       font-size: 12px;
     }
-    #${PANEL}.err { --edge: var(--null-bar, #d80d0d); }
-    #${PANEL}.warn { --edge: var(--tag-ink, #9d5d00); }
+    #${PANEL}.err { --edge: var(--bad, #d80d0d); }
+    #${PANEL}.warn { --edge: var(--warn, #9d5d00); }
     #${PANEL}.off { --edge: var(--ink-faint, #98a2b0); }
     #${PANEL} .hd {
       display: flex; align-items: center; gap: 8px;

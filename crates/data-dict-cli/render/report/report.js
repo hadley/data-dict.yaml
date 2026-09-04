@@ -82,12 +82,12 @@ function BackLink({ label }) {
 function StepTitle({ step }) {
   const columns = step.columns || [];
   const target = step.table + (columns.length ? `.${columns.join(", ")}` : "");
-  return html`<div class="stitle">
+  return html`<div class="step-title">
     <h1><a class="homelink" href="#" title="Back to the report"
         onClick=${(e) => { e.preventDefault(); goHome(); }}
       ><span class="chev"><${Icon} svg=${ICONS.back} /></span></a
-      ><span class="sqname"><${VerdictSquare} outcome=${step.outcome} /><span class="stitle-target">${target}</span></span></h1>
-    <p class="stitle-sub">${stepLabel(step)}</p>
+      ><span class="sqname"><${VerdictSquare} outcome=${step.outcome} /><span class="target">${target}</span></span></h1>
+    <p class="sub">${stepLabel(step)}</p>
   </div>`;
 }
 
@@ -104,14 +104,14 @@ function StepPage({ id }) {
   const location = located ? located.location : step.location;
   const context = located ? located.context : step.context;
   return html`<section class="rsection">
-    <article class="srep${problems[0] ? ` is-${problems[0].severity}` : ""}">
-      <div class="stepsum">
-        <span class="verdict-meta">${step.row_count != null
+    <article class="step-summary${problems[0] ? ` is-${problems[0].severity}` : ""}">
+      <div class="counts">
+        <span class="meta">${step.row_count != null
           ? `${fmtNum(step.row_count)} rows checked, ${fmtNum(step.failed_row_count || 0)} failed`
           : "no rows counted"}</span>
-        <${StepMeter} step=${step} />
+        <${StepMeter} rows=${step.row_count} failed=${step.failed_row_count || 0} />
       </div>
-      ${location ? html`<details class="excerpt-expando">
+      ${location ? html`<details>
         <summary>Constraint declaration</summary>
         <${YamlExcerpt} location=${location} context=${context} />
       </details>` : null}
