@@ -1,5 +1,5 @@
-//! `render --live`: serve the page from memory and reload the browser whenever
-//! anything it was built from changes.
+//! `render-spec --live` and `render-report --live`: serve the page from memory
+//! and reload the browser whenever anything it was built from changes.
 //!
 //! The server is written on `std::net` rather than pulled from a crate: the
 //! only client is a browser on loopback and the surface is three GETs — the

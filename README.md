@@ -39,7 +39,8 @@ Commands:
   validate-data  Validate a dataset's values against a data dictionary
   export-spec    Render a data dictionary as fully-resolved JSON
   export-data    Render a data dictionary as JSON with per-column data profiles
-  render         Render a data dictionary as a self-contained HTML page
+  render-spec    Render a data dictionary as a self-contained HTML page
+  render-report  Validate a dataset's values and render the report as a self-contained HTML page
   translate      Translate a dictionary's assertions into R, Python, or SQL
   spec           Print the data-dict.yaml specification
   skill-read     Skill for reading and understanding a data dictionary
@@ -103,7 +104,7 @@ cargo run -p data-dict-cli -- ...
 The rendered page's CSS and JS live in
 [`crates/data-dict-cli/render/`](crates/data-dict-cli/render/) and are compiled
 into the binary. A debug build run from the repo reads them from that directory
-instead, so `cargo run -- render --live <dict>` reloads the browser when you
+instead, so `cargo run -- render-spec --live <dict>` reloads the browser when you
 edit them — no rebuild in between. A CSS-only edit doesn't even reload: the
 new stylesheet is swapped into the page in place.
 

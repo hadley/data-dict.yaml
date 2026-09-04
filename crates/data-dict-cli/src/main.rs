@@ -79,7 +79,14 @@ enum Command {
     /// opened straight from disk. Source data is profiled into the page
     /// (row counts, histograms, missing values) when at least one table's
     /// `source` file is present; otherwise the dictionary renders alone.
-    Render(RenderArgs),
+    RenderSpec(RenderArgs),
+    /// Validate a dataset's values and render the report as a self-contained
+    /// HTML page
+    ///
+    /// Runs the same checks as `validate-data` and writes the run's report
+    /// as one page that works opened straight from disk. A run that couldn't
+    /// be started writes nothing.
+    RenderReport(RenderReportArgs),
     /// Translate a dictionary's assertions into R, Python, or SQL
     ///
     /// `--from` reads the other way, taking an expression written in another
@@ -113,7 +120,7 @@ struct ExportArgs {
     pretty: bool,
 }
 
-/// Arguments for `render`.
+/// Arguments for `render-spec`.
 #[derive(clap::Args)]
 struct RenderArgs {
     /// A data-dict.yaml file or a directory containing one (defaults to the
@@ -139,6 +146,34 @@ struct RenderArgs {
     assets: Option<PathBuf>,
 }
 
+/// Arguments for `render-report`.
+#[derive(clap::Args)]
+struct RenderReportArgs {
+    /// A data-dict.yaml file or a directory containing one (defaults to the
+    /// current directory)
+    path: Option<PathBuf>,
+    /// Validate only this table, instead of every table in the dictionary
+    #[arg(long)]
+    table: Option<String>,
+    /// Where to write the page (default: `report.html` beside the dictionary)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Serve the page and reload the browser when the dictionary, its source
+    /// data, or the page's own assets change
+    ///
+    /// The page is served from memory and never written to disk, so `--live`
+    /// takes no `--output`. It stops on ctrl-c.
+    #[arg(long, conflicts_with = "output")]
+    live: bool,
+    /// Port for `--live` (default: the first free port from 7590)
+    #[arg(long, requires = "live", value_name = "PORT")]
+    port: Option<u16>,
+    /// Build the page from the CSS and JS in this directory instead of the
+    /// copies compiled in
+    #[arg(long, hide = true, value_name = "DIR")]
+    assets: Option<PathBuf>,
+}
+
 /// Shared arguments for `validate-meta` and `validate-data`.
 #[derive(clap::Args)]
 struct ValidateArgs {
@@ -148,16 +183,6 @@ struct ValidateArgs {
     /// Validate only this table, instead of every table in the dictionary
     #[arg(long)]
     table: Option<String>,
-    /// Serve the report and reload the browser when the dictionary, its source
-    /// data, or the page's own assets change
-    ///
-    /// The page is served from memory and never written to disk, so `--live`
-    /// takes no `--html`. It stops on ctrl-c.
-    #[arg(long, conflicts_with = "json", conflicts_with = "html")]
-    live: bool,
-    /// Port for `--live` (default: the first free port from 7590)
-    #[arg(long, requires = "live", value_name = "PORT")]
-    port: Option<u16>,
     #[command(flatten)]
     out: ReportArgs,
 }
@@ -168,13 +193,6 @@ struct ReportArgs {
     /// Emit results as a JSON report
     #[arg(long)]
     json: bool,
-    /// Also write the report as a self-contained HTML page
-    #[arg(long, value_name = "FILE")]
-    html: Option<PathBuf>,
-    /// Build the page from the CSS and JS in this directory instead of the
-    /// copies compiled in
-    #[arg(long, hide = true, value_name = "DIR")]
-    assets: Option<PathBuf>,
 }
 
 const READ_SKILL: &str = include_str!("../skills/read-data-dict.md");
@@ -204,7 +222,8 @@ fn main() -> ExitCode {
         Command::ValidateData(args) => run_validate(args, Level::Data, data_dict::validate_data),
         Command::ExportSpec(args) => run_export(args, data_dict::export_spec),
         Command::ExportData(args) => run_export(args, data_dict::export_data),
-        Command::Render(args) => run_render(args),
+        Command::RenderSpec(args) => run_render_spec(args),
+        Command::RenderReport(args) => run_render_report(args),
         Command::Translate(args) => run_translate(args),
         Command::Spec => {
             print!("{}", data_dict::SPEC_MD);
@@ -402,7 +421,7 @@ fn run_export(args: ExportArgs, export: ExportFn) -> ExitCode {
 /// `export_auto` — data profiles appear exactly when at least one table's
 /// source file is present — and the export fails the run the same way
 /// `export-spec` would: diagnostics on stderr and nothing written.
-fn run_render(args: RenderArgs) -> ExitCode {
+fn run_render_spec(args: RenderArgs) -> ExitCode {
     let dict = match resolve_dict_path(args.path) {
         Ok(dict) => dict,
         Err(err) => {
@@ -522,28 +541,61 @@ fn run_validate(args: ValidateArgs, level: Level, validate: ValidateFn) -> ExitC
             return ExitCode::FAILURE;
         }
     };
-    if args.live {
-        // As with `render --live`, only `--live` looks for the page's assets
-        // on disk: editing them should not need a rebuild.
-        let assets = args
-            .out
-            .assets
-            .clone()
-            .map_or_else(Assets::detect, Assets::Dir);
-        return live::run_report(&dict, level, args.table.clone(), args.port, assets);
-    }
     let table = args.table.as_deref();
     let problems = validate(&dict, table);
     report(&dict, level, table, problems, &args.out)
 }
 
-/// Render a validation run: the report as JSON on stdout, as an HTML page at
-/// `--html`, or the diagnostics on stderr. A failure that stopped the run before
-/// any check could be applied is not a finding about the dictionary, so it is
-/// reported as a plain error and no report is written (see `site/report.md`).
-///
-/// `--json` owns stdout, so the note naming a written page moves to stderr under
-/// it and the one report is serialized once for both sinks.
+/// Validate the dictionary's data and render the report as a self-contained
+/// HTML page, or with `--live` serve it and reload the browser as anything it
+/// was built from changes. A run that couldn't be started has no report to
+/// give: diagnostics on stderr and nothing written.
+fn run_render_report(args: RenderReportArgs) -> ExitCode {
+    let dict = match resolve_dict_path(args.path) {
+        Ok(dict) => dict,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if args.live {
+        // As with `render-spec --live`, only `--live` looks for the page's
+        // assets on disk: editing them should not need a rebuild.
+        let assets = args.assets.clone().map_or_else(Assets::detect, Assets::Dir);
+        return live::run_report(&dict, Level::Data, args.table.clone(), args.port, assets);
+    }
+    let table = args.table.as_deref();
+    let problems = data_dict::validate_data(&dict, table);
+    for line in problems.render(stderr_style()) {
+        eprintln!("{line}");
+    }
+    if problems.preflight().is_some() {
+        eprintln!("no report written: the run could not be started");
+        return ExitCode::FAILURE;
+    }
+    let run = Run::new(&dict, Level::Data, table);
+    let json = serde_json::to_string(&problems.report(run)).expect("a report always serializes");
+    let output = args.output.unwrap_or_else(|| {
+        dict.parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join("report.html")
+    });
+    if let Err(err) = write_report_page(&output, &json, problems.source_text(), &args.assets) {
+        eprintln!("{}: {err}", output.display());
+        return ExitCode::FAILURE;
+    }
+    println!("wrote {}", output.display());
+    if problems.status().failed() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Render a validation run: the report as JSON on stdout with `--json`, or the
+/// diagnostics on stderr. A failure that stopped the run before any check could
+/// be applied is not a finding about the dictionary, so it is reported as a
+/// plain error and no report is written (see `site/report.md`).
 fn report(
     dict: &Path,
     level: Level,
@@ -564,27 +616,16 @@ fn report(
         println!("{}: ok", dict.display());
     }
     if !reportable {
-        if out.json || out.html.is_some() {
+        if out.json {
             eprintln!("no report written: the run could not be started");
         }
         return ExitCode::FAILURE;
     }
-    let run = Run::new(dict, level, table);
-    let json = serde_json::to_string(&problems.report(run)).expect("a report always serializes");
     if out.json {
+        let run = Run::new(dict, level, table);
+        let json =
+            serde_json::to_string(&problems.report(run)).expect("a report always serializes");
         println!("{json}");
-    }
-    if let Some(path) = &out.html {
-        if let Err(err) = write_report_page(path, &json, problems.source_text(), &out.assets) {
-            eprintln!("{}: {err}", path.display());
-            return ExitCode::FAILURE;
-        }
-        let wrote = format!("wrote {}", path.display());
-        if out.json {
-            eprintln!("{wrote}");
-        } else {
-            println!("{wrote}");
-        }
     }
     if failed {
         ExitCode::FAILURE

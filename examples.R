@@ -108,7 +108,7 @@ render <- function(name, repo, src) {
   dict <- file.path(src, "data-dict.yaml")
   file.copy(yaml_path(name), dict, overwrite = TRUE)
   out <- file.path("site", "examples", "rendered", paste0(name, ".html"))
-  if (!data_dict("render", dict, "--output", out)) {
+  if (!data_dict("render-spec", dict, "--output", out)) {
     cat(sprintf(
       "::warning title=%s::could not be rendered; the site will ship without its page\n",
       name

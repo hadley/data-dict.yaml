@@ -1,6 +1,6 @@
 # Report
 
-A **report** is one validation run's findings as JSON, so a program can act on them. Every check in [validation.md](validation.md) (`S##`, `M##`, or `D##`) reports through this one document, and only those checks do. The `data-dict` CLI writes one for any validation run it can get started: `validate-spec`, `validate-meta` and `validate-data` all write it with `--json`, and `--html` writes the same report as a self-contained page for a person to read.
+A **report** is one validation run's findings as JSON, so a program can act on them. Every check in [validation.md](validation.md) (`S##`, `M##`, or `D##`) reports through this one document, and only those checks do. The `data-dict` CLI writes one for any validation run it can get started: `validate-spec`, `validate-meta` and `validate-data` all write it with `--json`, and `render-report` runs `validate-data` and writes the same report as a self-contained page for a person to read.
 
 A report is a superset of the diagnostics rendered for a person: every position a diagnostic highlights is in it, and it names more offending rows.
 

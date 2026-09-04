@@ -1,7 +1,8 @@
 #' Validate a dataset's values against its data dictionary
 #'
-#' Runs `data-dict validate-data`, writes the findings as a self-contained HTML
-#' report, and opens it in a browser. The data files themselves come from each
+#' Runs `data-dict render-report`, which validates the data and writes the
+#' findings as a self-contained HTML report, and opens it in a browser. The
+#' data files themselves come from each
 #' table's `source: parquet:` entry in the dictionary, resolved relative to the
 #' dictionary's directory.
 #'
@@ -23,11 +24,11 @@ dd_validate_data <- function(dict = ".",
                              table = NULL,
                              html = tempfile(fileext = ".html"),
                              browse = interactive()) {
-  args <- c("validate-data", dict)
+  args <- c("render-report", dict)
   if (!is.null(table)) {
     args <- c(args, "--table", table)
   }
-  args <- c(args, "--html", html)
+  args <- c(args, "--output", html)
 
   # The CLI would overwrite `html` anyway; clearing it first means a stale
   # report can't be mistaken for the one this run failed to write.
